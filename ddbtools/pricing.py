@@ -5,8 +5,8 @@ from ddbtools import constants
 from decimal import Decimal
 
 class PricingUtility(object):
-    def __init__(self):
-        self.pricing_client = boto3.client('pricing')
+    def __init__(self, region_name):
+        self.pricing_client = boto3.client('pricing', region_name=region_name)
 
     def get_replicated_write_pricing(self, region_code: str) -> dict:
         """Get DynamoDB replicated write (for global tables) pricing for a given region."""

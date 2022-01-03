@@ -9,7 +9,7 @@ from ddbtools.pricing import PricingUtility
 class TableUtility(object):
     def __init__(self, region_name):
         self.dynamodb_client = boto3.client('dynamodb', region_name=region_name)
-        self.pricing_utility = PricingUtility()
+        self.pricing_utility = PricingUtility(region_name=region_name)
 
 
     def add_tags_to_table(self, table_arn:str, tags:list) -> None:
