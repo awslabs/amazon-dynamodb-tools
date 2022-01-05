@@ -6,7 +6,14 @@ from decimal import Decimal
 
 class PricingUtility(object):
     def __init__(self, region_name):
-        self.pricing_client = boto3.client('pricing', region_name=region_name)
+        closest_api_region = 'us-east-1'
+
+        # the pricing API is only available in us-east-1 and ap-south-1 
+        # pick the closest endpoint to the supplied region
+        if region_name not in constants.AMERICAN_REGIONS:
+            closest_api_region = 'ap-south-1'
+
+        self.pricing_client = boto3.client('pricing', region_name=closest_api_region)
 
     def get_replicated_write_pricing(self, region_code: str) -> dict:
         """Get DynamoDB replicated write (for global tables) pricing for a given region."""

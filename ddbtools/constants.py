@@ -55,3 +55,10 @@ TABLE_CLASS_CHANGE_RECOMMENDATION = 'CHANGE_TABLE_CLASS'
 ESTIMATE_DETAIL = 'estimate_detail'
 TOTAL_IA_MO_COSTS = 'total_ia_mo_costs'
 TOTAL_STD_MO_COSTS = 'total_std_mo_costs'
+
+# region constants
+AMERICAN_REGIONS = ['us-east-1', 'us-east-2', 
+                    'us-west-1', 'us-west-2', 
+                    'us-gov-west-1', 'us-gov-west-2',
+                    'ca-central-1', 'sa-east-1']
+                    
