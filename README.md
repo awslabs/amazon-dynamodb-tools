@@ -5,6 +5,7 @@
  * [Table Class Evaluator](#table-class-evaluator-tool) - Recommend Amazon DynamoDB table class changes to optimize costs
  * [Eponymous Table Tagger](#eponymous-table-tagger-tool)  - Tag tables with their own name to make per-table cost analysis easier
 
+While we make efforts to test and verify the functionality of these tools, you are encouraged to read and understand the code, and use them at your own risk.
 
 ## Table Class Evaluator Tool
 
