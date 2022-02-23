@@ -13,7 +13,7 @@ While we make efforts to test and verify the functionality of these tools, you a
 Amazon DynamoDB supports two [table classes](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.TableClasses.html): 
 * Standard: The default for new tables, this table class balances storage costs and provisioned throughput.  
 
-* Standard Infrequent Access (Standard-IA): This table class offers lower storage pricing and  higher throughput pricing comapred to the Standard table class. The Standard-IA table class is a good fit for tables where data is not queried frequently, and can be a good choice for tables where storage costs comprise more than 50% of the total table cost.
+* Standard Infrequent Access (Standard-IA): This table class offers lower storage pricing and  higher throughput pricing comapred to the Standard table class. The Standard-IA table class is a good fit for tables where data is not queried frequently, and can be a good choice for tables using the Standard table class where storage costs exceed 50% of total throughput costs.
 
 The Table Class Evaluator tool evaluates one or more tables in an AWS region for suitability for the Infrequent Access table class. The tool accomplishes this by calculating costs for both table classes for the following cost dimensions:
 
