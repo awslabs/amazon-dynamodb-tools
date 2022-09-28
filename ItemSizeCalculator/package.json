@@ -1,0 +1,32 @@
+{
+  "name": "ddb-calc",
+  "version": "1.0.4",
+  "description": "Calculate the size of DynamoDB item in DynamoDB JSON",
+  "main": "index.min.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LeeroyHannigan/DynamoDB-ItemSizeCalculator.git"
+  },
+  "keywords": [
+    "dynamodb",
+    "item",
+    "size",
+    "calculator",
+    "limit"
+  ],
+  "author": "Lee Hannigan",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/LeeroyHannigan/DynamoDB-ItemSizeCalculator/issues"
+  },
+  "homepage": "https://github.com/LeeroyHannigan/DynamoDB-ItemSizeCalculator#readme",
+  "dependencies": {
+    "@aws-sdk/util-dynamodb": "^3.17.0",
+    "decimal.js": "^10.2.1",
+    "utf8": "^3.0.0"
+  },
+  "devDependencies": {}
+}
