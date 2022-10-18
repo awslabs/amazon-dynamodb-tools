@@ -2,21 +2,22 @@
 
 # DynamoDB reserved capacity recommendations
 
-[DynamoDB reserved capacity](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadWriteCapacityMode.html#HowItWorks.ProvisionedThroughput.ReservedCapacity) can save you up to 77% with a three year reservation purchase. This tool helps you to find the right amount of reserved capacity to own to lower your total cost of provisioned read and write capacity. Notably, reservations are not offered for [on-demand capacity](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadWriteCapacityMode.html#HowItWorks.OnDemand) or for replicated write capacity, which is used by DynamoDB global tables. Read on to understand how to run the tool and how it makes a recommendation.
+[DynamoDB reserved capacity](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadWriteCapacityMode.html#HowItWorks.ProvisionedThroughput.ReservedCapacity) can save you up to 77% with a three year reservation purchase. This tool helps you to find the right amount of reserved capacity to own to lower your total cost of provisioned read and write capacity.
 
-The DynamoDB pricing [page under "Read and write requests"](https://aws.amazon.com/dynamodb/pricing/provisioned) shows the reservation offerings, which are available in one or three year terms. This Python tool uses the pricing on that page for its recommendations.
+The DynamoDB pricing [page under "Read and write requests"](https://aws.amazon.com/dynamodb/pricing/provisioned) shows the reservation offerings used by this tool, which are available in one or three year terms. Notably, reservations are not offered for [on-demand capacity](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadWriteCapacityMode.html#HowItWorks.OnDemand), for tables using [Standard-IA storage](https://aws.amazon.com/dynamodb/standard-ia/), or for replicated write capacity which is used by DynamoDB global tables. Read on to understand how to run the tool and how it makes a recommendation.
+
 ## Overview
-The tool uses your existing [AWS Cost and Usage Reports](https://docs.aws.amazon.com/cur/latest/userguide/what-is-cur.html) (CUR) to generate reserved capacity recommendations.
+The tool uses your existing [AWS Cost and Usage Reports](https://docs.aws.amazon.com/cur/latest/userguide/what-is-cur.html) (CUR) to generate reserved capacity recommendations. Here's an overview of the steps to generate a report (a detailed guide is below)
 
 1. To begin, you should enable CUR with hour granularity
 2. Then, you allow time to pass for data to accumulate in the S3 bucket you configured
-3. If you haven't setup your CUR data so it can be queried by Athena, you should do so using CUR's provided CloudFormation template
+3. You create a database so that Athena can query the CUR data by using the CloudFormation template provided when you create the CUR report
 4. Once you're ready to get a recommendation, you issue the provided Athena query.
-5. Next you download the results in CSV format to your machine
+5. Next, you download the results in CSV format to your machine
 6. Finally you clone and run the reco tool, pointing it at the CSV file you received from Athena! This generates a recommendation.
 
-
 ![Reserved Capacity Diagram](static/Reserved%20Capacity-Page-1.png)
+
 
 ## Documentation
 ```
@@ -159,8 +160,8 @@ Totals: Effective monthly rate: $9,810.57, Total savings over the public rate ca
 ############################################################
 ```
 
-## Explanation of methodology
-
+## Appendix
+### Explanation of methodology
 
 This script loads the usage data into memory and then simulates AWS bill calculation with varying amounts of reserved capacity. It's capable of running over any number of billing hours. It's hard coded with the pricing data of many but not all AWS regions. It optimizes for lowest overall bill for a given usage type in a region. It doesn't use statistics or rules of thumb - it's a top down simulation of a bill run and therefore takes tens of seconds to run for a bill with 18+ regions
 
