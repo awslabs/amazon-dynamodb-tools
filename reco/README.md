@@ -1,4 +1,24 @@
 
+
+# DynamoDB reserved capacity recommendations
+
+[DynamoDB reserved capacity](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadWriteCapacityMode.html#HowItWorks.ProvisionedThroughput.ReservedCapacity) can save you up to 77% with a three year reservation purchase. This tool helps you to find the right amount of reserved capacity to own to lower your total cost of provisioned read and write capacity. Notably, reservations are not offered for [on-demand capacity](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadWriteCapacityMode.html#HowItWorks.OnDemand) or for replicated write capacity, which is used by DynamoDB global tables. Read on to understand how to run the tool and how it makes a recommendation.
+
+The DynamoDB pricing [page under "Read and write requests"](https://aws.amazon.com/dynamodb/pricing/provisioned) shows the reservation offerings, which are available in one or three year terms. This Python tool uses the pricing on that page for its recommendations.
+## Overview
+The tool uses your existing [AWS Cost and Usage Reports](https://docs.aws.amazon.com/cur/latest/userguide/what-is-cur.html) (CUR) to generate reserved capacity recommendations.
+
+1. To begin, you should enable CUR with hour granularity
+2. Then, you allow time to pass for data to accumulate in the S3 bucket you configured
+3. If you haven't setup your CUR data so it can be queried by Athena, you should do so using CUR's provided CloudFormation template
+4. Once you're ready to get a recommendation, you issue the provided Athena query.
+5. Next you download the results in CSV format to your machine
+6. Finally you clone and run the reco tool, pointing it at the CSV file you received from Athena! This generates a recommendation.
+
+
+![Reserved Capacity Diagram](static/Reserved Capacity-Page-1.png)
+
+## Documentation
 ```
 $ python3 src/ddbr.py reco -h
 usage: ddbr.py reco [-h] [--athena-sql] [--debug] [--disable-analytics]
@@ -31,7 +51,7 @@ optional arguments:
 
 See [CHANGELOG.md](blob/main/reco/CHANGELOG.md) for recent changes.
 
-## HOWTO
+### Simplified: three steps to generate a recommendation
 
 1. [Create a Cost and Usage Report](https://docs.aws.amazon.com/cur/latest/userguide/creating-cur.html) (CUR) and query it using Amazon Athena
 1. Clone this git repo. Use pip to install numpy.
