@@ -16,7 +16,7 @@ The tool uses your existing [AWS Cost and Usage Reports](https://docs.aws.amazon
 6. Finally you clone and run the reco tool, pointing it at the CSV file you received from Athena! This generates a recommendation.
 
 
-![Reserved Capacity Diagram](static/Reserved Capacity-Page-1.png)
+![Reserved Capacity Diagram](static/Reserved%20Capacity-Page-1.png)
 
 ## Documentation
 ```
