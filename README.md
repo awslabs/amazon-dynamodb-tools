@@ -230,7 +230,7 @@ user@host$ python3 table_tagger.py
 Utility tool to gain item size information for DynamoDB JSON items to understand capacity consumption and ensure items are under the 400KB DynamoDB limit.
 
 ### Using the Item Size Calculator
-Please see the [README](ItemSizeCalculator/README.md).
+Please see the [README](item_size_calculator/README.md).
 
 ## Security
 
