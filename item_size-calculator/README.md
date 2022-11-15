@@ -138,15 +138,10 @@ true
 * 0.0.0
     * Work in progress
 
-## Meta
-
-Lee Hannigan – [@leeroyhannigan](https://twitter.com/leeroyhannigan) – leeroy.hannigan@gmail.com
-
-[https://github.com/leeroyhannigan/DynamoDB-ItemSizeCalculator](https://github.com/leeroyhannigan/)
 
 ## Contributing
 
-1. Fork it (<https://github.com/leeroyhannigan/DynamoDB-ItemSizeCalculator/fork>)
+1. Fork it (<https://github.com/awslabs/amazon-dynamodb-tools/fork>)
 2. Create your feature branch (`git checkout -b feature/fooBar`)
 3. Commit your changes (`git commit -am 'Add some fooBar'`)
 4. Push to the branch (`git push origin feature/fooBar`)
