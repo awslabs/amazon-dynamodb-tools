@@ -2,6 +2,7 @@
 
  These tools are intended to make using Amazon DynamoDB effectively easier. The following tools are available:
 
+ * [DynamoDB reserved capacity recommendations](reco) - Generate reserved capacity purchase recommendations using existing AWS Cost and Usage Reports data
  * [MySQL to S3 Migrator](#mysql-to-s3-migrator) - Bring your relational data into Amazon S3 to prepare for a DynamoDB migration
  * [Table Class Evaluator](#table-class-evaluator-tool) - Recommend Amazon DynamoDB table class changes to optimize costs
  * [Eponymous Table Tagger](#eponymous-table-tagger-tool)  - Tag tables with their own name to make per-table cost analysis easier
@@ -9,36 +10,38 @@
 While we make efforts to test and verify the functionality of these tools, you are encouraged to read and understand the code, and use them at your own risk.
 
 
+## DynamoDB reserved capacity recommendations
 
+[See the separate README](reco)
 ## MySQL to S3 Migrator
-When moving your SQL database to DynamoDB, you can leverage Amazon S3 as a staging area 
-for data. This Python script connects to your MySQL host, executes a SQL SELECT, 
+When moving your SQL database to DynamoDB, you can leverage Amazon S3 as a staging area
+for data. This Python script connects to your MySQL host, executes a SQL SELECT,
 and writes the results to your S3 bucket.  
 
 A separate import process can then load your data from S3 into a new DynamoDB table.
 
 ### Shaping Data in SQL
-The tool is simple, it converts your relational dataset into standard [DynamoDB JSON format](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Programming.LowLevelAPI.html) 
-before writing to S3.  If a row has any NULL values, the tool will skip the column 
+The tool is simple, it converts your relational dataset into standard [DynamoDB JSON format](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Programming.LowLevelAPI.html)
+before writing to S3.  If a row has any NULL values, the tool will skip the column
 altogether and only write non-null columns to the JSON document.
 
 There is no additional shaping, modeling or formatting done.
-However, a DynamoDB solution can may require data in certain formats to optimize 
-for expected access patterns.  When customizing the SQL statement the tool runs, 
+However, a DynamoDB solution can may require data in certain formats to optimize
+for expected access patterns.  When customizing the SQL statement the tool runs,
 take advantage of the SQL language to craft an optimal data set for your DynamoDB table.
 
-Your relational application likely uses many tables. 
-The NoSQL "single table design" philosophy says that combining multiple data sets 
-into a single table is valuable.  Done right, item collections will emerge from the data, 
+Your relational application likely uses many tables.
+The NoSQL "single table design" philosophy says that combining multiple data sets
+into a single table is valuable.  Done right, item collections will emerge from the data,
 optimized for fast, efficient querying.  
 
 A SQL view can do much of the work to convert relational data into this format.
-The view can use either JOIN or UNION ALL to combine tables. 
-A JOIN can be used to denormalize, or duplicate some data so that each single row 
+The view can use either JOIN or UNION ALL to combine tables.
+A JOIN can be used to denormalize, or duplicate some data so that each single row
 is more complete; while UNION ALL is used to stack tables vertically into one set.
-The full set of SQL expressions can be leveraged, for example to generate unique IDs, 
-rename columns, combine columns, duplicate columns, calculate expiration dates, 
-decorate data with labels, and more. The goal is to make a well formatted data set 
+The full set of SQL expressions can be leveraged, for example to generate unique IDs,
+rename columns, combine columns, duplicate columns, calculate expiration dates,
+decorate data with labels, and more. The goal is to make a well formatted data set
 that matches your DynamoDB table and index strategy.
 
 ### Limitations
@@ -72,7 +75,7 @@ HTTP 200 for object s3://s3-export-demo/demo/data_upto_15.json
 ## Table Class Evaluator Tool
 
 ### Overview
-Amazon DynamoDB supports two [table classes](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.TableClasses.html): 
+Amazon DynamoDB supports two [table classes](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.TableClasses.html):
 * Standard: The default for new tables, this table class balances storage costs and provisioned throughput.  
 
 * Standard Infrequent Access (Standard-IA): This table class offers lower storage pricing and  higher throughput pricing comapred to the Standard table class. The Standard-IA table class is a good fit for tables where data is not queried frequently, and can be a good choice for tables using the Standard table class where storage costs exceed 50% of total throughput costs.
@@ -86,8 +89,8 @@ The Table Class Evaluator tool evaluates one or more tables in an AWS region for
 * Global Secondary Indexes (GSIs)
 
 The tool will will return recommendations for tables that may benefit from a change in table class.
-    
-   
+
+
 ### Limitations
 
 The Table Class Evaluator tool has the following limitations:
@@ -115,7 +118,7 @@ optional arguments:
                         evaluate TABLE_NAME (defaults to all tables in region)
 ```
 
-With no arguments, the tool will evaluate costs for all tables in the default region (us-east-1), and returns a list of JSON objects, each containing details for a change recommendation: 
+With no arguments, the tool will evaluate costs for all tables in the default region (us-east-1), and returns a list of JSON objects, each containing details for a change recommendation:
 ```console
 user@host$ python3 table_class_evaluator.py
 [{
