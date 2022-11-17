@@ -84,8 +84,6 @@ const isValid = CALC.IsUnderLimit(item);
 ```
 true
 ```
-_For more examples and usage, please refer to the [Wiki][wiki]._
-
 
 ### **Sample Native JSON item**
 ```
@@ -151,4 +149,3 @@ true
 [npm-image]: https://img.shields.io/npm/v/ddb-calc.svg?style=flat-square
 [npm-url]: https://npmjs.org/package/ddb-calc
 [npm-downloads]: https://img.shields.io/npm/dm/ddb-calc.svg?style=flat-square
-[wiki]: https://github.com/leeroyhannigan/DynamoDB-ItemSizeCalculator/wiki
