@@ -209,11 +209,11 @@ class test_reco(TestCase):
         always_fail = ['APN1-HeavyUsage:dynamodb.write', 'APN1-HeavyUsage:dynamodb.read', 'USW2-DataTransfer-Out-Bytes']
         regex = wcu_regex
         passers = ['USW2-WriteCapacityUnit-Hrs', 'WriteCapacityUnit-Hrs']
-        failers = ['USW2-ReplWriteCapacityUnit-Hrs', 'ReplWriteCapacityUnit-Hrs']
+        failers = ['USW2-ReplWriteCapacityUnit-Hrs', 'ReplWriteCapacityUnit-Hrs', 'EUC1-IA-WriteCapacityUnit-Hrs', 'EUC1-IA-ReadCapacityUnit-Hrs']
         eval_regex(regex, passers, failers + always_fail)
         regex = rcu_regex
         passers = ['USW2-ReadCapacityUnit-Hrs', 'ReadCapacityUnit-Hrs']
-        failers = ['USW2-ReplWriteCapacityUnit-Hrs', 'USW2-WriteCapacityUnit-Hrs']
+        failers = ['USW2-ReplWriteCapacityUnit-Hrs', 'USW2-WriteCapacityUnit-Hrs', 'EUC1-IA-ReadCapacityUnit-Hrs', 'EUC1-IA-WriteCapacityUnit-Hrs']
         eval_regex(regex, passers, failers + always_fail)
     def test_process_csv_gt(self):
         expected_start = parse_dt('11/01/19 00:00:00')

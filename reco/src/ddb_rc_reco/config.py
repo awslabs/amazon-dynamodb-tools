@@ -1,7 +1,7 @@
 test_file_loc = 'test/b8f1d493-9aa2-4e5b-a5e8-121b7cfa131e_shrunk.csv.gz'
 
-wcu_regex = r'.*(-|^)(?!<Repl)WriteCapacityUnit.*'
-rcu_regex = r'.*ReadCapacityUnit.*'
+wcu_regex = r'(?!.*IA-)(.*(^|-)WriteCapacityUnit.*)'
+rcu_regex = r'(?!.*IA-)(.*(^|-)ReadCapacityUnit.*)'
 
 
 #1yr RC rates listed only
