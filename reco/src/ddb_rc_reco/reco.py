@@ -135,6 +135,8 @@ def generate_reco_tables(region_hours, wish):
             reco_table[region]['_totals']['rc_upfront'] += reco_table[region][usage_type]['recommendation']['rc_upfront']
         if reco_table[region]['_totals']['od_only_rate'] > 0:
             reco_table[region]['_totals']['percent_savings_over_od']  = round(((reco_table[region]['_totals']['od_only_rate'] - reco_table[region]['_totals']['mixed_rate_total'])/ reco_table[region]['_totals']['od_only_rate']) * 100.0, 2)
+        else:
+            reco_table[region]['_totals']['percent_savings_over_od'] = 0.0
         totals['od_only_rate'] += reco_table[region]['_totals']['od_only_rate']
         totals['mixed_rate_total'] += reco_table[region]['_totals']['mixed_rate_total']
         totals['rc_upfront'] += reco_table[region]['_totals']['rc_upfront']
