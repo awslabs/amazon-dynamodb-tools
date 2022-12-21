@@ -157,9 +157,5 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Jason's files
-*.csv
-*.p
-*.txt
 
 # End of https://www.gitignore.io/api/macos,python
