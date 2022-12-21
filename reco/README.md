@@ -14,7 +14,7 @@ The tool uses your existing [AWS Cost and Usage Reports](https://docs.aws.amazon
 3. You create a database so that Athena can query the CUR data by using the CloudFormation template provided when you create the CUR report
 4. Once you're ready to get a recommendation, you issue the provided Athena query.
 5. Next, you download the results in CSV format to your machine
-6. Finally you clone and run the reco tool, pointing it at the CSV file you received from Athena! This generates a recommendation.
+6. Finally you download and run the reco tool, pointing it at the CSV file you received from Athena! This generates a recommendation.
 
 ![Reserved Capacity Diagram](static/Reserved%20Capacity-Page-1.png)
 
@@ -50,7 +50,7 @@ See [CHANGELOG.md](blob/main/reco/CHANGELOG.md) for recent changes.
 ### Simplified: three steps to generate a recommendation
 
 1. [Create a Cost and Usage Report](https://docs.aws.amazon.com/cur/latest/userguide/creating-cur.html) (CUR) and query it using Amazon Athena
-1. Clone this git repo. Use pip to install numpy.
+1. Download [the latest release](https://github.com/awslabs/amazon-dynamodb-tools/releases/latest). Use pip to install numpy.
 1. Execute the tool to generate recommendations.
 
 ### Step 1: Generate usage data from CUR
@@ -69,7 +69,7 @@ Once CUR is enabled, you will need to wait days for data to accumulate for proce
 1. Open the Query editor. For Data source, choose AwsDataCatalog. For Database, choose the name of the CUR report that you made.
 1. Create a new query. For the most up to date query, download this python tool and run it with `--athena-sql` in advance, or you can try using the default query supplied below, which is not guaranteed to be up to date
 1. Paste in the SQL query. Change the table name to correspond to the table name for your CUR data.
-1. Execute the query and download the CSV. It's best to put it in the same directory as this cloned repo.
+1. Execute the query and download the CSV. It's best to put it in the same directory as this repo.
 
 
 #### Sample Athena SQL query
@@ -100,9 +100,9 @@ line_item_usage_start_date ASC
 ;
 ```
 
-### Step 2: Clone this package and prepare your env
+### Step 2: Download this package and prepare your env
 
-You should install python3 on your laptop along with git. Then, clone this repo. The code has a dependency on numpy at least. See [requirements.txt](requirements.txt). With pip you can install from the requirements file:
+You should install python3 on your laptop along with git. Then, [download the latest release](https://github.com/awslabs/amazon-dynamodb-tools/releases/latest); you can use the git clone command on the release or download and extract the source from the release notes. The code has a dependency on numpy at least. See [requirements.txt](requirements.txt). With pip you can install from the requirements file:
 
 `$ pip3 install -r requirements.txt `
 
