@@ -10,7 +10,7 @@ from ddb_rc_reco.reco import get_region_for_usage_type, process_csv, generate_ts
 from ddb_rc_reco.reco import simulate_purchase, output_table, output_csv, open_file_read, refresh_csv_index
 
 class test_reco(TestCase):
-    test_csv_apn1 = 'test/APN1.csv.gz'
+    test_csv_apn1 = 'test/APN1-IA.csv.gz'
     test_csv_apn1_reads_only = 'test/APN1_reads.csv.gz'
     test_csv_apn1_daily_granularity = 'test/APN1_daily_granularity.csv.gz'
     test_csv_usw2_rwcu_wcu = 'test/USW2_rWCU_WCU.gz'
@@ -209,11 +209,11 @@ class test_reco(TestCase):
         always_fail = ['APN1-HeavyUsage:dynamodb.write', 'APN1-HeavyUsage:dynamodb.read', 'USW2-DataTransfer-Out-Bytes']
         regex = wcu_regex
         passers = ['USW2-WriteCapacityUnit-Hrs', 'WriteCapacityUnit-Hrs']
-        failers = ['USW2-ReplWriteCapacityUnit-Hrs', 'ReplWriteCapacityUnit-Hrs']
+        failers = ['USW2-ReplWriteCapacityUnit-Hrs', 'ReplWriteCapacityUnit-Hrs', 'EUC1-IA-WriteCapacityUnit-Hrs', 'EUC1-IA-ReadCapacityUnit-Hrs']
         eval_regex(regex, passers, failers + always_fail)
         regex = rcu_regex
         passers = ['USW2-ReadCapacityUnit-Hrs', 'ReadCapacityUnit-Hrs']
-        failers = ['USW2-ReplWriteCapacityUnit-Hrs', 'USW2-WriteCapacityUnit-Hrs']
+        failers = ['USW2-ReplWriteCapacityUnit-Hrs', 'USW2-WriteCapacityUnit-Hrs', 'EUC1-IA-ReadCapacityUnit-Hrs', 'EUC1-IA-WriteCapacityUnit-Hrs']
         eval_regex(regex, passers, failers + always_fail)
     def test_process_csv_gt(self):
         expected_start = parse_dt('11/01/19 00:00:00')

@@ -12,7 +12,7 @@ from functools import lru_cache
 from datetime import datetime, timedelta
 from multiprocessing import Pool, JoinableQueue, Process, Queue
 from ddb_rc_reco.config import test_file_loc, pricing, descriptions, ideal_sql
-from ddb_rc_reco.config import plain_report_footer, rcu_regex, wcu_regex
+from ddb_rc_reco.config import plain_report_footer, rcu_regex, wcu_regex, version
 
 
 
@@ -135,6 +135,8 @@ def generate_reco_tables(region_hours, wish):
             reco_table[region]['_totals']['rc_upfront'] += reco_table[region][usage_type]['recommendation']['rc_upfront']
         if reco_table[region]['_totals']['od_only_rate'] > 0:
             reco_table[region]['_totals']['percent_savings_over_od']  = round(((reco_table[region]['_totals']['od_only_rate'] - reco_table[region]['_totals']['mixed_rate_total'])/ reco_table[region]['_totals']['od_only_rate']) * 100.0, 2)
+        else:
+            reco_table[region]['_totals']['percent_savings_over_od'] = 0.0
         totals['od_only_rate'] += reco_table[region]['_totals']['od_only_rate']
         totals['mixed_rate_total'] += reco_table[region]['_totals']['mixed_rate_total']
         totals['rc_upfront'] += reco_table[region]['_totals']['rc_upfront']
@@ -231,7 +233,7 @@ def output_table(table_input):
     end_time = table_input['_meta']['end_time'][0]
     rc_term = table_input['_meta']['rc_term']
     days_in_report = (parse_dt(end_time)-parse_dt(start_time)).days
-    print_section_header("DynamoDB Reserved Capacity Report\nThese recommendations are based on data from {} to {}. The time span represents {} days of data. RC term length for the report is {} year(s)\n{}\nGenerated on {}".format(start_time, end_time, days_in_report, rc_term, descriptions['banner'][lang]['warning_top']['text'],  print_dt(datetime.now()) ))
+    print_section_header("DynamoDB Reserved Capacity Report\nThese recommendations are based on data from {} to {}. The time span represents {} days of data. RC term length for the report is {} year(s)\n{}\nGenerated on {} with reco version v{}".format(start_time, end_time, days_in_report, rc_term, descriptions['banner'][lang]['warning_top']['text'],  print_dt(datetime.now()), version ))
     if days_in_report < 28 or days_in_report > 31:
         dynamic_warning = "WARNING: Non-standard number of days detected in the report. The fields marked monthly in this report represent the total cost for the selected time period, not the true monthly cost.\nRe-run the report with data for only one month to receive accurate monthly cost estimates."
         print_section_header(dynamic_warning, "*")

@@ -11,7 +11,7 @@ from ddb_rc_reco.reco import generate_hours_for_regions, make_a_wish
 from ddb_rc_reco.reco import refresh_csv_index, process_csv, get_range_time, dt_format
 from ddb_rc_reco.reco import parse_dt, print_dt, open_file_read, region_list
 from ddb_rc_reco.reco import generate_reco_tables, output_table, output_csv
-from ddb_rc_reco.config import ideal_sql
+from ddb_rc_reco.config import ideal_sql, version
 '''
 
 DDBR CLI for DynamoDB RC recommendations
@@ -44,12 +44,15 @@ def main():
     reco_parser.add_argument('--start-time', help="Start time with leading zeroes in format --start-time \"{}\"".format(dt_format.replace('%', '%%')), type=parse_dt)
     reco_parser.add_argument('--end-time', help="End time with leading zeroes in format --end-time \"{}\"".format(dt_format.replace('%', '%%')), type=parse_dt)
     reco_parser.add_argument('--package', help="Should output be ZIP'd into a user-deliverable format. Provide the package ZIP suffix", type=str)
+    reco_parser.add_argument('--version', action='store_true', help='Print version and exit.')
     # TODO reco_parser.add_argument('--region', type=str, choices=pricing.keys(), help='Airport code for region to process')
 
     args = main_parser.parse_args()
     if args.debug is True:
         logging.getLogger().setLevel(10)
-    if args.athena_sql is True:
+    if args.version is True:
+        print("reco v{}".format(version))
+    elif args.athena_sql is True:
         print(ideal_sql)
     elif args.file_name:
         csv_loc = args.file_name

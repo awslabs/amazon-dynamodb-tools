@@ -1,8 +1,9 @@
 test_file_loc = 'test/b8f1d493-9aa2-4e5b-a5e8-121b7cfa131e_shrunk.csv.gz'
 
-wcu_regex = r'.*(-|^)(?!<Repl)WriteCapacityUnit.*'
-rcu_regex = r'.*ReadCapacityUnit.*'
+wcu_regex = r'(?!.*IA-)(.*(^|-)WriteCapacityUnit.*)'
+rcu_regex = r'(?!.*IA-)(.*(^|-)ReadCapacityUnit.*)'
 
+version = '1.1.0'
 
 #1yr RC rates listed only
 pricing = {"NRT":{"ut_region_match_filter":r'^APN1-', "dto":0.14, "wcu":0.000742,"rcu":0.0001484,"rwcu":0.001113,"rc1":{"rcu":{"base":34.2,"hour":0.0029},"wcu":{"base":171.4,"hour":0.0147}}, "rc3":{"rcu":{"base":41.0,"hour":0.0018},"wcu":{"base":205.6,"hour":0.0093}}},
@@ -36,7 +37,7 @@ plain_report_footer =  ("Reserved capacity to own: How much RC this payer accoun
     "\n'...savings over the public rate card': The impact of owning this much RC! This is the money you'll save if you own the suggested amount. These prices are calculated using the public pricing and do not include any credits or negotiated discounts." +
     "\n'XXX units of 100': DynamoDB reserved capacity is bought in batches of 100 units.")
 
-plain_report_warning_top = "Please consult your account’s active reserved capacity reservations to determine the amount of capacity to own. The amounts below do not factor in what you already own. Instead, they reflect the amount you should have in your account. Please contact AWS for a final recommendation on the amount to buy if it’s not attached to this report."
+plain_report_warning_top = "Please consult your account’s active reserved capacity reservations to determine the amount of capacity to own. The amounts below do not factor in what you already own. Instead, they reflect the amount you should have in your account. Please be aware reservations are not available for rWCUs, the table class S-IA, or for the on-demand capacity mode."
 
 descriptions = {
 "NRT": {"en_us": {"region": {"code": "ap-northeast-1", "short_name": "Tokyo"}}},
