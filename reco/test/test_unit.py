@@ -10,7 +10,7 @@ from ddb_rc_reco.reco import get_region_for_usage_type, process_csv, generate_ts
 from ddb_rc_reco.reco import simulate_purchase, output_table, output_csv, open_file_read, refresh_csv_index
 
 class test_reco(TestCase):
-    test_csv_apn1 = 'test/APN1.csv.gz'
+    test_csv_apn1 = 'test/APN1-IA.csv.gz'
     test_csv_apn1_reads_only = 'test/APN1_reads.csv.gz'
     test_csv_apn1_daily_granularity = 'test/APN1_daily_granularity.csv.gz'
     test_csv_usw2_rwcu_wcu = 'test/USW2_rWCU_WCU.gz'

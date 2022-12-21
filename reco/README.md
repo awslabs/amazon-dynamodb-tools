@@ -22,11 +22,9 @@ The tool uses your existing [AWS Cost and Usage Reports](https://docs.aws.amazon
 ## Documentation
 ```
 $ python3 src/ddbr.py reco -h
-usage: ddbr.py reco [-h] [--athena-sql] [--debug] [--disable-analytics]
-                    [--file-name FILE_NAME] [--term {1,3,all}]
-                    [--file-type {cur,dli,dli_rt}]
-                    [--output {plain,csv,dict,all}] [--start-time START_TIME]
-                    [--end-time END_TIME] [--package PACKAGE]
+usage: ddbr.py reco [-h] [--athena-sql] [--debug] [--file-name FILE_NAME] [--term {1,3,all}]
+    [--file-type {cur,dli,dli_rt}] [--output {plain,csv,dict,all}] [--start-time START_TIME]
+    [--end-time END_TIME] [--package PACKAGE] [--version]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -36,17 +34,14 @@ optional arguments:
                         File name or path to file where usage data resides.
   --term {1,3,all}      RC term length to consider.
   --file-type {cur,dli,dli_rt}
-                        CUR Athena query (cur) or DBR file (dli*). Detailed
-                        line items (dli). DLI with resources and tags (dli_rt)
+                        CUR Athena query (cur) or DBR file (dli*). Detailed line items (dli). DLI with resources and tags (dli_rt)
   --output {plain,csv,dict,all}
                         Format of text to be displayed
   --start-time START_TIME
-                        Start time with leading zeroes in format --start-time
-                        "%m/%d/%y %H:%M:%S"
-  --end-time END_TIME   End time with leading zeroes in format --end-time
-                        "%m/%d/%y %H:%M:%S"
-  --package PACKAGE     Should output be ZIP'd into a user-deliverable format.
-                        Provide the package ZIP suffix
+                        Start time with leading zeroes in format --start-time "%m/%d/%y %H:%M:%S"
+  --end-time END_TIME   End time with leading zeroes in format --end-time "%m/%d/%y %H:%M:%S"
+  --package PACKAGE     Should output be ZIP'd into a user-deliverable format. Provide the package ZIP suffix
+  --version             Print version and exit.
 ```
 
 
@@ -128,9 +123,9 @@ Loading CSV into memory. Please wait.
 Generating recommendations.
 ############################################################
 DynamoDB Reserved Capacity Report
-These recommendations are based on data from 05/01/19 00:00:00 to 05/31/19 23:00:00. RC term length for the report is 1 year(s)
-Generated on 03/25/20 19:14:34
-Please consult your account’s active reserved capacity reservations to determine the amount of capacity to own. The amounts below do not factor in what you already own. Instead, they reflect the amount you should have in your account. Please contact AWS for a final recommendation on the amount to buy if it’s not attached to this report.
+These recommendations are based on data from 05/01/19 00:00:00 to 05/31/19 23:00:00. The time span represents 30 days of data. RC term length for the report is 1 year(s)
+Please consult your account’s active reserved capacity reservations to determine the amount of capacity to own. The amounts below do not factor in what you already own. Instead, they reflect the amount you should have in your account. Please be aware reservations are not available for rWCUs, the table class S-IA, or for the on-demand capacity mode.
+Generated on 12/21/22 10:37:57 with reco version v1.1.0
 ############################################################
 ************************************************************
                Tokyo region - ap-northeast-1
@@ -150,13 +145,13 @@ Totals: Effective monthly rate: $9,810.57, monthly rate after first month: $5,40
                           Glossary
 ************************************************************
 Reserved capacity to own: How much RC this payer account should own. You must compare the amount to own against your current RC reservations to determine the amount to buy. See report header.
-Effective monthly rate: The cost per month, factoring in the upfront RC purchase cost. This is the 'monthly rate after first month' + (upfront cost / months in the RC term). If you already own RC, this amount will be incorrect.
-Monthly rate after first month: The price per month if you owned all the recommended RC, not including the upfront cost. This cost includes the usage above the recommended RC plus the RC hourly rate for the recommended number of units.
+Effective monthly rate: The cost per month, factoring in the upfront RC purchase cost. This is the 'monthly rate after first month' + (upfront cost / months in the RC term). If you already own RC, this amount will be incorrect. This amount is only valid if the time range is one month, otherwise this field is actually the effective cost over the time period selected.
+Monthly rate after first month: The price per month if you owned all the recommended RC, not including the upfront cost. This cost includes the usage above the recommended RC plus the RC hourly rate for the recommended number of units. This amount is only valid if the time range is one month, otherwise this field is actually the sum of the cost over the time period selected.
 '...savings over the public rate card': The impact of owning this much RC! This is the money you'll save if you own the suggested amount. These prices are calculated using the public pricing and do not include any credits or negotiated discounts.
 'XXX units of 100': DynamoDB reserved capacity is bought in batches of 100 units.
 ############################################################
 End of report.
-Totals: Effective monthly rate: $9,810.57, Total savings over the public rate card: $84,736.56 (41.85%), Total upfront purchase cost: $51,825.80
+Totals: Effective monthly rate: $9,810.57, Total savings over the public rate card for duration of term: $84,736.56 (41.85%), Total upfront purchase cost: $51,825.80
 ############################################################
 ```
 
