@@ -45,7 +45,7 @@ optional arguments:
 ```
 
 
-See [CHANGELOG.md](blob/main/reco/CHANGELOG.md) for recent changes.
+See [CHANGELOG.md](CHANGELOG.md) for recent changes.
 
 ### Simplified: three steps to generate a recommendation
 
