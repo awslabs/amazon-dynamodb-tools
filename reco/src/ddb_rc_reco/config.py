@@ -3,7 +3,7 @@ test_file_loc = 'test/b8f1d493-9aa2-4e5b-a5e8-121b7cfa131e_shrunk.csv.gz'
 wcu_regex = r'(?!.*IA-)(.*(^|-)WriteCapacityUnit.*)'
 rcu_regex = r'(?!.*IA-)(.*(^|-)ReadCapacityUnit.*)'
 
-version = '1.1.0'
+version = '1.1.1'
 
 #1yr RC rates listed only
 pricing = {"NRT":{"ut_region_match_filter":r'^APN1-', "dto":0.14, "wcu":0.000742,"rcu":0.0001484,"rwcu":0.001113,"rc1":{"rcu":{"base":34.2,"hour":0.0029},"wcu":{"base":171.4,"hour":0.0147}}, "rc3":{"rcu":{"base":41.0,"hour":0.0018},"wcu":{"base":205.6,"hour":0.0093}}},
