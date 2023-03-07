@@ -87,7 +87,8 @@ def main():
                 except UnboundLocalError as err:
                     logger.error("The input data file did not match the format we expected. Verify the file-type, and make sure the data has CapacityUnit-Hrs usage types with a cost.")
                     raise err
-            if (timedelta(days=31) < end_time - start_time) or (end_time - start_time < timedelta(days=28)):
+            days_at_target_time = (end_time + timedelta(hours=1) - start_time).days
+            if days_at_target_time < 28 or days_at_target_time > 31:
                 logger.warning("WARNING: The selected start and end times in file have greater or fewer days than a normal month. As a result, the 'monthly' summaries in the output will not reflect the true monthly cost.")
             with open_file_read(csv_loc) as csvfile:
                 row_reader = csv.reader(csvfile, delimiter=',', quotechar='"')
