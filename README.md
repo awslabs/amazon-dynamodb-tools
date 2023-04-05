@@ -3,6 +3,7 @@
  These tools are intended to make using Amazon DynamoDB effectively easier. The following tools are available:
 
  * [DynamoDB reserved capacity recommendations](reco) - Generate reserved capacity purchase recommendations using existing AWS Cost and Usage Reports data
+ * [Cost Template](#cost-template) - Model read, write, and storage costs for a DynamoDB table in Excel
  * [MySQL to S3 Migrator](#mysql-to-s3-migrator) - Bring your relational data into Amazon S3 to prepare for a DynamoDB migration
  * [Table Class Evaluator](#table-class-evaluator-tool) - Recommend Amazon DynamoDB table class changes to optimize costs
  * [Eponymous Table Tagger](#eponymous-table-tagger-tool)  - Tag tables with their own name to make per-table cost analysis easier
@@ -13,12 +14,50 @@ While we make efforts to test and verify the functionality of these tools, you a
 ## DynamoDB reserved capacity recommendations
 
 [See the separate README](reco)
+
+## Cost Template
+Before creating a new DynamoDB table, you may want to estimate 
+what its core costs will be, measured not in capacity units but dollars.
+Or, you may have a table in On Demand mode and be wondering if Provisioned Capacity would be cheaper.
+
+[DynamoDB+Cost+Template.xlsx](Excel/DynamoDB+Cost+Template.xlsx) 
+
+This worksheet will help you estimate a table's cost of ownership, for a given time period.
+Both On Demand and Provisioned Capacity costs are shown side by side, along with storage costs. 
+While Provisioned Capacity is generally less expensive, it is unrealistic to assume 
+you will ever be 100% efficient in using the capacity you pay for. 
+Even if using Auto Scaling, overhead is required to account for bumps and spikes in traffic.
+Achieving 50% efficiency is good, but very spiky traffic patterns 
+may use less than 15%.  In these scenarios, On Demand mode will be less expensive.
+You may adjust the efficiency level and other model parameters via the green cells in column C.
+
+
+![Cost Template Screenshot](https://dynamodb-images.s3.amazonaws.com/img/pricing_template_screenshot_sm.jpg "DynamoDB Cost Template")
+
+For specific jobs, such as a large data import, you may want to know just the write costs.
+Imagine a job that performs 2500 writes per second and takes three hours. You can adjust 
+the time period in C9 and C10 and WCU per second velocity in C17 to show the write costs 
+for a specific workload like this.
+
+An existing table in DynamoDB can be promoted to a Global Table by adding a new region to the table.
+For a two-region Global Table, storage costs will double while write costs approximately triple.
+These prices will be modeled by choosing a Global Table in cell C12.
+
+The unit prices shown on rows 4-7 are the current list prices for a table in us-east-1.
+Because prices may change in the future, you can adjust these as needed, or for a specific region. 
+
+The tool helps you model the core costs of a table, 
+please refer to the [DynamoDB Pricing Page](https://aws.amazon.com/dynamodb/pricing/)
+for a full list of DynamoDB features, options and prices.
+
 ## MySQL to S3 Migrator
 When moving your SQL database to DynamoDB, you can leverage Amazon S3 as a staging area
 for data. This Python script connects to your MySQL host, executes a SQL SELECT,
 and writes the results to your S3 bucket.  
 
-A separate import process can then load your data from S3 into a new DynamoDB table.
+The [DynamoDB Import from S3](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/S3DataImport.HowItWorks.html) 
+feature can then automatically load your DynamoDB table.
+
 
 ### Shaping Data in SQL
 The tool is simple, it converts your relational dataset into standard [DynamoDB JSON format](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Programming.LowLevelAPI.html)
