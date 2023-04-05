@@ -23,7 +23,13 @@ Or, you may have a table in On Demand mode and be wondering if Provisioned Capac
 [DynamoDB+Cost+Template.xlsx](Excel/DynamoDB+Cost+Template.xlsx) 
 
 This worksheet will help you estimate a table's cost of ownership, for a given time period.
+The first step is to decide the table's average storage, read and write velocity levels 
+and then adjust the green values in cells C16-C18, and review the calculated costs in rows E, F, and G.
 Both On Demand and Provisioned Capacity costs are shown side by side, along with storage costs. 
+
+![Cost Template Screenshot](https://dynamodb-images.s3.amazonaws.com/img/pricing_template_screenshot_sm.jpg "DynamoDB Cost Template")
+
+
 While Provisioned Capacity is generally less expensive, it is unrealistic to assume 
 you will ever be 100% efficient in using the capacity you pay for. 
 Even if using Auto Scaling, overhead is required to account for bumps and spikes in traffic.
@@ -32,7 +38,6 @@ may use less than 15%.  In these scenarios, On Demand mode will be less expensiv
 You may adjust the efficiency level and other model parameters via the green cells in column C.
 
 
-![Cost Template Screenshot](https://dynamodb-images.s3.amazonaws.com/img/pricing_template_screenshot_sm.jpg "DynamoDB Cost Template")
 
 For specific jobs, such as a large data import, you may want to know just the write costs.
 Imagine a job that performs 2500 writes per second and takes three hours. You can adjust 
