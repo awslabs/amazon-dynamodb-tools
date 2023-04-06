@@ -7,6 +7,7 @@
  * [MySQL to S3 Migrator](#mysql-to-s3-migrator) - Bring your relational data into Amazon S3 to prepare for a DynamoDB migration
  * [Table Class Evaluator](#table-class-evaluator-tool) - Recommend Amazon DynamoDB table class changes to optimize costs
  * [Eponymous Table Tagger](#eponymous-table-tagger-tool)  - Tag tables with their own name to make per-table cost analysis easier
+ * [Table Capacity Mode Evaluator](capacity-mode-evaluator) - Generate capacity mode recommendations by analyizing DynamoDB table usage
 
 While we make efforts to test and verify the functionality of these tools, you are encouraged to read and understand the code, and use them at your own risk.
 
@@ -275,6 +276,9 @@ Utility tool to gain item size information for DynamoDB JSON items to understand
 
 ### Using the Item Size Calculator
 Please see the [README](item_size_calculator/README.md).
+
+## Table Capacity Mode Evaluator
+See the separate [README](capacity-mode-evaluator/README.md)
 
 ## Security
 

@@ -1,0 +1,8 @@
+futures==2.2.0
+numpy==1.20.1
+pandas==1.2.2
+matplotlib==3.7.0
+pytz==2021.1
+tqdm
+boto3
+botocore
