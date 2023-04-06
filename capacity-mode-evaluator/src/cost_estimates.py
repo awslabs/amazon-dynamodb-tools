@@ -1,11 +1,18 @@
 import pandas as pd
 import numpy as np
+from src.pricing import PricingUtility
+import boto3
 
 
-def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_util, read_min, write_min):
+def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_util, read_min, write_min,provisioned_pricing,ondemand_pricing):
+    consumed_write_capacity_unit_pricing = float(ondemand_pricing.get('std_wcu_pricing'))
+    consumed_read_capacity_unit_pricing = float(ondemand_pricing.get('std_rcu_pricing'))
+    provisioned_read_capacity_unit_pricing = float(provisioned_pricing.get('std_rcu_pricing'))
+    provisioned_write_capacity_unit_pricing = float(provisioned_pricing.get('std_wcu_pricing'))
+
     metric_map = {
-        'ConsumedWriteCapacityUnits': ('ProvisionedWriteCapacityUnits', write_min, write_util, 0.00065, 1.25/1000000),
-        'ConsumedReadCapacityUnits': ('ProvisionedReadCapacityUnits', read_min, read_util, 0.00013, 0.25/1000000)
+        'ConsumedWriteCapacityUnits': ('ProvisionedWriteCapacityUnits', write_min, write_util, provisioned_write_capacity_unit_pricing, consumed_write_capacity_unit_pricing),
+        'ConsumedReadCapacityUnits': ('ProvisionedReadCapacityUnits', read_min, read_util, provisioned_read_capacity_unit_pricing, consumed_read_capacity_unit_pricing)
     }
 
     q1 = (
@@ -47,8 +54,8 @@ def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_uti
     q2['timestamp'] = q2['timestamp'].dt.floor('H')
     q2['provisioned_cost'] = (
         q2.apply(
-            lambda x: x['unit'] * 0.00013 if x['metric_name'] == 'ProvisionedReadCapacityUnits' else x['unit'] *
-            0.00065 if x['metric_name'] == 'ProvisionedWriteCapacityUnits' else None,
+            lambda x: x['unit'] * provisioned_read_capacity_unit_pricing if x['metric_name'] == 'ProvisionedReadCapacityUnits' else x['unit'] *
+            provisioned_write_capacity_unit_pricing if x['metric_name'] == 'ProvisionedWriteCapacityUnits' else None,
             axis=1
         )
     )
@@ -70,6 +77,12 @@ def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_uti
 
 
 def recommendation_summary(params, results_metrics_df, results_estimates_df, dynamodb_info_df):
+    region_name = boto3.Session().region_name
+    pricing_utility = PricingUtility(region_name=region_name)
+    ondemand_pricing = pricing_utility.get_on_demand_capacity_pricing(region_name)
+    provisioned_pricing = pricing_utility.get_provisioned_capacity_pricing(region_name)
+
+    
     # Extract the required parameters from the input dictionary
     read_min = params.get('dynamodb_minimum_read_unit', 0)
     write_min = params.get('dynamodb_minimum_write_unit', 0)
@@ -78,7 +91,7 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
 
     # Compute the cost estimates
     cost_estimate_df = cost_estimate(
-        results_metrics_df, results_estimates_df, read_util, write_util, read_min, write_min)
+        results_metrics_df, results_estimates_df, read_util, write_util, read_min, write_min,provisioned_pricing,ondemand_pricing)
 
     # Preprocess the cost estimate data
     cost_estimate_df = cost_estimate_df.rename(
