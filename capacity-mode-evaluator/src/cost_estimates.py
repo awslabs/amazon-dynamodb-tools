@@ -4,11 +4,15 @@ from src.pricing import PricingUtility
 import boto3
 
 
-def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_util, read_min, write_min,provisioned_pricing,ondemand_pricing):
-    consumed_write_capacity_unit_pricing = float(ondemand_pricing.get('std_wcu_pricing'))
-    consumed_read_capacity_unit_pricing = float(ondemand_pricing.get('std_rcu_pricing'))
-    provisioned_read_capacity_unit_pricing = float(provisioned_pricing.get('std_rcu_pricing'))
-    provisioned_write_capacity_unit_pricing = float(provisioned_pricing.get('std_wcu_pricing'))
+def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_util, read_min, write_min, provisioned_pricing, ondemand_pricing):
+    consumed_write_capacity_unit_pricing = float(
+        ondemand_pricing.get('std_wcu_pricing'))
+    consumed_read_capacity_unit_pricing = float(
+        ondemand_pricing.get('std_rcu_pricing'))
+    provisioned_read_capacity_unit_pricing = float(
+        provisioned_pricing.get('std_rcu_pricing'))
+    provisioned_write_capacity_unit_pricing = float(
+        provisioned_pricing.get('std_wcu_pricing'))
 
     metric_map = {
         'ConsumedWriteCapacityUnits': ('ProvisionedWriteCapacityUnits', write_min, write_util, provisioned_write_capacity_unit_pricing, consumed_write_capacity_unit_pricing),
@@ -55,7 +59,8 @@ def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_uti
     q2['provisioned_cost'] = (
         q2.apply(
             lambda x: x['unit'] * provisioned_read_capacity_unit_pricing if x['metric_name'] == 'ProvisionedReadCapacityUnits' else x['unit'] *
-            provisioned_write_capacity_unit_pricing if x['metric_name'] == 'ProvisionedWriteCapacityUnits' else None,
+            provisioned_write_capacity_unit_pricing if x[
+                'metric_name'] == 'ProvisionedWriteCapacityUnits' else 0,
             axis=1
         )
     )
@@ -79,10 +84,11 @@ def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_uti
 def recommendation_summary(params, results_metrics_df, results_estimates_df, dynamodb_info_df):
     region_name = boto3.Session().region_name
     pricing_utility = PricingUtility(region_name=region_name)
-    ondemand_pricing = pricing_utility.get_on_demand_capacity_pricing(region_name)
-    provisioned_pricing = pricing_utility.get_provisioned_capacity_pricing(region_name)
+    ondemand_pricing = pricing_utility.get_on_demand_capacity_pricing(
+        region_name)
+    provisioned_pricing = pricing_utility.get_provisioned_capacity_pricing(
+        region_name)
 
-    
     # Extract the required parameters from the input dictionary
     read_min = params.get('dynamodb_minimum_read_unit', 0)
     write_min = params.get('dynamodb_minimum_write_unit', 0)
@@ -91,7 +97,7 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
 
     # Compute the cost estimates
     cost_estimate_df = cost_estimate(
-        results_metrics_df, results_estimates_df, read_util, write_util, read_min, write_min,provisioned_pricing,ondemand_pricing)
+        results_metrics_df, results_estimates_df, read_util, write_util, read_min, write_min, provisioned_pricing, ondemand_pricing)
 
     # Preprocess the cost estimate data
     cost_estimate_df = cost_estimate_df.rename(
@@ -113,10 +119,12 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
     q1['number_of_days'] = (q1['timestamp_max'] -
                             q1['timestamp_min']).dt.days + 1
 
+
     q1['recommended_mode'] = np.where(
         (q1['est_provisioned_cost'] < q1['current_provisioned_cost']) &
-        (((q1['current_provisioned_cost'] - q1['est_provisioned_cost']) / q1['current_provisioned_cost']) > 1.5e-1) &
-        (q1['est_provisioned_cost'] < q1['ondemand_cost']),
+        (q1['est_provisioned_cost'] < q1['ondemand_cost']) &
+        (np.divide((q1['current_provisioned_cost'] - q1['est_provisioned_cost']),
+         q1['current_provisioned_cost'], where=q1['current_provisioned_cost'] != 0) > 1.5e-1),
         'Provisioned_Modify',
         np.where(
             (q1['current_provisioned_cost'] != 0) &
@@ -161,17 +169,18 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
         np.where(
             (view_df['current_mode'] == 'Provisioned') & (
                 view_df['recommended_mode'] == 'Ondemand'),
-            (view_df['current_provisioned_cost'] - view_df['ondemand_cost']
-             ) / view_df['current_provisioned_cost'],
+            np.divide((view_df['current_provisioned_cost'] - view_df['ondemand_cost']),
+                      view_df['current_provisioned_cost'], where=view_df['current_provisioned_cost'] != 0),
             np.where(
                 (view_df['current_mode'] == 'Provisioned') & (
                     view_df['recommended_mode'] == 'Provisioned_Modify'),
-                (view_df['current_provisioned_cost'] - view_df['est_provisioned_cost']
-                 ) / view_df['current_provisioned_cost'],
+                np.divide((view_df['current_provisioned_cost'] - view_df['est_provisioned_cost']),
+                          view_df['current_provisioned_cost'], where=view_df['current_provisioned_cost'] != 0),
                 np.nan
             )
         )
     )
+
     view_df['current_cost'] = np.where(
         view_df['current_mode'] == 'Provisioned',
         view_df['current_provisioned_cost'],
@@ -199,4 +208,4 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
     view_df = view_df.reindex(columns=['index_name', 'base_table_name', 'metric_name', 'est_provisioned_cost', 'current_provisioned_cost', 'ondemand_cost', 'recommended_mode',
                               'current_mode', 'status', 'savings_pct', 'current_cost', 'recommended_cost', 'number_of_days', 'current_min_capacity', 'simulated_min_capacity', 'current_target_utilization', 'simulated_target_utilizatio', 'autoscaling_enabled'])
 
-    return view_df,cost_estimate_df
+    return view_df, cost_estimate_df
