@@ -4,6 +4,7 @@ import numpy as np
 from tqdm import tqdm
 import boto3
 
+
 class DynamoDBAutoscaler:
     def __init__(self):
         self.dynamodb_client = boto3.client('dynamodb')
@@ -11,7 +12,6 @@ class DynamoDBAutoscaler:
 
     def get_dynamodb_autoscaling_settings(self,  base_table_name: str, index_name: str = None) -> pd.DataFrame:
 
-        # Create a DynamoDB and application-autoscaling client
         app_autoscaling = self.app_autoscaling
 
         resource_id = f"table/{base_table_name}"
@@ -23,7 +23,6 @@ class DynamoDBAutoscaler:
         autoscaling_settings = response['ScalableTargets']
         data = []
         for setting in autoscaling_settings:
-            # Get the scaling policy for the setting
             policy_response = app_autoscaling.describe_scaling_policies(
                 ServiceNamespace='dynamodb',
                 ResourceId=setting['ResourceId'],
@@ -59,10 +58,9 @@ class DynamoDBAutoscaler:
     def _process_table(self, name):
         dynamodb_client = self.dynamodb_client
         app_autoscaling = self.app_autoscaling
-        # Get the current provisioned throughput mode for the table
-        
+
         desc_table = dynamodb_client.describe_table(TableName=name)
-        
+
         # Get the global secondary indexes (if any)
         table_data = desc_table['Table']
 
@@ -97,7 +95,6 @@ class DynamoDBAutoscaler:
                         np.nan], 'target_utilization': [np.nan], 'autoscaling_enabled': ['False'], 'throughput_mode': ['Provisioned']})
                     result = [result_df]
                 else:
-                    # Get autoscaling settings for the table
                     settings = self.get_dynamodb_autoscaling_settings(
                         base_table_name=name)
                     result = [settings]
@@ -106,7 +103,6 @@ class DynamoDBAutoscaler:
                 if global_indexes is not None:
                     for index in global_indexes:
                         index_name = index['IndexName']
-                        # Check if autoscaling is enabled for the index
                         response = app_autoscaling.describe_scalable_targets(
                             ResourceIds=[f"table/{name}/index/{index_name}"], ServiceNamespace='dynamodb')
 
@@ -114,20 +110,16 @@ class DynamoDBAutoscaler:
                             index_settings = pd.DataFrame({'base_table_name': [name], 'index_name': [index_name], 'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
                                 np.nan], 'target_utilization': [np.nan], 'autoscaling_enabled': ['False'], 'throughput_mode': ['Provisioned']})
                         else:
-                            # Get autoscaling settings for the index
                             index_settings = self.get_dynamodb_autoscaling_settings(
                                 base_table_name=name, index_name=index_name)
 
-                        # Merge the index settings into the main settings dictionary
                         if index_settings is not None:
                             result.append(index_settings)
-            # Concatenate the nested DataFrames into a single DataFrame
 
             if len(result) > 0:
                 result_df = pd.concat(result, axis=0)
             return result_df
         else:
-            # Check if autoscaling is enabled for the table
 
             result = []
             response = app_autoscaling.describe_scalable_targets(
@@ -146,7 +138,6 @@ class DynamoDBAutoscaler:
             if global_indexes is not None:
                 for index in global_indexes:
                     index_name = index['IndexName']
-                    # Check if autoscaling is enabled for the index
                     response = app_autoscaling.describe_scalable_targets(
                         ResourceIds=[f"table/{name}/index/{index_name}"], ServiceNamespace='dynamodb')
 
@@ -154,14 +145,10 @@ class DynamoDBAutoscaler:
                         index_settings = pd.DataFrame({'base_table_name': [name], 'index_name': [index_name], 'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
                             np.nan], 'target_utilization': [np.nan], 'autoscaling_enabled': ['False'], 'throughput_mode': ['Provisioned']})
                     else:
-                        # Get autoscaling settings for the index
                         index_settings = self.get_dynamodb_autoscaling_settings(
                             base_table_name=name,  index_name=index_name)
-
-                    # Merge the index settings into the main settings dictionary
                     if index_settings is not None:
                         result.append(index_settings)
-            # Concatenate the nested DataFrames into a single DataFrame
 
             if len(result) > 0:
                 result_df = pd.concat(result, axis=0)
@@ -175,7 +162,6 @@ class DynamoDBAutoscaler:
         table_names = []
         last_evaluated_table_name = None
         if not table_name:
-            # Keep making API calls until all tables have been retrieved
             while last_evaluated_table_name != '':
                 params = {}
                 if last_evaluated_table_name:
@@ -189,18 +175,14 @@ class DynamoDBAutoscaler:
             table_names = [table_name]
 
         settings_list = []
-        if len(table_names)!= 0:
+        if len(table_names) != 0:
             # Create a thread pool to execute _process_table() for each table in parallel
             with ThreadPoolExecutor(max_workers=20) as executor:
-                # Submit each table to the thread pool and store the returned future
                 futures = [executor.submit(self._process_table, name)
-                        for name in table_names]
-                # Create a progress bar for the futures
+                           for name in table_names]
                 progress_bar = tqdm(total=len(table_names),
                                     desc=f"Getting DynamoDB Tables info ...")
 
-            # Wait for all futures to complete and retrieve the results
-            # Wait for all futures to complete and retrieve the results
                 settings_list = []
                 for future in futures:
                     progress_bar.update(1)
@@ -215,7 +197,7 @@ class DynamoDBAutoscaler:
             if len(settings_list) > 0:
                 settings = pd.concat(settings_list, axis=0)
                 settings['index_name'] = settings.apply(lambda x: x['base_table_name'] if pd.isnull(
-                x['index_name']) else x['base_table_name'] + ':' + x['index_name'], axis=1)
+                    x['index_name']) else x['base_table_name'] + ':' + x['index_name'], axis=1)
                 settings['metric_name'] = settings['metric_name'].replace(
                     {'dynamodb:table:ReadCapacityUnits': 'ProvisionedReadCapacityUnits', 'dynamodb:index:ReadCapacityUnits': 'ProvisionedReadCapacityUnits'}, regex=True)
                 settings['metric_name'] = settings['metric_name'].replace(
@@ -225,11 +207,10 @@ class DynamoDBAutoscaler:
 
             return settings
         else:
-           raise ValueError("No DynamoDB tables found in this region")  
+            raise ValueError("No DynamoDB tables found in this region")
 
 
 """
 Gets the autoscaling settings for all tables and indexes in the specified account and region and appends them to the list
 """
 DDBinfo = DynamoDBAutoscaler()
-

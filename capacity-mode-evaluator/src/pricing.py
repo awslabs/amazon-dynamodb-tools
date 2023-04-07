@@ -3,27 +3,27 @@ import json
 
 from decimal import Decimal
 
+
 class PricingUtility(object):
     def __init__(self, region_name):
-        
+
         closest_api_region = 'us-east-1'
 
-        AMERICAN_REGIONS = ['us-east-1', 'us-east-2', 
-                    'us-west-1', 'us-west-2', 
-                    'us-gov-west-1', 'us-gov-west-2',
-                    'ca-central-1', 'sa-east-1']
-        # the pricing API is only available in us-east-1 and ap-south-1 
+        AMERICAN_REGIONS = ['us-east-1', 'us-east-2',
+                            'us-west-1', 'us-west-2',
+                            'us-gov-west-1', 'us-gov-west-2',
+                            'ca-central-1', 'sa-east-1']
+        # the pricing API is only available in us-east-1 and ap-south-1
         # pick the closest endpoint to the supplied region
         if region_name not in AMERICAN_REGIONS:
             closest_api_region = 'ap-south-1'
 
-        self.pricing_client = boto3.client('pricing', region_name=closest_api_region)
-
-
+        self.pricing_client = boto3.client(
+            'pricing', region_name=closest_api_region)
 
     def get_provisioned_capacity_pricing(self, region_code: str) -> dict:
         """Get DynamoDB provisioned capacity pricing for a given region."""
-        throughput_pricing = {} 
+        throughput_pricing = {}
 
         response = self.pricing_client.get_products(
             ServiceCode='AmazonDynamoDB',
@@ -33,7 +33,7 @@ class PricingUtility(object):
                      {'Type': 'TERM_MATCH',
                       'Field': 'regionCode',
                       'Value': region_code}
-            ],
+                     ],
             FormatVersion='aws_v1',
             MaxResults=100
         )
@@ -63,10 +63,10 @@ class PricingUtility(object):
                         throughput_pricing['ia_wcu_pricing'] = price
 
         return throughput_pricing
-    
+
     def get_on_demand_capacity_pricing(self, region_code: str) -> dict:
         """Get DynamoDB On-demand capacity pricing for a given region."""
-        throughput_pricing = {} 
+        throughput_pricing = {}
 
         response = self.pricing_client.get_products(
             ServiceCode='AmazonDynamoDB',
@@ -76,7 +76,7 @@ class PricingUtility(object):
                      {'Type': 'TERM_MATCH',
                       'Field': 'regionCode',
                       'Value': region_code}
-            ],
+                     ],
             FormatVersion='aws_v1',
             MaxResults=100
         )
@@ -106,4 +106,3 @@ class PricingUtility(object):
                         throughput_pricing['ia_wcu_pricing'] = price
 
         return throughput_pricing
-    

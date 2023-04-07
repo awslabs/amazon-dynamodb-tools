@@ -99,7 +99,6 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
     cost_estimate_df = cost_estimate(
         results_metrics_df, results_estimates_df, read_util, write_util, read_min, write_min, provisioned_pricing, ondemand_pricing)
 
-    # Preprocess the cost estimate data
     cost_estimate_df = cost_estimate_df.rename(
         columns={cost_estimate_df.columns[0]: "index_name"})
     cost_estimate_df["base_table_name"] = cost_estimate_df["index_name"].str.split(
@@ -115,10 +114,8 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
         target_utilization=('target_utilization', 'mean')
     ).reset_index()
 
-    # Compute additional metrics
     q1['number_of_days'] = (q1['timestamp_max'] -
                             q1['timestamp_min']).dt.days + 1
-
 
     q1['recommended_mode'] = np.where(
         (q1['est_provisioned_cost'] < q1['current_provisioned_cost']) &
@@ -135,12 +132,10 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
         )
     )
 
-    # Select relevant columns
     q1 = q1[['index_name', 'base_table_name',  'metric_name', 'est_provisioned_cost',
              'current_provisioned_cost', 'ondemand_cost', 'recommended_mode', 'number_of_days', 'min_capacity',
              'target_utilization']]
 
-    # Merge with additional data
     q2 = dynamodb_info_df.rename(columns={'table_name': 'base_table_name'})[
         ['index_name', 'base_table_name',  'metric_name', 'min_capacity', 'target_utilization', 'throughput_mode', 'autoscaling_enabled']]
     q2 = q2.rename(columns={'min_capacity': 'current_min_capacity',

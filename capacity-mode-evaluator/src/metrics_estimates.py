@@ -54,8 +54,6 @@ def estimateUnits(read, write, readutilization, writeutilization, read_min, writ
         if i <= 2:
             currentread[5] = prevread[5]
             currentwrite[5] = prevwrite[5]
-            # prevwrite = currentwrite
-           # adding 1 - 2 records to final list
             finalreadcu += [currentread]
             finalwritecu += [currentwrite]
             continue
@@ -92,21 +90,18 @@ def estimateUnits(read, write, readutilization, writeutilization, read_min, writ
 
         if i <= 14:
             prevread = currentread
-            # print(i, current)
             finalreadcu += [currentread]
             prevwrite = currentwrite
-            # print(i, current)
             finalwritecu += [currentwrite]
             continue
         # Create list from last 15 Consumed Units
         last15read = [v[4] for v in list(read[i - 15: i])]
         last15read2 = [v[5] for v in list(read[i - 15: i])]
-        # print(last15)
         last15Maxread = max(last15read)
         # Create list from last 15 Consumed Units
         last15write = [v[4] for v in list(write[i - 15: i])]
         last15write2 = [v[5] for v in list(write[i - 15: i])]
-        # print(last15)
+
         last15Maxwrite = max(last15write)
         if count < 4:
             if not decrease15(last15read2):
@@ -148,10 +143,8 @@ def estimateUnits(read, write, readutilization, writeutilization, read_min, writ
 
         prevread = currentread
         prevwrite = currentwrite
-        # adding current row to the result list
         finalreadcu += [currentread]
         finalwritecu += [currentwrite]
-    # print(finalreadcu)
     finalist = finalwritecu + finalreadcu
     return finalist
 

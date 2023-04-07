@@ -7,29 +7,21 @@ import pandas as pd
 from tqdm.contrib.concurrent import thread_map
 
 
-# list metrics
 def list_metrics(tablename: str) -> list:
-    # Create a client for the AWS CloudWatch service using the specified region
     cw = boto3.client('cloudwatch')
-
-    # Create an empty list to store the metrics
     metrics_list = []
 
-    # Create a paginator for the "list_metrics" operation
     paginator = cw.get_paginator('list_metrics')
 
-    # Set the operation parameters based on the provided tablename
     if not tablename:
         operation_parameters = {'Namespace': 'AWS/DynamoDB'}
     else:
         operation_parameters = {'Namespace': 'AWS/DynamoDB',
                                 'Dimensions': [{'Name': 'TableName', 'Value': tablename}]}
 
-    # Iterate through the paginated responses, appending each response's metrics to the list
     for response in paginator.paginate(**operation_parameters):
         metrics_list.extend(response['Metrics'])
 
-    # Return the list of metrics
     return metrics_list
 
 
@@ -125,26 +117,22 @@ def fetch_metric_data(metric, starttime, endtime, consumed_period, provisioned_p
 def get_table_metrics(metrics, starttime, endtime, consumed_period, provisioned_period, readutilization, writeutilization, read_min, write_min):
     metric_result_queue = Queue()
     estimate_result_queue = Queue()
-    # Using tqdm.contrib.concurrent.thread_map to fetch metric data with progress bar
-    metric_data_list = thread_map(lambda metric: fetch_metric_data(metric, starttime, endtime, consumed_period, provisioned_period), 
+    metric_data_list = thread_map(lambda metric: fetch_metric_data(metric, starttime, endtime, consumed_period, provisioned_period),
                                   metrics, max_workers=10)
-    
-    # Filter out None values from the metric_data_list
-    metric_data_list = [result for result in metric_data_list if result is not None]
-    
+
+    metric_data_list = [
+        result for result in metric_data_list if result is not None]
+
     print("starting process to estimate dynamodb table provisioned metrics")
     thread_map(lambda result: process_results(result[0], result[1], metric_result_queue, estimate_result_queue, readutilization, writeutilization, read_min, write_min),
                metric_data_list, max_workers=10)
 
-    # create an empty list to hold the dataframe
     processed_metric = []
     processed_estimate = []
-    # get the elements from the queue
     while not metric_result_queue.empty():
         processed_metric.append(metric_result_queue.get())
     while not estimate_result_queue.empty():
         processed_estimate.append(estimate_result_queue.get())
-    # convert the processed_metric list to dataframe
     if all(df.empty for df in processed_metric):
         print("No Metrics were retrived in check end date provided for CloudWatch.")
     else:
@@ -153,7 +141,6 @@ def get_table_metrics(metrics, starttime, endtime, consumed_period, provisioned_
         return [metric_df, estimate_df]
 
 
-# Getting  Metrics
 def get_metrics(params):
 
     provisioned_period = 3600

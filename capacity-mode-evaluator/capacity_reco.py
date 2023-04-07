@@ -76,7 +76,7 @@ if __name__ == '__main__':
     print(params)
     dynamo_tables_result = DDBinfo.get_all_dynamodb_autoscaling_settings_with_indexes(
         params['dynamodb_tablename'])
-    
+
     dynamo_tables_result.to_csv(
         os.path.join(dir_path, 'dynamodb_table_info.csv'), index=False)
     process_dynamodb_result = process_dynamodb_table(
