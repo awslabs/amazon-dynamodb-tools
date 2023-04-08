@@ -25,7 +25,7 @@ def list_metrics(tablename: str) -> list:
     return metrics_list
 
 
-def process_results(metr_list, metric, metric_result_queue, estimate_result_queue, readutilization, writeutilization, read_min, write_min):
+def process_results(metr_list, metric, metric_result_queue, estimate_result_queue, readutilization, writeutilization, read_min, write_min, read_max, write_max):
 
     metrics_result = []
     for result in metr_list['MetricDataResults']:
@@ -45,7 +45,7 @@ def process_results(metr_list, metric, metric_result_queue, estimate_result_queu
         metric_result_queue.put(tmdf)
     metrics_result = pd.concat(metrics_result)
     estimate_units = estimates.estimate(
-        metrics_result, readutilization, writeutilization, read_min, write_min)
+        metrics_result, readutilization, writeutilization, read_min, write_min, read_max, write_max)
 
     estimate_result_queue.put(estimate_units)
 
@@ -114,7 +114,7 @@ def fetch_metric_data(metric, starttime, endtime, consumed_period, provisioned_p
     return None
 
 
-def get_table_metrics(metrics, starttime, endtime, consumed_period, provisioned_period, readutilization, writeutilization, read_min, write_min):
+def get_table_metrics(metrics, starttime, endtime, consumed_period, provisioned_period, readutilization, writeutilization, read_min, write_min, read_max, write_max):
     metric_result_queue = Queue()
     estimate_result_queue = Queue()
     metric_data_list = thread_map(lambda metric: fetch_metric_data(metric, starttime, endtime, consumed_period, provisioned_period),
@@ -124,7 +124,7 @@ def get_table_metrics(metrics, starttime, endtime, consumed_period, provisioned_
         result for result in metric_data_list if result is not None]
 
     print("starting process to estimate dynamodb table provisioned metrics")
-    thread_map(lambda result: process_results(result[0], result[1], metric_result_queue, estimate_result_queue, readutilization, writeutilization, read_min, write_min),
+    thread_map(lambda result: process_results(result[0], result[1], metric_result_queue, estimate_result_queue, readutilization, writeutilization, read_min, write_min, read_max, write_max),
                metric_data_list, max_workers=10)
 
     processed_metric = []
@@ -147,6 +147,8 @@ def get_metrics(params):
     consumed_period = 60
     read_min = params['dynamodb_minimum_read_unit']
     write_min = params['dynamodb_minimum_write_unit']
+    read_max = params['dynamodb_maximum_read_unit']
+    write_max = params['dynamodb_maximum_write_unit']
     readutilization = params['dynamodb_read_utilization']
     writeutilization = params['dynamodb_write_utilization']
     dynamodb_tablename = params['dynamodb_tablename']
@@ -160,6 +162,6 @@ def get_metrics(params):
 
     metrics = list_metrics(dynamodb_tablename)
     result = get_table_metrics(metrics, starttime, endtime, consumed_period,
-                               provisioned_period, readutilization, writeutilization, read_min, write_min)
+                               provisioned_period, readutilization, writeutilization, read_min, write_min, read_max, write_max)
 
     return result

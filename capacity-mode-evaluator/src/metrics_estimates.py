@@ -24,7 +24,7 @@ def decrease15(L):
     return any(x > y for x, y in zip(L, L[1:]))
 
 
-def estimateUnits(read, write, readutilization, writeutilization, read_min, write_min):
+def estimateUnits(read, write, readutilization, writeutilization, read_min, write_min, read_max, write_max):
     # columns [metric_name,timestamp,name,units,unitps,estunit]
     if len(read) <= len(write):
         smallest_list = read
@@ -38,8 +38,10 @@ def estimateUnits(read, write, readutilization, writeutilization, read_min, writ
     prevwrite = write[0]
     finalwritecu += [prevwrite]
     finalreadcu += [prevread]
-    prevread[5] = max((prevread[4] / readutilization) * 100, read_min)
-    prevwrite[5] = max((prevwrite[4] / writeutilization) * 100, write_min)
+    prevread[5] = min(max((prevread[4] / readutilization)
+                      * 100, read_min), read_max)
+    prevwrite[5] = min(max((prevwrite[4] / writeutilization)
+                       * 100, write_min), write_max)
     for i in range(1, len(smallest_list)):
         currentread = read[i]
         currentwrite = write[i]
@@ -65,10 +67,11 @@ def estimateUnits(read, write, readutilization, writeutilization, read_min, writ
         last2maxwrite = max(last2write)
         last2minread = min(last2read)
         last2minwrite = min(last2write)
-        maxVread = maxA((last2minread / readutilization) * 100, prevread[5])
+        maxVread = min(maxA((last2minread / readutilization)
+                            * 100, prevread[5]), read_max)
 
-        maxVwrite = maxA((last2minwrite / writeutilization)
-                         * 100, prevwrite[5])
+        maxVwrite = min(maxA((last2minwrite / writeutilization)
+                             * 100, prevwrite[5]), write_max)
         # scale out based on last 2 min Units.
 
         if currentread[0] == 'ConsumedReadCapacityUnits':
@@ -149,7 +152,7 @@ def estimateUnits(read, write, readutilization, writeutilization, read_min, writ
     return finalist
 
 
-def estimate(df, readutilization, writeutilization, read_min, write_min):
+def estimate(df, readutilization, writeutilization, read_min, write_min, read_max, write_max):
 
     df['unitps'] = df['unit'] / 60
     df['estunit'] = 5
@@ -168,7 +171,7 @@ def estimate(df, readutilization, writeutilization, read_min, write_min):
                 ).reset_index(drop=True)).values.tolist()
         if len(rcu) > 0 and len(wcu) > 0:
             finalcu += estimateUnits(rcu, wcu,
-                                     readutilization, writeutilization, read_min, write_min)
+                                     readutilization, writeutilization, read_min, write_min, read_max, write_max)
     if len(finalcu) > 0:
         finaldf = pd.DataFrame(finalcu)
         finaldf.columns = ['metric_name', 'timestamp',
