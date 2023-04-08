@@ -10,7 +10,7 @@ class DynamoDBAutoscaler:
         self.dynamodb_client = boto3.client('dynamodb')
         self.app_autoscaling = boto3.client('application-autoscaling')
 
-    def get_dynamodb_autoscaling_settings(self,  base_table_name: str, index_name: str = None) -> pd.DataFrame:
+    def get_dynamodb_autoscaling_settings(self,  base_table_name: str, table_storage_class: str, index_name: str = None) -> pd.DataFrame:
 
         app_autoscaling = self.app_autoscaling
 
@@ -34,6 +34,7 @@ class DynamoDBAutoscaler:
                 data.append({
                     'base_table_name': base_table_name,
                     'index_name': index_name,
+                    'class': table_storage_class,
                     'metric_name': setting['ScalableDimension'],
                     'min_capacity': setting['MinCapacity'],
                     'max_capacity': setting['MaxCapacity'],
@@ -45,6 +46,7 @@ class DynamoDBAutoscaler:
                 data.append({
                     'base_table_name': base_table_name,
                     'index_name': index_name,
+                    'class': table_storage_class,
                     'metric_name': None,
                     'min_capacity': None,
                     'max_capacity': None,
@@ -63,6 +65,10 @@ class DynamoDBAutoscaler:
 
         # Get the global secondary indexes (if any)
         table_data = desc_table['Table']
+        try:
+            table_storage_class = table_data['TableClassSummary']['TableClass']
+        except:
+            table_storage_class = 'STANDARD'
 
         global_indexes = table_data.get('GlobalSecondaryIndexes', [])
 
@@ -73,13 +79,13 @@ class DynamoDBAutoscaler:
 
         if BillingModeSummary is not None:
             if desc_table['Table']['BillingModeSummary']['BillingMode'] == 'PAY_PER_REQUEST':
-                result_df = pd.DataFrame({'base_table_name': [name], 'index_name': [np.nan], 'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
+                result_df = pd.DataFrame({'base_table_name': [name], 'index_name': [np.nan], 'class': [table_storage_class],  'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
                     np.nan], 'target_utilization': [np.nan], 'autoscaling_enabled': [np.nan],
                     'throughput_mode': 'Ondemand'})
                 if global_indexes is not None:
                     for index in global_indexes:
                         index_name = index['IndexName']
-                        index_settings = pd.DataFrame({'base_table_name': [name], 'index_name': [index_name], 'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
+                        index_settings = pd.DataFrame({'base_table_name': [name], 'index_name': [index_name], 'class': [table_storage_class], 'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
                             np.nan], 'target_utilization': [np.nan], 'autoscaling_enabled': [np.nan],
                             'throughput_mode': ['Ondemand']})
                         result_df = pd.concat(
@@ -91,12 +97,12 @@ class DynamoDBAutoscaler:
                 response = app_autoscaling.describe_scalable_targets(
                     ResourceIds=[f"table/{name}"], ServiceNamespace='dynamodb')
                 if len(response['ScalableTargets']) == 0:
-                    result_df = pd.DataFrame({'base_table_name': [name], 'index_name': [np.nan], 'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
+                    result_df = pd.DataFrame({'base_table_name': [name], 'index_name': [np.nan], 'class': [table_storage_class], 'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
                         np.nan], 'target_utilization': [np.nan], 'autoscaling_enabled': ['False'], 'throughput_mode': ['Provisioned']})
                     result = [result_df]
                 else:
                     settings = self.get_dynamodb_autoscaling_settings(
-                        base_table_name=name)
+                        base_table_name=name, table_storage_class=table_storage_class)
                     result = [settings]
 
                 # Get autoscaling settings for each index (if any)
@@ -107,11 +113,11 @@ class DynamoDBAutoscaler:
                             ResourceIds=[f"table/{name}/index/{index_name}"], ServiceNamespace='dynamodb')
 
                         if len(response['ScalableTargets']) == 0:
-                            index_settings = pd.DataFrame({'base_table_name': [name], 'index_name': [index_name], 'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
+                            index_settings = pd.DataFrame({'base_table_name': [name], 'index_name': [index_name], 'class': [table_storage_class], 'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
                                 np.nan], 'target_utilization': [np.nan], 'autoscaling_enabled': ['False'], 'throughput_mode': ['Provisioned']})
                         else:
                             index_settings = self.get_dynamodb_autoscaling_settings(
-                                base_table_name=name, index_name=index_name)
+                                base_table_name=name, table_storage_class=table_storage_class, index_name=index_name)
 
                         if index_settings is not None:
                             result.append(index_settings)
@@ -125,13 +131,13 @@ class DynamoDBAutoscaler:
             response = app_autoscaling.describe_scalable_targets(
                 ResourceIds=[f"table/{name}"], ServiceNamespace='dynamodb')
             if len(response['ScalableTargets']) == 0:
-                result_df = pd.DataFrame({'base_table_name': [name], 'index_name': [np.nan], 'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
+                result_df = pd.DataFrame({'base_table_name': [name], 'index_name': [np.nan], 'class': [table_storage_class], 'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
                     np.nan], 'target_utilization': [np.nan], 'autoscaling_enabled': ['False'], 'throughput_mode': ['Provisioned']})
                 result = [result_df]
             else:
                 # Get autoscaling settings for the table
                 settings = self.get_dynamodb_autoscaling_settings(
-                    base_table_name=name)
+                    base_table_name=name, table_storage_class=table_storage_class)
                 result = [settings]
 
             # Get autoscaling settings for each index (if any)
@@ -142,11 +148,11 @@ class DynamoDBAutoscaler:
                         ResourceIds=[f"table/{name}/index/{index_name}"], ServiceNamespace='dynamodb')
 
                     if len(response['ScalableTargets']) == 0:
-                        index_settings = pd.DataFrame({'base_table_name': [name], 'index_name': [index_name], 'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
+                        index_settings = pd.DataFrame({'base_table_name': [name], 'index_name': [index_name], 'class': [table_storage_class], 'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
                             np.nan], 'target_utilization': [np.nan], 'autoscaling_enabled': ['False'], 'throughput_mode': ['Provisioned']})
                     else:
                         index_settings = self.get_dynamodb_autoscaling_settings(
-                            base_table_name=name,  index_name=index_name)
+                            base_table_name=name, table_storage_class=table_storage_class, index_name=index_name)
                     if index_settings is not None:
                         result.append(index_settings)
 

@@ -109,8 +109,9 @@ Check the generated files in the `output` folder.
 
 The **`recommendation_summary.csv`** file contains the following columns,
 
-- `index_name`: The name of the index associated table in the recommendation, if table has not index then it is the table name.
+- `index_name`: The name of the index associated table in the recommendation.
 - `base_table_name`: The name of the table associated with the recommendation.
+- `class`: Storage class of the table associated with the recommendation.
 - `metric_name`: The name of the metric associated with the recommendation.
 - `est_provisioned_cost`: The estimated cost of the Provisioned mode based on the table's simulated usage.
 - `current_provisioned_cost`: If table capacity mode is provisioned, the table's current Provisioned cost.
