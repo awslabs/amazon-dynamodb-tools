@@ -31,6 +31,9 @@ def estimateUnits(read, write, readutilization, writeutilization, read_min, writ
     else:
         smallest_list = write
     finalreadcu = []
+
+    # 10% percent to prevent small fluctuations in capacity usage from triggering unnecessary scale-ins.
+    scale_in_threshold = 1.10
     count = 0
     last_change = "read"
     finalwritecu = []
@@ -108,15 +111,19 @@ def estimateUnits(read, write, readutilization, writeutilization, read_min, writ
         last15Maxwrite = max(last15write)
         if count < 4:
             if not decrease15(last15read2):
-                currentread[5] = max(minA(
-                    (last15Maxread / readutilization) * 100, currentread[5]), read_min)
+                if prevread[5] > (max(minA(
+                        (last15Maxread / readutilization) * 100, currentread[5]), read_min) * scale_in_threshold):
+                    currentread[5] = max(minA(
+                        (last15Maxread / readutilization) * 100, currentread[5]), read_min)
                 if prevread[5] > currentread[5]:
 
                     count += 1
 
             if not decrease15(last15write2):
-                currentwrite[5] = max(minA(
-                    (last15Maxwrite / writeutilization) * 100, currentwrite[5]), write_min)
+                if prevwrite[5] > (max(minA(
+                    (last15Maxwrite / writeutilization) * 100, currentwrite[5]), write_min) * scale_in_threshold):
+                    currentwrite[5] = max(minA(
+                        (last15Maxwrite / writeutilization) * 100, currentwrite[5]), write_min)
                 if prevwrite[5] > currentwrite[5]:
                     count += 1
 
@@ -127,7 +134,8 @@ def estimateUnits(read, write, readutilization, writeutilization, read_min, writ
                 last60write = [v[5] for v in list(write[i - 60: i])]
                 # if Table has not scale in in past 60 minutes then scale in
                 if not decrease60(last60read) and not decrease60(last60write):
-                    if prevread[5] > max(minA((last15Maxread / readutilization) * 100, currentread[5]), read_min) and prevwrite[5] > max(minA((last15Maxwrite / writeutilization) * 100, currentwrite[5]), write_min):
+                    if prevread[5] > (max(
+                                minA((last15Maxread / readutilization) * 100, currentread[5]), read_min) * scale_in_threshold) and prevwrite[5] > (max(minA((last15Maxwrite / writeutilization) * 100, currentwrite[5]), write_min) * scale_in_threshold):
                         if last_change == "write":
                             currentread[5] = max(
                                 minA((last15Maxread / readutilization) * 100, currentread[5]), read_min)
@@ -137,10 +145,16 @@ def estimateUnits(read, write, readutilization, writeutilization, read_min, writ
                                 minA((last15Maxwrite / writeutilization) * 100, currentwrite[5]), write_min)
                             last_change = "write"
                     else:
-                        currentwrite[5] = max(
-                            minA((last15Maxwrite / writeutilization) * 100, currentwrite[5]), write_min)
-                        currentread[5] = max(
+                        if prevread[5] > (max(
+                                minA((last15Maxread / readutilization) * 100, currentread[5]), read_min) * scale_in_threshold):
+                            currentread[5] = max(
                             minA((last15Maxread / readutilization) * 100, currentread[5]), read_min)
+                            
+                        if prevwrite[5] > (max
+                                           (minA((last15Maxwrite / writeutilization) * 100, currentwrite[5]), write_min) * scale_in_threshold):
+                            currentwrite[5] = max(
+                                minA((last15Maxwrite / writeutilization) * 100, currentwrite[5]), write_min)
+                        
                 else:
                     pass
 

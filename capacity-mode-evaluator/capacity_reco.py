@@ -1,6 +1,6 @@
 import argparse
 from datetime import datetime
-from src.dynamodb import DDBinfo
+from src.dynamodb import DDBScalingInfo
 from src.getmetrics import get_metrics
 from src.cost_estimates import recommendation_summary
 import pandas as pd
@@ -80,6 +80,7 @@ if __name__ == '__main__':
 
     params = get_params(args)
     print(params)
+    DDBinfo = DDBScalingInfo()
     dynamo_tables_result = DDBinfo.get_all_dynamodb_autoscaling_settings_with_indexes(
         params['dynamodb_tablename'])
 

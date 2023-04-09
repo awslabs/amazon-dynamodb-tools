@@ -5,7 +5,7 @@ from tqdm import tqdm
 import boto3
 
 
-class DynamoDBAutoscaler:
+class DDBScalingInfo:
     def __init__(self):
         self.dynamodb_client = boto3.client('dynamodb')
         self.app_autoscaling = boto3.client('application-autoscaling')
@@ -214,9 +214,3 @@ class DynamoDBAutoscaler:
             return settings
         else:
             raise ValueError("No DynamoDB tables found in this region")
-
-
-"""
-Gets the autoscaling settings for all tables and indexes in the specified account and region and appends them to the list
-"""
-DDBinfo = DynamoDBAutoscaler()
