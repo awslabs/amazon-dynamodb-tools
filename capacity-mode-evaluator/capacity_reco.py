@@ -1,6 +1,6 @@
 import argparse
 from datetime import datetime
-from src.dynamodb import DDBinfo
+from src.dynamodb import DDBScalingInfo
 from src.getmetrics import get_metrics
 from src.cost_estimates import recommendation_summary
 import pandas as pd
@@ -20,7 +20,9 @@ def get_params(args):
     params['dynamodb_read_utilization'] = args.dynamodb_read_utilization
     params['dynamodb_write_utilization'] = args.dynamodb_write_utilization
     params['dynamodb_minimum_write_unit'] = args.dynamodb_minimum_write_unit
+    params['dynamodb_maximum_write_unit'] = args.dynamodb_maximum_write_unit
     params['dynamodb_minimum_read_unit'] = args.dynamodb_minimum_read_unit
+    params['dynamodb_maximum_read_unit'] = args.dynamodb_maximum_read_unit
     params['number_of_days_look_back'] = args.number_of_days_look_back
 
     now = datetime.utcnow()
@@ -66,14 +68,19 @@ if __name__ == '__main__':
                         type=int, default=70, help='DynamoDB write utilization')
     parser.add_argument('--dynamodb-minimum-write-unit',
                         type=int, default=1, help='DynamoDB minimum write unit')
+    parser.add_argument('--dynamodb-maximum-write-unit',
+                        type=int, default=80000, help='DynamoDB maximum write unit')
     parser.add_argument('--dynamodb-minimum-read-unit',
                         type=int, default=1, help='DynamoDB minimum read unit')
+    parser.add_argument('--dynamodb-maximum-read-unit',
+                        type=int, default=80000, help='DynamoDB maximum read unit')
     parser.add_argument('--number-of-days-look-back', type=int,
                         default=14, help='Number of days to look back')
     args = parser.parse_args()
 
     params = get_params(args)
     print(params)
+    DDBinfo = DDBScalingInfo()
     dynamo_tables_result = DDBinfo.get_all_dynamodb_autoscaling_settings_with_indexes(
         params['dynamodb_tablename'])
 
