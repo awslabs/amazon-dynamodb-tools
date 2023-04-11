@@ -16,7 +16,7 @@ The Table Capacity Mode Optimization Tool analyzes DynamoDB table usage (metrics
 **Scaling simulation behavior:**
 
 - **Scale-out**: When consumed reads or writes exceeds the target utilization for two consecutive data points(two minutes).
-- **Scale-in**: When consumed reads or writes falls below the target utilization for 15 consecutive data points(15 minutes). It performs scale-in up to four times as needed, after which it scales in once every 1-hour windows within a day. This is to simulate the DynamoDB's scale-in limitation.
+- **Scale-in**: When consumed reads or writes falls %20 below the target utilization for 15 consecutive data points(15 minutes). It performs scale-in up to four times as needed, after which it scales in once every 1-hour windows within a day. This is to simulate the DynamoDB's scale-in limitation.
 
 **Limitations:**  
 
@@ -104,7 +104,7 @@ There are two capacity modes available in DynamoDB:
 
 ## Output
 
-Check the generated files in the `output` folder.
+Check the generated files in the `output` folder. [Here](static/recommendation_summary.csv) is an example output
 
 **Note:** The information generated is applicable only to the period specified by `DAYS_LOOK_BACK` and is provided on separate lines for the table and relevant index for both `ReadCapacityUnits` and `WriteCapacityUnits`.
 

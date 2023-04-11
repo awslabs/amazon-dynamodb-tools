@@ -32,8 +32,8 @@ def estimateUnits(read, write, readutilization, writeutilization, read_min, writ
         smallest_list = write
     finalreadcu = []
 
-    # 10% percent to prevent small fluctuations in capacity usage from triggering unnecessary scale-ins.
-    scale_in_threshold = 1.10
+    # Scale-in threshold = 20% percent to prevent small fluctuations in capacity usage from triggering unnecessary scale-ins.
+    scale_in_threshold = 1.20
     count = 0
     last_change = "read"
     finalwritecu = []
@@ -100,15 +100,16 @@ def estimateUnits(read, write, readutilization, writeutilization, read_min, writ
             prevwrite = currentwrite
             finalwritecu += [currentwrite]
             continue
-        # Create list from last 15 Consumed Units
+        # Create list from last 15 Consumed Read Units
         last15read = [v[4] for v in list(read[i - 15: i])]
         last15read2 = [v[5] for v in list(read[i - 15: i])]
         last15Maxread = max(last15read)
-        # Create list from last 15 Consumed Units
+        # Create list from last 15 Consumed Write Units
         last15write = [v[4] for v in list(write[i - 15: i])]
         last15write2 = [v[5] for v in list(write[i - 15: i])]
-
         last15Maxwrite = max(last15write)
+        #Scale-in based on last 15 Consumed Units
+        #First 4 scale-in operation can happen anytime during the a day, there after every once an hour
         if count < 4:
             if not decrease15(last15read2):
                 if prevread[5] > (max(minA(
