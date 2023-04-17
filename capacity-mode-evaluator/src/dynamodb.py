@@ -183,7 +183,7 @@ class DDBScalingInfo:
         settings_list = []
         if len(table_names) != 0:
             # Create a thread pool to execute _process_table() for each table in parallel
-            with ThreadPoolExecutor(max_workers=20) as executor:
+            with ThreadPoolExecutor(max_workers=10) as executor:
                 futures = [executor.submit(self._process_table, name)
                            for name in table_names]
                 progress_bar = tqdm(total=len(table_names),
