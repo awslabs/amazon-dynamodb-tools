@@ -10,7 +10,7 @@ class DDBScalingInfo:
         self.dynamodb_client = boto3.client('dynamodb')
         self.app_autoscaling = boto3.client('application-autoscaling')
 
-    def get_dynamodb_autoscaling_settings(self,  base_table_name: str, table_storage_class: str, index_name: str = None) -> pd.DataFrame:
+    def get_dynamodb_autoscaling_settings(self, base_table_name: str, table_storage_class: str, index_name: str = None) -> pd.DataFrame:
 
         app_autoscaling = self.app_autoscaling
 
@@ -79,7 +79,7 @@ class DDBScalingInfo:
 
         if BillingModeSummary is not None:
             if desc_table['Table']['BillingModeSummary']['BillingMode'] == 'PAY_PER_REQUEST':
-                result_df = pd.DataFrame({'base_table_name': [name], 'index_name': [np.nan], 'class': [table_storage_class],  'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
+                result_df = pd.DataFrame({'base_table_name': [name], 'index_name': [np.nan], 'class': [table_storage_class], 'metric_name': [np.nan], 'min_capacity': [np.nan], 'max_capacity': [
                     np.nan], 'target_utilization': [np.nan], 'autoscaling_enabled': [np.nan],
                     'throughput_mode': 'Ondemand'})
                 if global_indexes is not None:
@@ -160,7 +160,7 @@ class DDBScalingInfo:
                 result_df = pd.concat(result, axis=0)
             return result_df
 
-    def get_all_dynamodb_autoscaling_settings_with_indexes(self, table_name: str) -> pd.DataFrame:
+    def get_all_dynamodb_autoscaling_settings_with_indexes(self, table_name: str, max_concurrent_tasks: int) -> pd.DataFrame:
 
         dynamodb_client = self.dynamodb_client
 
@@ -183,7 +183,7 @@ class DDBScalingInfo:
         settings_list = []
         if len(table_names) != 0:
             # Create a thread pool to execute _process_table() for each table in parallel
-            with ThreadPoolExecutor(max_workers=10) as executor:
+            with ThreadPoolExecutor(max_workers=max_concurrent_tasks) as executor:
                 futures = [executor.submit(self._process_table, name)
                            for name in table_names]
                 progress_bar = tqdm(total=len(table_names),

@@ -24,6 +24,7 @@ def get_params(args):
     params['dynamodb_minimum_read_unit'] = args.dynamodb_minimum_read_unit
     params['dynamodb_maximum_read_unit'] = args.dynamodb_maximum_read_unit
     params['number_of_days_look_back'] = args.number_of_days_look_back
+    params['max_concurrent_tasks'] = args.max_concurrent_tasks
 
     now = datetime.utcnow()
     midnight = datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=pytz.UTC)
@@ -49,7 +50,7 @@ def process_dynamodb_table(dynamodb_table_info: pd.DataFrame, params: dict, debu
         metric_df.to_csv(filename_metrics, index=False)
         estimate_df.to_csv(filename_estimate, index=False)
         cost_estimate_df.to_csv(filename_cost_estimate, index=False)
-    filename_summary = os.path.join(dir_path, 'recommendation_summary.csv')
+    filename_summary = os.path.join(dir_path, 'analysis_summary.csv')
     summary_result[0].to_csv(filename_summary, index=False)
     return summary_result[0]
 
@@ -76,13 +77,15 @@ if __name__ == '__main__':
                         type=int, default=80000, help='DynamoDB maximum read unit')
     parser.add_argument('--number-of-days-look-back', type=int,
                         default=14, help='Number of days to look back')
+    parser.add_argument('--max-concurrent-tasks', type=int,
+                        default=5, help='Maximum number of tasks to run concurrently')
     args = parser.parse_args()
 
     params = get_params(args)
     print(params)
     DDBinfo = DDBScalingInfo()
     dynamo_tables_result = DDBinfo.get_all_dynamodb_autoscaling_settings_with_indexes(
-        params['dynamodb_tablename'])
+        params['dynamodb_tablename'], params['max_concurrent_tasks'] )
 
     dynamo_tables_result.to_csv(
         os.path.join(dir_path, 'dynamodb_table_info.csv'), index=False)

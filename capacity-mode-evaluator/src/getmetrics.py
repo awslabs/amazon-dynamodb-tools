@@ -25,7 +25,7 @@ def list_metrics(tablename: str) -> list:
     return metrics_list
 
 
-def process_results(metr_list, metric, metric_result_queue, estimate_result_queue, readutilization, writeutilization, read_min, write_min, read_max, write_max):
+def process_results(metr_list, metric, metric_result_queue, estimate_result_queue, read_utilization, write_utilization, read_min, write_min, read_max, write_max):
 
     metrics_result = []
     for result in metr_list['MetricDataResults']:
@@ -40,17 +40,17 @@ def process_results(metr_list, metric, metric_result_queue, estimate_result_queu
         tmdf['timestamp'] = pd.to_datetime(tmdf['timestamp'], unit='ms')
         tmdf['name'] = name
         tmdf['metric_name'] = result['Label']
-        tmdf = tmdf[['metric_name',  'timestamp', 'name', 'unit']]
+        tmdf = tmdf[['metric_name', 'timestamp', 'name', 'unit']]
         metrics_result.append(tmdf)
         metric_result_queue.put(tmdf)
     metrics_result = pd.concat(metrics_result)
     estimate_units = estimates.estimate(
-        metrics_result, readutilization, writeutilization, read_min, write_min, read_max, write_max)
+        metrics_result, read_utilization, write_utilization, read_min, write_min, read_max, write_max)
 
     estimate_result_queue.put(estimate_units)
 
 
-def fetch_metric_data(metric, starttime, endtime, consumed_period, provisioned_period):
+def fetch_metric_data(metric, start_time, end_time, consumed_period, provisioned_period):
     cw = boto3.client('cloudwatch')
 
     if metric['MetricName'] == 'ProvisionedWriteCapacityUnits':
@@ -79,7 +79,7 @@ def fetch_metric_data(metric, starttime, endtime, consumed_period, provisioned_p
                     'Stat': 'Average'
                 }
             }
-        ], StartTime=starttime, EndTime=endtime)
+        ], StartTime=start_time, EndTime=end_time)
         return (result, metric['Dimensions'])
 
     elif metric['MetricName'] == 'ConsumedReadCapacityUnits':
@@ -108,24 +108,24 @@ def fetch_metric_data(metric, starttime, endtime, consumed_period, provisioned_p
                     'Stat': 'Sum'
                 }
             }
-        ], StartTime=starttime, EndTime=endtime)
+        ], StartTime=start_time, EndTime=end_time)
         return (result, metric['Dimensions'])
 
     return None
 
 
-def get_table_metrics(metrics, starttime, endtime, consumed_period, provisioned_period, readutilization, writeutilization, read_min, write_min, read_max, write_max):
+def get_table_metrics(metrics, start_time, end_time, consumed_period, provisioned_period, read_utilization, write_utilization, read_min, write_min, read_max, write_max, max_concurrent_tasks):
     metric_result_queue = Queue()
     estimate_result_queue = Queue()
-    metric_data_list = thread_map(lambda metric: fetch_metric_data(metric, starttime, endtime, consumed_period, provisioned_period),
-                                  metrics, max_workers=10)
+    metric_data_list = thread_map(lambda metric: fetch_metric_data(metric, start_time, end_time, consumed_period, provisioned_period),
+                                  metrics, max_workers=max_concurrent_tasks)
 
     metric_data_list = [
         result for result in metric_data_list if result is not None]
 
     print("starting process to estimate dynamodb table provisioned metrics")
-    thread_map(lambda result: process_results(result[0], result[1], metric_result_queue, estimate_result_queue, readutilization, writeutilization, read_min, write_min, read_max, write_max),
-               metric_data_list, max_workers=10)
+    thread_map(lambda result: process_results(result[0], result[1], metric_result_queue, estimate_result_queue, read_utilization, write_utilization, read_min, write_min, read_max, write_max),
+               metric_data_list, max_workers=max_concurrent_tasks)
 
     processed_metric = []
     processed_estimate = []
@@ -149,19 +149,20 @@ def get_metrics(params):
     write_min = params['dynamodb_minimum_write_unit']
     read_max = params['dynamodb_maximum_read_unit']
     write_max = params['dynamodb_maximum_write_unit']
-    readutilization = params['dynamodb_read_utilization']
-    writeutilization = params['dynamodb_write_utilization']
+    read_utilization = params['dynamodb_read_utilization']
+    write_utilization = params['dynamodb_write_utilization']
     dynamodb_tablename = params['dynamodb_tablename']
     interval = params['number_of_days_look_back']
     now = params['cloudwatch_metric_end_datatime']
     now = datetime.strptime(now, '%Y-%m-%d %H:%M:%S')
-    endtime = now
-    starttime = endtime - timedelta(days=interval)
-    endtime = endtime.strftime('%Y-%m-%dT%H:%M:%SZ')
-    starttime = starttime.strftime('%Y-%m-%dT%H:%M:%SZ')
+    end_time = now
+    start_time = end_time - timedelta(days=interval)
+    end_time = end_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+    start_time = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+    max_concurrent_tasks = params['max_concurrent_tasks']
 
     metrics = list_metrics(dynamodb_tablename)
-    result = get_table_metrics(metrics, starttime, endtime, consumed_period,
-                               provisioned_period, readutilization, writeutilization, read_min, write_min, read_max, write_max)
+    result = get_table_metrics(metrics, start_time, end_time, consumed_period,
+                               provisioned_period, read_utilization, write_utilization, read_min, write_min, read_max, write_max, max_concurrent_tasks)
 
     return result
