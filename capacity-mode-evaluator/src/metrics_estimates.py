@@ -14,7 +14,7 @@ def decrease(L):
     return any(x > y for x, y in zip(L, L[1:]))
 
 
-def estimateUnits(read, write, read_utilization, write_utilization, read_min, write_min, read_max, write_max):
+def estimate_units(read, write, read_utilization, write_utilization, read_min, write_min, read_max, write_max):
     # columns [metric_name,timestamp,name,units,unitps,estunit]
     if len(read) <= len(write):
         smallest_list = read
@@ -153,8 +153,8 @@ def estimateUnits(read, write, read_utilization, write_utilization, read_min, wr
         prev_write = current_write
         final_read_cu += [current_read]
         final_write_cu += [current_write]
-    finalist = final_write_cu + final_read_cu
-    return finalist
+    final_list = final_write_cu + final_read_cu
+    return final_list
 
 
 def estimate(df, read_utilization, write_utilization, read_min, write_min, read_max, write_max):
@@ -163,7 +163,7 @@ def estimate(df, read_utilization, write_utilization, read_min, write_min, read_
     df['estunit'] = 5
 
     name = df['name'].unique()
-    finalcu = []
+    final_cu = []
     for table_name in name:
 
         rcu = df.query(
@@ -175,12 +175,12 @@ def estimate(df, read_utilization, write_utilization, read_min, write_min, read_
         wcu = ((wcu.sort_values(by='timestamp', ascending=True)
                 ).reset_index(drop=True)).values.tolist()
         if len(rcu) > 0 and len(wcu) > 0:
-            finalcu += estimateUnits(rcu, wcu,
+            final_cu += estimate_units(rcu, wcu,
                                      read_utilization, write_utilization, read_min, write_min, read_max, write_max)
-    if len(finalcu) > 0:
-        finaldf = pd.DataFrame(finalcu)
-        finaldf.columns = ['metric_name', 'timestamp',
+    if len(final_cu) > 0:
+        final_df = pd.DataFrame(finalcu)
+        final_df.columns = ['metric_name', 'timestamp',
                            'name', 'unit', 'unitps', 'estunit']
-        return finaldf
+        return final_df
     else:
         return None
