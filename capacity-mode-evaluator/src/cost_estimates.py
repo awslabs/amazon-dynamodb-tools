@@ -84,8 +84,8 @@ def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_uti
 
     q2['provisioned_cost'] = (
         q2.apply(
-            lambda x: x['unit'] * x['unit_cost'] if x['metric_name'] == 'ProvisionedReadCapacityUnits' else x['unit'] *
-            x['unit_cost'] if x[
+            lambda x: x['unit'] * x['unit_cost'] if x['metric_name'] == 'ProvisionedReadCapacityUnits' else x['unit']
+            * x['unit_cost'] if x[
                 'metric_name'] == 'ProvisionedWriteCapacityUnits' else 0,
             axis=1
         )
@@ -95,7 +95,7 @@ def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_uti
                    'class': 'storage_class'})
 
     df = q1.merge(q2, how='left', on=[
-                  'name',  'timestamp', 'metric_name'])
+                  'name', 'timestamp', 'metric_name'])
 
     df['current_provisioned_cost'] = df['provisioned_cost']
     df['ondemand_unit'] = df['Consumed_unit']
@@ -115,7 +115,7 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
         region_name)
     provisioned_pricing = pricing_utility.get_provisioned_capacity_pricing(
         region_name)
-
+    overprovision_delta = 1.5e-1
     # Extract the required parameters from the input dictionary
     read_min = params.get('dynamodb_minimum_read_unit', 0)
     write_min = params.get('dynamodb_minimum_write_unit', 0)
@@ -146,7 +146,7 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
     cost_estimate_df["base_table_name"] = cost_estimate_df["index_name"].str.split(
         ':').str[0]
     # Aggregate the cost estimates
-    q1 = cost_estimate_df.groupby(['index_name', 'base_table_name',  'metric_name', 'class']).agg(
+    q1 = cost_estimate_df.groupby(['index_name', 'base_table_name', 'metric_name', 'class']).agg(
         est_provisioned_cost=('est_provisioned_cost', 'sum'),
         current_provisioned_cost=('current_provisioned_cost', 'sum'),
         ondemand_cost=('ondemand_cost', 'sum'),
@@ -157,21 +157,21 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
         target_utilization=('target_utilization', 'mean')
     ).reset_index()
 
-    q1['number_of_days'] = (q1['timestamp_max'] -
-                            q1['timestamp_min']).dt.days + 1
+    q1['number_of_days'] = (q1['timestamp_max']
+                            - q1['timestamp_min']).dt.days + 1
 
     q1['recommended_mode'] = np.where(
-        (q1['est_provisioned_cost'] < q1['current_provisioned_cost']) &
-        (q1['est_provisioned_cost'] < q1['ondemand_cost']) &
-        (np.divide((q1['current_provisioned_cost'] - q1['est_provisioned_cost']),
-         q1['current_provisioned_cost'], where=q1['current_provisioned_cost'] != 0) > 1.5e-1),
+        (q1['est_provisioned_cost'] < q1['current_provisioned_cost'])
+        & (q1['est_provisioned_cost'] < q1['ondemand_cost'])
+        & (np.divide((q1['current_provisioned_cost'] - q1['est_provisioned_cost']),
+                     q1['current_provisioned_cost'], where=q1['current_provisioned_cost'] != 0) > overprovision_delta),
         'Provisioned_Modify',
         np.where(
-            (q1['current_provisioned_cost'] != 0) &
-            (q1['current_provisioned_cost'] < q1['ondemand_cost']),
+            (q1['current_provisioned_cost'] != 0)
+            & (q1['current_provisioned_cost'] < q1['ondemand_cost']),
             'Provisioned',
-            np.where(q1['est_provisioned_cost'] <
-                     q1['ondemand_cost'], 'Provisioned', 'Ondemand')
+            np.where(q1['est_provisioned_cost']
+                     < q1['ondemand_cost'], 'Provisioned', 'Ondemand')
         )
     )
 
@@ -180,7 +180,7 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
              'max_capacity', 'target_utilization']]
 
     q2 = dynamodb_info_df.rename(columns={'table_name': 'base_table_name'})[
-        ['index_name', 'base_table_name',  'metric_name', 'min_capacity', 'max_capacity', 'target_utilization', 'throughput_mode', 'autoscaling_enabled']]
+        ['index_name', 'base_table_name', 'metric_name', 'min_capacity', 'max_capacity', 'target_utilization', 'throughput_mode', 'autoscaling_enabled']]
 
     q2 = q2.rename(columns={'min_capacity': 'current_min_capacity',
                             'max_capacity': 'current_max_capacity',
@@ -205,8 +205,8 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
     view_df['savings_pct'] = np.where(
         (view_df['current_mode'] == 'Ondemand') & (
             view_df['recommended_mode'] == 'Provisioned'),
-        (view_df['ondemand_cost'] - view_df['est_provisioned_cost']) /
-        view_df['ondemand_cost'],
+        (view_df['ondemand_cost'] - view_df['est_provisioned_cost'])
+        / view_df['ondemand_cost'],
         np.where(
             (view_df['current_mode'] == 'Provisioned') & (
                 view_df['recommended_mode'] == 'Ondemand'),
@@ -232,12 +232,12 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
         view_df['recommended_mode'] == 'Ondemand',
         view_df['ondemand_cost'],
         np.where(
-            (view_df['current_mode'] == 'Provisioned') &
-            (view_df['recommended_mode'] == 'Provisioned'),
+            (view_df['current_mode'] == 'Provisioned')
+            & (view_df['recommended_mode'] == 'Provisioned'),
             view_df['current_provisioned_cost'],
             np.where(
-                (view_df['current_mode'] == 'Ondemand') &
-                (view_df['recommended_mode'] == 'Provisioned'),
+                (view_df['current_mode'] == 'Ondemand')
+                & (view_df['recommended_mode'] == 'Provisioned'),
                 view_df['est_provisioned_cost'],
                 view_df['est_provisioned_cost']
             )
@@ -247,8 +247,10 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
                 'autoscaling_enabled'] = view_df['autoscaling_enabled'].fillna(False)
     view_df['index_name'] = view_df['index_name'].apply(
         lambda x: x.split(':')[1] if len(x.split(':')) > 1 else '')
+    
+    view_df['Note'] = 'When changing the capacity mode from On-Demand to Provisioned or vice versa, consider the tools limitations such as lack of consideration for scaling delays and 14 days lookback period and test any changes before implementing'
 
     view_df = view_df.reindex(columns=['base_table_name', 'index_name', 'class', 'metric_name', 'est_provisioned_cost', 'current_provisioned_cost', 'ondemand_cost', 'recommended_mode',
-                              'current_mode', 'status', 'savings_pct', 'current_cost', 'recommended_cost', 'number_of_days', 'current_min_capacity', 'simulated_min_capacity', 'current_max_capacity', 'simulated_max_capacity', 'current_target_utilization', 'simulated_target_utilizatio', 'autoscaling_enabled'])
+                              'current_mode', 'status', 'savings_pct', 'current_cost', 'recommended_cost', 'number_of_days', 'current_min_capacity', 'simulated_min_capacity', 'current_max_capacity', 'simulated_max_capacity', 'current_target_utilization', 'simulated_target_utilizatio', 'autoscaling_enabled','Note'])
 
     return view_df, cost_estimate_df

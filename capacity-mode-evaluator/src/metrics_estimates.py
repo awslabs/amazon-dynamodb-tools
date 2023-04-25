@@ -2,54 +2,44 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 
 
-def maxA(i, j):
-    if i > j:
-        return i
-    else:
-        return j
+def max_a(i, j):
+    return i if i > j else j
 
 
-def minA(i, j):
-    if i > j:
-        return j
-    else:
-        return i
+def min_a(i, j):
+    return j if i > j else i
 
 
-def decrease60(L):
+def decrease(L):
     return any(x > y for x, y in zip(L, L[1:]))
 
 
-def decrease15(L):
-    return any(x > y for x, y in zip(L, L[1:]))
-
-
-def estimateUnits(read, write, readutilization, writeutilization, read_min, write_min, read_max, write_max):
+def estimateUnits(read, write, read_utilization, write_utilization, read_min, write_min, read_max, write_max):
     # columns [metric_name,timestamp,name,units,unitps,estunit]
     if len(read) <= len(write):
         smallest_list = read
     else:
         smallest_list = write
-    finalreadcu = []
+    final_read_cu = []
 
     # Scale-in threshold = 20% percent to prevent small fluctuations in capacity usage from triggering unnecessary scale-ins.
     scale_in_threshold = 1.20
     count = 0
     last_change = "read"
-    finalwritecu = []
-    prevread = read[0]
-    prevwrite = write[0]
-    finalwritecu += [prevwrite]
-    finalreadcu += [prevread]
-    prevread[5] = min(max((prevread[4] / readutilization)
+    final_write_cu = []
+    prev_read = read[0]
+    prev_write = write[0]
+    final_write_cu += [prev_write]
+    final_read_cu += [prev_read]
+    prev_read[5] = min(max((prev_read[4] / read_utilization)
                       * 100, read_min), read_max)
-    prevwrite[5] = min(max((prevwrite[4] / writeutilization)
+    prev_write[5] = min(max((prev_write[4] / write_utilization)
                        * 100, write_min), write_max)
     for i in range(1, len(smallest_list)):
-        currentread = read[i]
-        currentwrite = write[i]
+        current_read = read[i]
+        current_write = write[i]
 
-        date_time_obj = currentread[1].to_pydatetime()
+        date_time_obj = current_read[1].to_pydatetime()
         midnight = date_time_obj.replace(hour=0, minute=0, second=0)
         if date_time_obj == midnight:
             count = 0
@@ -57,117 +47,117 @@ def estimateUnits(read, write, readutilization, writeutilization, read_min, writ
         # compare with prev val
 
         if i <= 2:
-            currentread[5] = prevread[5]
-            currentwrite[5] = prevwrite[5]
-            finalreadcu += [currentread]
-            finalwritecu += [currentwrite]
+            current_read[5] = prev_read[5]
+            current_write[5] = prev_write[5]
+            final_read_cu += [current_read]
+            final_write_cu += [current_write]
             continue
         # creating a list with last 2 records.
-        last2read = [v[4] for v in list(read[i - 2: i])]
-        last2write = [v[4] for v in list(write[i - 2: i])]
+        last2_read = [v[4] for v in list(read[i - 2: i])]
+        last2_write = [v[4] for v in list(write[i - 2: i])]
 
-        last2maxread = max(last2read)
-        last2maxwrite = max(last2write)
-        last2minread = min(last2read)
-        last2minwrite = min(last2write)
-        maxVread = min(maxA((last2minread / readutilization)
-                            * 100, prevread[5]), read_max)
+        last2_max_read = max(last2_read)
+        last2_max_write = max(last2_write)
+        last2_min_read = min(last2_read)
+        last2_min_write = min(last2_write)
+        max_vread = min(max_a((last2_min_read / read_utilization)
+                            * 100, prev_read[5]), read_max)
 
-        maxVwrite = min(maxA((last2minwrite / writeutilization)
-                             * 100, prevwrite[5]), write_max)
+        max_vwrite = min(max_a((last2_min_write / write_utilization)
+                             * 100, prev_write[5]), write_max)
         # scale out based on last 2 min Units.
 
-        if currentread[0] == 'ConsumedReadCapacityUnits':
-            if maxVread == (last2minread / readutilization) * 100:
+        if current_read[0] == 'ConsumedReadCapacityUnits':
+            if max_vread == (last2_min_read / read_utilization) * 100:
 
-                currentread[5] = (last2maxread / readutilization) * 100
+                current_read[5] = (last2_max_read / read_utilization) * 100
 
             else:
 
-                currentread[5] = maxVread
+                current_read[5] = max_vread
 
-        if currentwrite[0] == 'ConsumedWriteCapacityUnits':
-            if maxVwrite == (last2minwrite / writeutilization) * 100:
+        if current_write[0] == 'ConsumedWriteCapacityUnits':
+            if max_vwrite == (last2_min_write / write_utilization) * 100:
 
-                currentwrite[5] = (last2maxwrite / writeutilization) * 100
+                current_write[5] = (last2_max_write / write_utilization) * 100
             else:
 
-                currentwrite[5] = maxVwrite
+                current_write[5] = max_vwrite
 
         if i <= 14:
-            prevread = currentread
-            finalreadcu += [currentread]
-            prevwrite = currentwrite
-            finalwritecu += [currentwrite]
+            prev_read = current_read
+            final_read_cu += [current_read]
+            prev_write = current_write
+            final_write_cu += [current_write]
             continue
         # Create list from last 15 Consumed Read Units
-        last15read = [v[4] for v in list(read[i - 15: i])]
-        last15read2 = [v[5] for v in list(read[i - 15: i])]
-        last15Maxread = max(last15read)
+        last15_read = [v[4] for v in list(read[i - 15: i])]
+        last15_read2 = [v[5] for v in list(read[i - 15: i])]
+        last15_max_read = max(last15_read)
         # Create list from last 15 Consumed Write Units
-        last15write = [v[4] for v in list(write[i - 15: i])]
-        last15write2 = [v[5] for v in list(write[i - 15: i])]
-        last15Maxwrite = max(last15write)
-        #Scale-in based on last 15 Consumed Units
-        #First 4 scale-in operation can happen anytime during the a day, there after every once an hour
+        last15_write = [v[4] for v in list(write[i - 15: i])]
+        last15_write2 = [v[5] for v in list(write[i - 15: i])]
+        last15_max_write = max(last15_write)
+        # Scale-in based on last 15 Consumed Units
+        # First 4 scale-in operation can happen anytime during the a day, there after every once an hour
         if count < 4:
-            if not decrease15(last15read2):
-                if prevread[5] > (max(minA(
-                        (last15Maxread / readutilization) * 100, currentread[5]), read_min) * scale_in_threshold):
-                    currentread[5] = max(minA(
-                        (last15Maxread / readutilization) * 100, currentread[5]), read_min)
-                if prevread[5] > currentread[5]:
+            if not decrease(last15_read2):
+                if prev_read[5] > (max(min_a(
+                        (last15_max_read / read_utilization) * 100, current_read[5]), read_min) * scale_in_threshold):
+                    current_read[5] = max(min_a(
+                        (last15_max_read / read_utilization) * 100, current_read[5]), read_min)
+                if prev_read[5] > current_read[5]:
 
                     count += 1
 
-            if not decrease15(last15write2):
-                if prevwrite[5] > (max(minA(
-                    (last15Maxwrite / writeutilization) * 100, currentwrite[5]), write_min) * scale_in_threshold):
-                    currentwrite[5] = max(minA(
-                        (last15Maxwrite / writeutilization) * 100, currentwrite[5]), write_min)
-                if prevwrite[5] > currentwrite[5]:
+            if not decrease(last15_write2):
+                if prev_write[5] > (max(min_a(
+                        (last15_max_write / write_utilization) * 100, current_write[5]), write_min) * scale_in_threshold):
+                    current_write[5] = max(min_a(
+                        (last15_max_write / write_utilization) * 100, current_write[5]), write_min)
+                if prev_write[5] > current_write[5]:
                     count += 1
 
         else:
             if i >= 60:
                 # Create list from last 60 Consumed Units
-                last60read = [v[5] for v in list(read[i - 60: i])]
-                last60write = [v[5] for v in list(write[i - 60: i])]
+                last60_read = [v[5] for v in list(read[i - 60: i])]
+                last60_write = [v[5] for v in list(write[i - 60: i])]
                 # if Table has not scale in in past 60 minutes then scale in
-                if not decrease60(last60read) and not decrease60(last60write):
-                    if prevread[5] > (max(
-                                minA((last15Maxread / readutilization) * 100, currentread[5]), read_min) * scale_in_threshold) and prevwrite[5] > (max(minA((last15Maxwrite / writeutilization) * 100, currentwrite[5]), write_min) * scale_in_threshold):
+                if not decrease(last60_read) and not decrease(last60_write):
+                    if prev_read[5] > (max(
+                            min_a((last15_max_read / read_utilization) * 100, current_read[5]), read_min) * scale_in_threshold) and prev_write[5] > (max(min_a((last15_max_write / write_utilization) * 100, current_write[5]), write_min) * scale_in_threshold):
                         if last_change == "write":
-                            currentread[5] = max(
-                                minA((last15Maxread / readutilization) * 100, currentread[5]), read_min)
+                            current_read[5] = max(
+                                min_a((last15_max_read / read_utilization) * 100, current_read[5]), read_min)
                             last_change = "read"
                         else:
-                            currentwrite[5] = max(
-                                minA((last15Maxwrite / writeutilization) * 100, currentwrite[5]), write_min)
+                            current_write[5] = max(
+                                min_a((last15_max_write / write_utilization) * 100, current_write[5]), write_min)
                             last_change = "write"
                     else:
-                        if prevread[5] > (max(
-                                minA((last15Maxread / readutilization) * 100, currentread[5]), read_min) * scale_in_threshold):
-                            currentread[5] = max(
-                            minA((last15Maxread / readutilization) * 100, currentread[5]), read_min)
-                            
-                        if prevwrite[5] > (max
-                                           (minA((last15Maxwrite / writeutilization) * 100, currentwrite[5]), write_min) * scale_in_threshold):
-                            currentwrite[5] = max(
-                                minA((last15Maxwrite / writeutilization) * 100, currentwrite[5]), write_min)
-                        
+                        if prev_read[5] > (max(
+                                min_a((last15_max_read / read_utilization) * 100, current_read[5]), read_min) * scale_in_threshold):
+                            current_read[5] = max(
+                                min_a((last15_max_read / read_utilization) * 100, current_read[5]), read_min)
+
+                        if prev_write[5] > (max
+                                           (min_a((last15_max_write / write_utilization) * 100, current_write[5]), write_min) * scale_in_threshold):
+                            current_write[5] = max(
+                                min_a((last15_max_write / write_utilization) * 100, current_write[5]), write_min)
+
                 else:
                     pass
 
-        prevread = currentread
-        prevwrite = currentwrite
-        finalreadcu += [currentread]
-        finalwritecu += [currentwrite]
-    finalist = finalwritecu + finalreadcu
+        prev_read = current_read
+        prev_write = current_write
+        final_read_cu += [current_read]
+        final_write_cu += [current_write]
+    finalist = final_write_cu + final_read_cu
     return finalist
 
 
-def estimate(df, readutilization, writeutilization, read_min, write_min, read_max, write_max):
+def estimate(df, read_utilization, write_utilization, read_min, write_min, read_max, write_max):
 
     df['unitps'] = df['unit'] / 60
     df['estunit'] = 5
@@ -186,7 +176,7 @@ def estimate(df, readutilization, writeutilization, read_min, write_min, read_ma
                 ).reset_index(drop=True)).values.tolist()
         if len(rcu) > 0 and len(wcu) > 0:
             finalcu += estimateUnits(rcu, wcu,
-                                     readutilization, writeutilization, read_min, write_min, read_max, write_max)
+                                     read_utilization, write_utilization, read_min, write_min, read_max, write_max)
     if len(finalcu) > 0:
         finaldf = pd.DataFrame(finalcu)
         finaldf.columns = ['metric_name', 'timestamp',
