@@ -178,7 +178,7 @@ def estimate(df, read_utilization, write_utilization, read_min, write_min, read_
             final_cu += estimate_units(rcu, wcu,
                                      read_utilization, write_utilization, read_min, write_min, read_max, write_max)
     if len(final_cu) > 0:
-        final_df = pd.DataFrame(finalcu)
+        final_df = pd.DataFrame(final_cu)
         final_df.columns = ['metric_name', 'timestamp',
                            'name', 'unit', 'unitps', 'estunit']
         return final_df
