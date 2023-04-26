@@ -248,7 +248,7 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
     view_df['index_name'] = view_df['index_name'].apply(
         lambda x: x.split(':')[1] if len(x.split(':')) > 1 else '')
     
-    view_df['Note'] = 'When changing the capacity mode from On-Demand to Provisioned or vice versa, consider the tools limitations such as lack of consideration for scaling delays and 14 days lookback period and test any changes before implementing'
+    view_df['Note'] = 'The analysis provided in this script compares your table consumption and simulates cost using different parameters. This tool does not have access to your contextual information, business requirements or organization best practices. When changing your capacity mode from on-demand to provisioned based on the results, remember there were some assumptions made: The analysis window is 14 days and auto-scaling responds instantaneously. (In reality, Auto scaling service might take 4 mins to provision new table capacity depending on your increase conditions).'
 
     view_df = view_df.reindex(columns=['base_table_name', 'index_name', 'class', 'metric_name', 'est_provisioned_cost', 'current_provisioned_cost', 'ondemand_cost', 'recommended_mode',
                               'current_mode', 'status', 'savings_pct', 'current_cost', 'recommended_cost', 'number_of_days', 'current_min_capacity', 'simulated_min_capacity', 'current_max_capacity', 'simulated_max_capacity', 'current_target_utilization', 'simulated_target_utilizatio', 'autoscaling_enabled','Note'])
