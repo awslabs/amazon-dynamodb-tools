@@ -10,7 +10,7 @@ These tools are intended to make using Amazon DynamoDB effectively and easier. T
 
 While we make efforts to test and verify the functionality of these tools, you are encouraged to read and understand the code, and use them at your own risk.
 
-Each tool has been developed indepented from one another, please make sure to read the installation requirements for each one of them.
+Each tool has been developed independent from one another, please make sure to read the installation requirements for each one of them.
 
 ## DynamoDB reserved capacity recommendations
 
