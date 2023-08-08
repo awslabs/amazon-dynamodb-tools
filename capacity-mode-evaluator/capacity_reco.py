@@ -1,4 +1,5 @@
 import argparse
+import logging
 from datetime import datetime
 from src.dynamodb import DDBScalingInfo
 from src.getmetrics import get_metrics
@@ -6,12 +7,19 @@ from src.cost_estimates import recommendation_summary
 import pandas as pd
 import pytz
 import os
+from tqdm.contrib.concurrent import thread_map
+
+# Initialize logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-dir_path = "output"
-
-if not os.path.exists(dir_path):
-    os.makedirs(dir_path)
+def setup_output_directory(output_dir):
+    try:
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+    except Exception as e:
+        logger.error(f"Error creating directory {output_dir}: {str(e)}")
 
 
 def get_params(args):
@@ -34,25 +42,53 @@ def get_params(args):
     return params
 
 
+def process_table(args):
+    table_name, params, debug, output_path, dynamodb_table_info = args
+    current_params = params.copy()
+    current_params['dynamodb_tablename'] = table_name
+
+    try:
+        result = get_metrics(current_params)
+
+        metric_df = result[0]
+        estimate_df = result[1]
+
+        summary_result = recommendation_summary(
+            current_params, metric_df, estimate_df, dynamodb_table_info)
+
+        if debug:
+            filename_metrics = os.path.join(output_path, f'metrics_{table_name}.csv')
+            filename_estimate = os.path.join(output_path, f'estimate_{table_name}.csv')
+            filename_cost_estimate = os.path.join(output_path, f'cost_estimate_{table_name}.csv')
+            metric_df.to_csv(filename_metrics, index=False)
+            estimate_df.to_csv(filename_estimate, index=False)
+            summary_result[1].to_csv(filename_cost_estimate, index=False)
+        
+        filename_summary = os.path.join(output_path, f'analysis_summary{timestamp}.csv')
+        with open(filename_summary, 'a') as analysis_summary:
+            summary_result[0].to_csv(analysis_summary, index=False, header=not os.path.exists(filename_summary))
+
+        return summary_result[0]
+    except Exception as e:
+        logger.error(f"Error processing table {table_name}: {str(e)}")
+        return None
+
+
 def process_dynamodb_table(dynamodb_table_info: pd.DataFrame, params: dict, debug: bool) -> pd.DataFrame:
-    print('starting process to get dynamodb table metrics')
-    result = get_metrics(params)
-    metric_df = result[0]
-    estimate_df = result[1]
-    print('Estimating cost...')
-    summary_result = recommendation_summary(
-        params, metric_df, estimate_df, dynamodb_table_info)
-    cost_estimate_df = summary_result[1]
-    if debug:
-        filename_metrics = os.path.join(dir_path, 'metrics.csv')
-        filename_estimate = os.path.join(dir_path, 'estimate.csv')
-        filename_cost_estimate = os.path.join(dir_path, 'cost_estimate.csv')
-        metric_df.to_csv(filename_metrics, index=False)
-        estimate_df.to_csv(filename_estimate, index=False)
-        cost_estimate_df.to_csv(filename_cost_estimate, index=False)
-    filename_summary = os.path.join(dir_path, 'analysis_summary.csv')
-    summary_result[0].to_csv(filename_summary, index=False)
-    return summary_result[0]
+
+    unique_tables = dynamodb_table_info['base_table_name'].unique()
+
+    print(len(unique_tables))
+
+    args_list = [(table_name, params, debug, output_path, dynamodb_table_info) for table_name in unique_tables]
+
+    results = thread_map(process_table, args_list, total=len(args_list), desc="Processing Tables", max_workers=params['max_concurrent_tasks'])
+
+    # Filter out None values and concatenate the valid results
+    valid_results = [result for result in results if result is not None]
+    concatenated_summary_result = pd.concat(valid_results)
+
+    return concatenated_summary_result
 
 
 if __name__ == '__main__':
@@ -81,13 +117,18 @@ if __name__ == '__main__':
                         default=5, help='Maximum number of tasks to run concurrently')
     args = parser.parse_args()
 
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    output_path = "output"
+    setup_output_directory(output_path)
+    logger.info(f"Output directory: {output_path}")
     params = get_params(args)
-    print(params)
+    logger.info(f"Parameters: {params}")
     DDBinfo = DDBScalingInfo()
     dynamo_tables_result = DDBinfo.get_all_dynamodb_autoscaling_settings_with_indexes(
-        params['dynamodb_tablename'], params['max_concurrent_tasks'] )
+        params['dynamodb_tablename'], params['max_concurrent_tasks'])
 
     dynamo_tables_result.to_csv(
-        os.path.join(dir_path, 'dynamodb_table_info.csv'), index=False)
+        os.path.join(output_path, 'dynamodb_table_info.csv'), index=False)
+
     process_dynamodb_result = process_dynamodb_table(
         dynamo_tables_result, params, args.debug)

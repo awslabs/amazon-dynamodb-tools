@@ -114,18 +114,18 @@ def fetch_metric_data(metric, start_time, end_time, consumed_period, provisioned
     return None
 
 
-def get_table_metrics(metrics, start_time, end_time, consumed_period, provisioned_period, read_utilization, write_utilization, read_min, write_min, read_max, write_max, max_concurrent_tasks):
+def get_table_metrics(metrics, start_time, end_time, consumed_period, provisioned_period, read_utilization, write_utilization, read_min, write_min, read_max, write_max, max_concurrent_tasks,dynamodb_tablename):
     metric_result_queue = Queue()
     estimate_result_queue = Queue()
     metric_data_list = thread_map(lambda metric: fetch_metric_data(metric, start_time, end_time, consumed_period, provisioned_period),
-                                  metrics, max_workers=max_concurrent_tasks)
+                                  metrics, max_workers=max_concurrent_tasks, desc="Fetching CloudWatch metrics for: " + dynamodb_tablename)
 
     metric_data_list = [
         result for result in metric_data_list if result is not None]
 
-    print("starting process to estimate dynamodb table provisioned metrics")
+    #print("starting process to estimate dynamodb table provisioned metrics")
     thread_map(lambda result: process_results(result[0], result[1], metric_result_queue, estimate_result_queue, read_utilization, write_utilization, read_min, write_min, read_max, write_max),
-               metric_data_list, max_workers=max_concurrent_tasks)
+               metric_data_list, max_workers=max_concurrent_tasks, desc="Estimating DynamoDB table provisioned metrics for: " + dynamodb_tablename)
 
     processed_metric = []
     processed_estimate = []
@@ -163,6 +163,6 @@ def get_metrics(params):
 
     metrics = list_metrics(dynamodb_tablename)
     result = get_table_metrics(metrics, start_time, end_time, consumed_period,
-                               provisioned_period, read_utilization, write_utilization, read_min, write_min, read_max, write_max, max_concurrent_tasks)
+                               provisioned_period, read_utilization, write_utilization, read_min, write_min, read_max, write_max, max_concurrent_tasks,dynamodb_tablename)
 
     return result
