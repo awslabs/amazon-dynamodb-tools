@@ -5,7 +5,11 @@ import boto3
 import src.metrics_estimates as estimates
 import pandas as pd
 from tqdm.contrib.concurrent import thread_map
+import logging
 
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def list_metrics(tablename: str) -> list:
     cw = boto3.client('cloudwatch')
@@ -25,10 +29,10 @@ def list_metrics(tablename: str) -> list:
     return metrics_list
 
 
-def process_results(metr_list, metric, metric_result_queue, estimate_result_queue, read_utilization, write_utilization, read_min, write_min, read_max, write_max):
+def process_results(metrics_list, metric, metric_result_queue, estimate_result_queue, read_utilization, write_utilization, read_min, write_min, read_max, write_max):
 
     metrics_result = []
-    for result in metr_list['MetricDataResults']:
+    for result in metrics_list['MetricDataResults']:
 
         try:
             name = str(metric[0]['Value']) + ":" + str(metric[1]['Value'])
@@ -134,7 +138,7 @@ def get_table_metrics(metrics, start_time, end_time, consumed_period, provisione
     while not estimate_result_queue.empty():
         processed_estimate.append(estimate_result_queue.get())
     if all(df.empty for df in processed_metric):
-        print("No Metrics were retrived in check end date provided for CloudWatch.")
+        logger.info("No metrics were retrieved from CloudWatch.")
     else:
         metric_df = pd.concat(processed_metric, ignore_index=True)
         estimate_df = pd.concat(processed_estimate, ignore_index=True)

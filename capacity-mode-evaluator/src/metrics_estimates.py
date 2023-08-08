@@ -1,6 +1,9 @@
 import pandas as pd
 from datetime import datetime, timedelta, date
+import logging
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def max_a(i, j):
     return i if i > j else j

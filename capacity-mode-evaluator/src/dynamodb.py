@@ -3,6 +3,10 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 from tqdm import tqdm
 import boto3
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class DDBScalingInfo:
@@ -197,7 +201,7 @@ class DDBScalingInfo:
                         if result is not None:
                             settings_list.append(result)
                     except Exception as e:
-                        print(f"Error processing table: {e}")
+                        logger.error(f"Error processing table: {e}")
                 progress_bar.close()
 
             if len(settings_list) > 0:
@@ -213,4 +217,5 @@ class DDBScalingInfo:
 
             return settings
         else:
+            logger.info("No DynamoDB tables found in this region")
             raise ValueError("No DynamoDB tables found in this region")

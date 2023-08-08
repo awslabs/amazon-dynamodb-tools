@@ -2,6 +2,10 @@ import pandas as pd
 import numpy as np
 from src.pricing import PricingUtility
 import boto3
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_util, read_min, write_min, read_max, write_max, provisioned_pricing, ondemand_pricing):
