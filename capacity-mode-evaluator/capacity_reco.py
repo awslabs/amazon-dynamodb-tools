@@ -43,7 +43,7 @@ def get_params(args):
 
 
 def process_table(args):
-    table_name, params, debug, output_path, dynamodb_table_info = args
+    table_name, params, debug, filename, dynamodb_table_info = args
     current_params = params.copy()
     current_params['dynamodb_tablename'] = table_name
 
@@ -58,15 +58,15 @@ def process_table(args):
 
         if debug:
             filename_metrics = os.path.join(output_path, f'metrics_{table_name}.csv')
-            filename_estimate = os.path.join(output_path, f'estimate_{table_name}.csv')
+            filename_estimate = os.path.join(output_path, f'metrics_estimate_{table_name}.csv')
             filename_cost_estimate = os.path.join(output_path, f'cost_estimate_{table_name}.csv')
             metric_df.to_csv(filename_metrics, index=False)
             estimate_df.to_csv(filename_estimate, index=False)
             summary_result[1].to_csv(filename_cost_estimate, index=False)
         
-        filename_summary = os.path.join(output_path, f'analysis_summary{timestamp}.csv')
-        with open(filename_summary, 'a') as analysis_summary:
-            summary_result[0].to_csv(analysis_summary, index=False, header=not os.path.exists(filename_summary))
+        
+        with open(filename, 'a') as analysis_summary:
+            summary_result[0].to_csv(analysis_summary, index=False, header=not os.path.exists(filename))
 
         return summary_result[0]
     except Exception as e:
@@ -74,13 +74,15 @@ def process_table(args):
         return None
 
 
-def process_dynamodb_table(dynamodb_table_info: pd.DataFrame, params: dict, debug: bool) -> pd.DataFrame:
-
+def process_dynamodb_table(dynamodb_table_info: pd.DataFrame, params: dict, output_path: str,  debug: bool) -> pd.DataFrame:
+    filename = os.path.join(output_path, f'analysis_summary{timestamp}.csv')
+    with open(filename, 'w') as analysis_summary:
+        analysis_summary.write('base_table_name,index_name,class,metric_name,est_provisioned_cost,current_provisioned_cost,ondemand_cost,recommended_mode,current_mode,status,savings_pct,current_cost,recommended_cost,number_of_days,current_min_capacity,simulated_min_capacity,current_max_capacity,simulated_max_capacity,current_target_utilization,simulated_target_utilizatio,autoscaling_enabled,Note\n')
     unique_tables = dynamodb_table_info['base_table_name'].unique()
 
     print(len(unique_tables))
 
-    args_list = [(table_name, params, debug, output_path, dynamodb_table_info) for table_name in unique_tables]
+    args_list = [(table_name, params, debug, filename, dynamodb_table_info) for table_name in unique_tables]
 
     results = thread_map(process_table, args_list, total=len(args_list), desc="Processing Tables", max_workers=params['max_concurrent_tasks'])
 
@@ -131,4 +133,4 @@ if __name__ == '__main__':
         os.path.join(output_path, 'dynamodb_table_info.csv'), index=False)
 
     process_dynamodb_result = process_dynamodb_table(
-        dynamo_tables_result, params, args.debug)
+        dynamo_tables_result, params, output_path, args.debug)
