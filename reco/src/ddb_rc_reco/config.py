@@ -6,7 +6,8 @@ rcu_regex = r'(?!.*IA-)(.*(^|-)ReadCapacityUnit.*)'
 version = '1.1.1'
 
 #1yr RC rates listed only
-pricing = {"NRT":{"ut_region_match_filter":r'^APN1-', "dto":0.14, "wcu":0.000742,"rcu":0.0001484,"rwcu":0.001113,"rc1":{"rcu":{"base":34.2,"hour":0.0029},"wcu":{"base":171.4,"hour":0.0147}}, "rc3":{"rcu":{"base":41.0,"hour":0.0018},"wcu":{"base":205.6,"hour":0.0093}}},
+pricing = {"MXP":{"ut_region_match_filter":r'^EUS1-', "dto":0.09, "wcu":0.00077175,"rcu":0.000193,"rwcu":0.001158,"rc1":{"rcu":{"base":35.595,"hour":0.003},"wcu":{"base":177.975,"hour":0.0152}}},
+"NRT":{"ut_region_match_filter":r'^APN1-', "dto":0.14, "wcu":0.000742,"rcu":0.0001484,"rwcu":0.001113,"rc1":{"rcu":{"base":34.2,"hour":0.0029},"wcu":{"base":171.4,"hour":0.0147}}, "rc3":{"rcu":{"base":41.0,"hour":0.0018},"wcu":{"base":205.6,"hour":0.0093}}},
 "SIN":{"ut_region_match_filter":r'^APS1-', "dto":0.12, "wcu":0.00074,"rcu":0.000148,"rwcu":0.00111,"rc1":{"rcu":{"base":34.2,"hour":0.0029},"wcu":{"base":171.0,"hour":0.0146}}, "rc3":{"rcu":{"base":41.04,"hour":0.0018},"wcu":{"base":205.2,"hour":0.0093}}},
 "IAD":{"ut_region_match_filter":r'^(ReadCapacityUnit-Hrs|WriteCapacityUnit-Hrs|USE1-)', "dto":0.09, "wcu":0.00065,"rcu":0.00013,"rwcu":0.000975,"rc1":{"rcu":{"base":30,"hour":0.0025},"wcu":{"base":150,"hour":0.0128}}, "rc3":{"rcu":{"base":36,"hour":0.0016},"wcu":{"base":180,"hour":0.0081}}},
 "PDX":{"ut_region_match_filter":r'^USW2-', "dto":0.09, "wcu":0.00065,"rcu":0.00013,"rwcu":0.000975,"rc1":{"rcu":{"base":30,"hour":0.0025},"wcu":{"base":150,"hour":0.0128}}, "rc3":{"rcu":{"base":36,"hour":0.0016},"wcu":{"base":180,"hour":0.0081}}},
@@ -40,6 +41,7 @@ plain_report_footer =  ("Reserved capacity to own: How much RC this payer accoun
 plain_report_warning_top = "Please consult your account’s active reserved capacity reservations to determine the amount of capacity to own. The amounts below do not factor in what you already own. Instead, they reflect the amount you should have in your account. Please be aware reservations are not available for rWCUs, the table class S-IA, or for the on-demand capacity mode."
 
 descriptions = {
+"MXP": {"en_us": {"region": {"code": "eu-south-1", "short_name": "Milan"}}},    
 "NRT": {"en_us": {"region": {"code": "ap-northeast-1", "short_name": "Tokyo"}}},
 "SIN": {"en_us": {"region": {"code": "ap-southeast-1", "short_name": "Singapore"}}},
 "IAD": {"en_us": {"region": {"code": "us-east-1", "short_name": "N. Virginia"}}},
