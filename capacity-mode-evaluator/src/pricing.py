@@ -5,7 +5,7 @@ from decimal import Decimal
 
 
 class PricingUtility(object):
-    def __init__(self, region_name):
+    def __init__(self, region_name, profile_name='default'):
 
         closest_api_region = 'us-east-1'
 
@@ -17,8 +17,9 @@ class PricingUtility(object):
         # pick the closest endpoint to the supplied region
         if region_name not in AMERICAN_REGIONS:
             closest_api_region = 'ap-south-1'
-
-        self.pricing_client = boto3.client(
+        
+        self.session = boto3.session.Session(profile_name=profile_name)
+        self.pricing_client = self.session.client(
             'pricing', region_name=closest_api_region)
 
     def get_provisioned_capacity_pricing(self, region_code: str) -> dict:
