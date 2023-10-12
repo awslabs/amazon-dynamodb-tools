@@ -28,6 +28,7 @@ pricing = {"NRT":{"ut_region_match_filter":r'^APN1-', "dto":0.14, "wcu":0.000742
 "ARN":{"ut_region_match_filter":r'^EUN1-', "dto":0.09, "wcu":0.000698,"rcu":0.00014,"rwcu":0.00105735,"rc1":{"rcu":{"base":32.2,"hour":0.0028},"wcu":{"base":161.0,"hour":0.0138}}},
 "CPT":{"ut_region_match_filter":r'^AFS1-', "dto":0.154, "wcu":0.00087465, "rcu":0.00017493,"rwcu":None,"rc1":{"rcu":{"base":40.341,"hour":0.0035},"wcu":{"base":201.705,"hour":0.0173}}},
 "BAH":{"ut_region_match_filter":r'^MES1-', "dto":0.117, "wcu":0.0008085, "rcu":0.0001617,"rwcu":None,"rc1":{"rcu":{"base":37.29,"hour":0.0032},"wcu":{"base":186.45,"hour":0.016}}},
+"MXP":{"ut_region_match_filter":r'^EUS1-', "dto":0.09, "wcu":0.00077175,"rcu":0.00015435,"rwcu":0.001158,"rc1":{"rcu":{"base":35.595,"hour":0.003},"wcu":{"base":177.975,"hour":0.0152}}},
 
 }
 
@@ -40,6 +41,7 @@ plain_report_footer =  ("Reserved capacity to own: How much RC this payer accoun
 plain_report_warning_top = "Please consult your account’s active reserved capacity reservations to determine the amount of capacity to own. The amounts below do not factor in what you already own. Instead, they reflect the amount you should have in your account. Please be aware reservations are not available for rWCUs, the table class S-IA, or for the on-demand capacity mode."
 
 descriptions = {
+"MXP": {"en_us": {"region": {"code": "eu-south-1", "short_name": "Milan"}}},    
 "NRT": {"en_us": {"region": {"code": "ap-northeast-1", "short_name": "Tokyo"}}},
 "SIN": {"en_us": {"region": {"code": "ap-southeast-1", "short_name": "Singapore"}}},
 "IAD": {"en_us": {"region": {"code": "us-east-1", "short_name": "N. Virginia"}}},
