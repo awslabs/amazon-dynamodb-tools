@@ -1,13 +1,13 @@
 # DynamoDB-ItemSizeCalculator
 
-> Utility tool to calculate the size of a DynamoDB items.
+> Utility tool to calculate the size of DynamoDB items.
 
 [![NPM Version][npm-image]][npm-url]
 [![Downloads Stats][npm-downloads]][npm-url]
 
-Utility tool to gain item size information for DynamoDB JSON items to understand capacity consumption and ensure items are under the 400KB DynamoDB limit.
+Utility tool to gain item size information in Bytes for DynamoDB JSON items. This allows us to understand capacity consumption and ensure items are under the 400KB DynamoDB item size limit.
 
-DynamoDB SDKs cater for both DDB-JSON or Native JSON. This package can be used to calculate both. By default, it uses DDB-JSON but you can alter the methods to take Native JSON by passing a bool `true` value as a parameter to the method:
+DynamoDB SDKs cater for both DDB-JSON and Native JSON. This package can be used to calculate both. By default, it uses DDB-JSON but you can alter methods to take Native JSON by passing boolean value `true` as a parameter to the method:
 
 ```js
 CalculateSize(item, true)
@@ -79,11 +79,11 @@ const size = CALC.CalculateSize(item);
 { 
     rcu: 1, 
     wcu: 1, 
-    size: 137 
+    size: 137 // in Bytes
 }
 ```
 
-### **Understand if an item is under the 400Kb limit**
+### **Understand if an item is under the 400KB limit**
 
 ```js
 const isValid = CALC.IsUnderLimit(item);
@@ -117,11 +117,11 @@ const size =  CALC.CalculateSize(item, true);
 { 
     rcu: 1, 
     wcu: 1, 
-    size: 137 
+    size: 137 // in Bytes
 }
 ```
 
-### **Understand if an item is under the 400Kb limit**
+### **Understand if an item is under the 400KB limit**
 
 ```js
 const isValid = CALC.IsUnderLimit(item, true);
