@@ -1,0 +1,10 @@
+{
+  "dimensionMetrics": [
+    { "metric_name": "ConsumedReadCapacityUnits", "stat": "Sum" },
+    { "metric_name": "ConsumedWriteCapacityUnits", "stat": "Sum" },
+    { "metric_name": "ProvisionedReadCapacityUnits", "stat": "Average" },
+    { "metric_name": "ProvisionedWriteCapacityUnits", "stat": "Average" },
+    { "metric_name": "ReadThrottleEvents", "stat": "Sum" },
+    { "metric_name": "WriteThrottleEvents", "stat": "Sum" }
+  ]
+}
