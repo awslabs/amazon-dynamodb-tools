@@ -1,0 +1,4 @@
+# statsmodels==0.14.0
+pandas==1.5.0
+# numpy==1.23.3
+aws-lambda-powertools==1.30.0
