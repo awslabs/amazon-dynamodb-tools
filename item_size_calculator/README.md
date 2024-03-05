@@ -1,15 +1,19 @@
 # DynamoDB-ItemSizeCalculator
-> Utility tool to calculate the size of a DynamoDB items.
+
+> Utility tool to calculate the size of DynamoDB items.
 
 [![NPM Version][npm-image]][npm-url]
 [![Downloads Stats][npm-downloads]][npm-url]
 
-Utility tool to gain item size information for DynamoDB JSON items to understand capacity consumption and ensure items are under the 400KB DynamoDB limit.
+Utility tool to gain item size information in Bytes for DynamoDB JSON items. This allows us to understand capacity consumption and ensure items are under the 400KB DynamoDB item size limit.
 
-DynamoDB SDK's can cater for both DDB-JSON or Native JSON. This package can be used to calculate both. By default it uses DDB-JSON but you can alter the methods to take Native JSON by passing a bool `true` value as a parameter to the method:
-`CalculateSize(item, true)`
+DynamoDB SDKs cater for both DDB-JSON and Native JSON. This package can be used to calculate both. By default, it uses DDB-JSON but you can alter methods to take Native JSON by passing boolean value `true` as a parameter to the method:
 
-![](https://www.cdata.com/blog/articles/20191018-dynamodb-performance-0.png)
+```js
+CalculateSize(item, true)
+```
+
+![DynamoDB Icon](https://www.cdata.com/blog/articles/20191018-dynamodb-performance-0.png)
 
 ## Installation
 
@@ -19,16 +23,17 @@ OS X & Linux:
 npm install ddb-calc --save
 ```
 
-
 ## Usage example  
   
 ### **Require**
- ```
+
+```js
 const CALC = require('ddb-calc')
- ```
+```
 
 ### **Sample DynamoDB JSON item**
-```
+
+```js
 const item = {
         "Id": {
             "N": "101"
@@ -62,31 +67,31 @@ const item = {
             "S": "Book"
         }
     }
-
 ```
 
 ### **Calculate Size**
+
+```js
+const size = CALC.CalculateSize(item);
 ```
-const size =  CALC.CalculateSize(item);
-```
-```
+
+```js
 { 
     rcu: 1, 
     wcu: 1, 
-    size: 137 
+    size: 137 // in Bytes
 }
 ```
 
-### **Understand if an item is under the 400Kb limit**
-```
+### **Understand if an item is under the 400KB limit**
+
+```js
 const isValid = CALC.IsUnderLimit(item);
-```
-```
-true
 ```
 
 ### **Sample Native JSON item**
-```
+
+```js
 const item = {
     "Id": 101,
     "Title": "Book 101 Title",
@@ -103,39 +108,38 @@ const item = {
 ```
 
 ### **Calculate Size**
-```
+
+```js
 const size =  CALC.CalculateSize(item, true);
 ```
 
-```
+```js
 { 
     rcu: 1, 
     wcu: 1, 
-    size: 137 
+    size: 137 // in Bytes
 }
 ```
 
-### **Understand if an item is under the 400Kb limit**
-```
+### **Understand if an item is under the 400KB limit**
+
+```js
 const isValid = CALC.IsUnderLimit(item, true);
-```
-```
-true
 ```
 
 ## Release History
-* 0.0.4
-    * Alter: Native JSON now supported by bool value: `CalculateSizeJson(item, true)`
-* 0.0.3
-    * ADD: Added native JSON functions `CalculateSizeJson()` and `IsUnderLimitJson()`
-* 0.0.2
-    * ADD: Added `marshalling` capability for native JSON
-* 0.0.1
-    * The first proper release
-    * ADD: Added `isUnderLimit()` function
-* 0.0.0
-    * Work in progress
 
+* 0.0.4
+  * Alter: Native JSON now supported by bool value: `CalculateSizeJson(item, true)`
+* 0.0.3
+  * ADD: Added native JSON functions `CalculateSizeJson()` and `IsUnderLimitJson()`
+* 0.0.2
+  * ADD: Added `marshalling` capability for native JSON
+* 0.0.1
+  * The first proper release
+  * ADD: Added `isUnderLimit()` function
+* 0.0.0
+  * Work in progress
 
 ## Contributing
 
