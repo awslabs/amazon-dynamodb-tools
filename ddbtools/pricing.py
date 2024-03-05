@@ -5,7 +5,7 @@ from ddbtools import constants
 from decimal import Decimal
 
 class PricingUtility(object):
-    def __init__(self, region_name, profile_name='default'):
+    def __init__(self, region_name, profile_name=None):
         closest_api_region = 'us-east-1'
 
         # the pricing API is only available in us-east-1 and ap-south-1 

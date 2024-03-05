@@ -130,7 +130,7 @@ def main():
                         help='evaluate TABLE_NAME (defaults to all tables in region)')
     
     parser.add_argument(
-        '--profile', required=False, type=str, default='default', 
+        '--profile', required=False, type=str, default=None, 
                         help='set a custom profile name to perform the operation under')
 
     args = parser.parse_args()

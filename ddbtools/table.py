@@ -7,7 +7,7 @@ from ddbtools.pricing import PricingUtility
 
 
 class TableUtility(object):
-    def __init__(self, region_name, profile_name='default'):
+    def __init__(self, region_name, profile_name=None):
         self.session = boto3.Session(profile_name=profile_name)
         self.dynamodb_client = self.session.client('dynamodb', region_name=region_name)
         self.pricing_utility = PricingUtility(region_name=region_name, profile_name=profile_name)
