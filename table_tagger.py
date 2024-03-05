@@ -10,12 +10,12 @@ from ddbtools.table import TableUtility
 
 
 class DynamoDBEponymousTagger(object):
-    """Iterate through all DynamoDB tables in a region, 
+    """Iterate through all DynamoDB tables in a region,
        and tag each table with its own name if not already tagged."""
     def __init__(self, args: argparse.Namespace):
             self.args = args
-            self.table_utility = TableUtility(region_name=self.args.region)
-            
+            self.table_utility = TableUtility(region_name=self.args.region, profile_name=self.args.profile)
+
             # Setup logging
             log_level = logging.INFO
             root_logger = logging.getLogger()
@@ -61,7 +61,7 @@ class DynamoDBEponymousTagger(object):
             else:
                 table_names = self.table_utility.get_table_names()
 
-            tagged_tables = self.eponymously_tag_all_tables(self.args.tag_name, 
+            tagged_tables = self.eponymously_tag_all_tables(self.args.tag_name,
                                                             table_names,
                                                             self.args.dry_run)
             output = json.dumps(tagged_tables, indent=2)
@@ -88,6 +88,8 @@ def main():
 
     parser.add_argument(
         '--tag-name', required=False, type=str, default='table_name',  help='tag table with tag TAG_NAME (default is "table_name")')
+
+    parser.add_argument('--profile', required=False, type=str, default='default', help='set a custom profile name to perform the operation under')
 
     args = parser.parse_args()
     calculator = DynamoDBEponymousTagger(args)

@@ -15,7 +15,7 @@ from ddbtools.util import DecimalEncoder
 class DynamoDBTableClassCalculator(object):
     """Calculate pricing for all table classes, and make optimization recommendations
        for tables that may save money by using a different table class.
-       
+
        Note: This tool assumes a table is not overprovisioned when calculating costs."""
     def __init__(self, args: argparse.Namespace):
             self.args = args
@@ -35,7 +35,7 @@ class DynamoDBTableClassCalculator(object):
                     print(message)
                     exit(0)
 
-            self.table_utility = TableUtility(region_name=self.args.region)
+            self.table_utility = TableUtility(region_name=self.args.region, profile_name=self.args.profile)
 
 
             # Setup logging
@@ -76,7 +76,7 @@ class DynamoDBTableClassCalculator(object):
             # evaluate tables costs for storage classes
             for table_estimate in table_cost_estimates:
                 table_pricing_data = table_estimate[constants.PRICING_DATA]
-                
+
                 # skip on-demand tables
                 if table_pricing_data[constants.BILLING_MODE] == constants.ON_DEMAND_BILLING:
                     continue
@@ -84,7 +84,7 @@ class DynamoDBTableClassCalculator(object):
                 table_class = table_pricing_data[constants.TABLE_CLASS]
                 monthly_cost_estimates = table_estimate[constants.ESTIMATED_MONTHLY_COSTS]
 
-                ia_cost_differential = (monthly_cost_estimates[constants.IA_MO_TOTAL_COST] 
+                ia_cost_differential = (monthly_cost_estimates[constants.IA_MO_TOTAL_COST]
                                         - monthly_cost_estimates[constants.STD_MO_TOTAL_COST])
 
                 if ia_cost_differential < 0:
@@ -118,16 +118,18 @@ def main():
     parser = argparse.ArgumentParser(description='Recommend Amazon DynamoDB table class changes to optimize costs.')
 
     parser.add_argument(
-        '--estimates-only', required=False, action='store_true', 
+        '--estimates-only', required=False, action='store_true',
                          help='print table cost estimates instead of change recommendations')
 
     parser.add_argument(
-        '--region', required=False, type=str, default='us-east-1', 
+        '--region', required=False, type=str, default='us-east-1',
                     help='evaluate tables in REGION (default: us-east-1)')
 
     parser.add_argument(
-        '--table-name', required=False, type=str, 
+        '--table-name', required=False, type=str,
                         help='evaluate TABLE_NAME (defaults to all tables in region)')
+
+    parser.add_argument('--profile', required=False, type=str, default='default', help='set a custom profile name to perform the operation under')
 
     args = parser.parse_args()
     calculator = DynamoDBTableClassCalculator(args)

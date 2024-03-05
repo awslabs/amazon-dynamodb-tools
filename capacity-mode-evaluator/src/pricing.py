@@ -1,11 +1,11 @@
-import boto3
 import json
-
 from decimal import Decimal
+
+import boto3
 
 
 class PricingUtility(object):
-    def __init__(self, region_name):
+    def __init__(self, region_name, profile_name='default'):
 
         closest_api_region = 'us-east-1'
 
@@ -18,7 +18,8 @@ class PricingUtility(object):
         if region_name not in AMERICAN_REGIONS:
             closest_api_region = 'ap-south-1'
 
-        self.pricing_client = boto3.client(
+        self.session = boto3.session.Session(profile_name=profile_name)
+        self.pricing_client = self.session.client(
             'pricing', region_name=closest_api_region)
 
     def get_provisioned_capacity_pricing(self, region_code: str) -> dict:

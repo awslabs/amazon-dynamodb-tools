@@ -1,21 +1,22 @@
+from decimal import Decimal
+
 import boto3
 
 from ddbtools import constants
-from decimal import Decimal
-
 from ddbtools.pricing import PricingUtility
 
 
 class TableUtility(object):
-    def __init__(self, region_name):
-        self.dynamodb_client = boto3.client('dynamodb', region_name=region_name)
+    def __init__(self, region_name, profile_name='default'):
+        self.session = boto3.Session(profile_name=profile_name)
+        self.dynamodb_client = self.session.client('dynamodb', region_name=region_name)
         self.pricing_utility = PricingUtility(region_name=region_name)
 
 
     def add_tags_to_table(self, table_arn:str, tags:list) -> None:
         """Given a list of {key: value} pairs, apply each as a tag to the table ARN provided."""
         self.dynamodb_client.tag_resource(ResourceArn=table_arn, Tags=tags)
-        
+
 
     def estimate_current_table_costs(self, provisioned_capacity_pricing: dict,
                                            replicated_write_pricing: dict,
@@ -25,32 +26,32 @@ class TableUtility(object):
         # storage costs
         ia_monthly_storage_cost = table_pricing_data[constants.SIZE_IN_GB] * storage_pricing[constants.IA_VOLUME_TYPE]
         std_monthly_storage_cost = table_pricing_data[constants.SIZE_IN_GB] * storage_pricing[constants.STD_VOLUME_TYPE]
-        
+
         # read capacity costs
-        ia_monthly_rcu_cost = (table_pricing_data[constants.PROVISIONED_RCUS] 
-                               * provisioned_capacity_pricing[constants.IA_RCU_PRICING] 
+        ia_monthly_rcu_cost = (table_pricing_data[constants.PROVISIONED_RCUS]
+                               * provisioned_capacity_pricing[constants.IA_RCU_PRICING]
                                * constants.HOURS_IN_MONTH)
-        std_monthly_rcu_cost = (table_pricing_data[constants.PROVISIONED_RCUS] 
+        std_monthly_rcu_cost = (table_pricing_data[constants.PROVISIONED_RCUS]
                                 * provisioned_capacity_pricing[constants.STD_RCU_PRICING]
                                 * constants.HOURS_IN_MONTH)
-        
+
         # write capacity costs
         ia_monthly_wcu_cost = None
         std_monthly_wcu_cost = None
 
         # If the table has replicas, estimate rWCUs instead of WCUs
         if constants.REPLICAS in table_pricing_data:
-            ia_monthly_wcu_cost = (table_pricing_data[constants.PROVISIONED_RCUS] 
+            ia_monthly_wcu_cost = (table_pricing_data[constants.PROVISIONED_RCUS]
                                    * replicated_write_pricing[constants.REPLICATED_IA_WCU_PRICING]
                                    * constants.HOURS_IN_MONTH)
-            std_monthly_wcu_cost = (table_pricing_data[constants.PROVISIONED_RCUS] 
+            std_monthly_wcu_cost = (table_pricing_data[constants.PROVISIONED_RCUS]
                                     * replicated_write_pricing[constants.REPLICATED_STD_WCU_PRICING]
                                     * constants.HOURS_IN_MONTH)
         else:
-            ia_monthly_wcu_cost = (table_pricing_data[constants.PROVISIONED_WCUS] 
-                                  * provisioned_capacity_pricing[constants.IA_WCU_PRICING] 
+            ia_monthly_wcu_cost = (table_pricing_data[constants.PROVISIONED_WCUS]
+                                  * provisioned_capacity_pricing[constants.IA_WCU_PRICING]
                                   * constants.HOURS_IN_MONTH)
-            std_monthly_wcu_cost = (table_pricing_data[constants.PROVISIONED_WCUS] 
+            std_monthly_wcu_cost = (table_pricing_data[constants.PROVISIONED_WCUS]
                                     * provisioned_capacity_pricing[constants.STD_WCU_PRICING]
                                     * constants.HOURS_IN_MONTH)
 
@@ -82,18 +83,18 @@ class TableUtility(object):
             for gsi_data in table_pricing_data[constants.GSIS]:
                 gsi_ia_mo_storage_cost = gsi_data[constants.SIZE_IN_GB] * storage_pricing[constants.IA_VOLUME_TYPE]
                 gsi_std_mo_storage_cost = gsi_data[constants.SIZE_IN_GB] * storage_pricing[constants.STD_VOLUME_TYPE]
-                
-                gsi_ia_mo_rcu_cost = (gsi_data[constants.PROVISIONED_RCUS] 
-                                      * provisioned_capacity_pricing[constants.IA_RCU_PRICING] 
+
+                gsi_ia_mo_rcu_cost = (gsi_data[constants.PROVISIONED_RCUS]
+                                      * provisioned_capacity_pricing[constants.IA_RCU_PRICING]
                                       * constants.HOURS_IN_MONTH)
-                gsi_std_mo_rcu_cost = (gsi_data[constants.PROVISIONED_RCUS] 
+                gsi_std_mo_rcu_cost = (gsi_data[constants.PROVISIONED_RCUS]
                                        * provisioned_capacity_pricing[constants.STD_RCU_PRICING]
                                        * constants.HOURS_IN_MONTH)
 
-                gsi_ia_mo_wcu_cost = (gsi_data[constants.PROVISIONED_WCUS] 
-                                      * provisioned_capacity_pricing[constants.IA_WCU_PRICING] 
+                gsi_ia_mo_wcu_cost = (gsi_data[constants.PROVISIONED_WCUS]
+                                      * provisioned_capacity_pricing[constants.IA_WCU_PRICING]
                                       * constants.HOURS_IN_MONTH)
-                gsi_std_mo_wcu_cost = (gsi_data[constants.PROVISIONED_WCUS] 
+                gsi_std_mo_wcu_cost = (gsi_data[constants.PROVISIONED_WCUS]
                                         * provisioned_capacity_pricing[constants.STD_WCU_PRICING]
                                         * constants.HOURS_IN_MONTH)
 
@@ -130,7 +131,7 @@ class TableUtility(object):
         storage_pricing = self.pricing_utility.get_storage_pricing(region_code)
         provisioned_capacity_pricing = self.pricing_utility.get_provisioned_capacity_pricing(region_code)
         replicated_write_pricing = self.pricing_utility.get_replicated_write_pricing(region_code)
-        
+
         for table_name in table_names:
             table_data = {}
             table_data[constants.TABLE_NAME] = table_name
@@ -178,7 +179,7 @@ class TableUtility(object):
         else:
             # if there are more than 100 table names returned, recurse to get a new page of table names
             response = self.dynamodb_client.list_tables(ExclusiveStartTableName=start_table_name)
-        
+
         paginated_table_names = response['TableNames']
         table_names.extend(paginated_table_names)
 
@@ -229,7 +230,7 @@ class TableUtility(object):
                     gsi_throughput = gsi_data['ProvisionedThroughput']
                     gsi[constants.PROVISIONED_RCUS] = gsi_throughput['ReadCapacityUnits']
                     gsi[constants.PROVISIONED_WCUS] = gsi_throughput['WriteCapacityUnits']
-                    
+
                     gsi_bytes = gsi_data['IndexSizeBytes']
                     gsi_gb = Decimal(gsi_bytes / constants.GB_IN_BYTES)
                     gsi[constants.SIZE_IN_GB] = gsi_gb
@@ -265,9 +266,9 @@ class TableUtility(object):
             response = self.dynamodb_client.list_tags_of_resource(ResourceArn=table_arn)
 
         else:
-            response = self.dynamodb_client.get_table_tags(ResourceArn=table_arn, 
+            response = self.dynamodb_client.get_table_tags(ResourceArn=table_arn,
                                                            NextToken=next_tag_token)
-        
+
         tag_list = response['Tags']
 
         for tag_dict in tag_list:
@@ -277,7 +278,7 @@ class TableUtility(object):
         # recurse if there are more tags to retrieve
         if 'NextToken' in response:
             self.get_table_tags(table_arn=table_arn,
-                                next_tag_token=response['NextToken'], 
+                                next_tag_token=response['NextToken'],
                                 table_tags=table_tags)
 
         return table_tags
