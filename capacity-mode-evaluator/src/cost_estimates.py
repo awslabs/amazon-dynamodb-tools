@@ -191,7 +191,7 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
                        'base_table_name', 'index_name', 'metric_name'])
     view_df.rename(columns={'min_capacity': 'simulated_min_capacity',
                             'max_capacity': 'simulated_max_capacity',
-                   'target_utilization': 'simulated_target_utilizatio'}, inplace=True)
+                   'target_utilization': 'simulated_target_utilization'}, inplace=True)
 
     view_df['current_mode'] = np.where(
         view_df['index_name'].isin(
@@ -251,6 +251,6 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
     view_df['Note'] = 'The analysis provided in this script compares your table consumption and simulates cost using different parameters. This tool does not have access to your contextual information, business requirements or organization best practices. When changing your capacity mode from on-demand to provisioned based on the results, remember there were some assumptions made: The analysis window is 14 days and auto-scaling responds instantaneously. (In reality, Auto scaling service might take 4 mins to provision new table capacity depending on your increase conditions).'
 
     view_df = view_df.reindex(columns=['base_table_name', 'index_name', 'class', 'metric_name', 'est_provisioned_cost', 'current_provisioned_cost', 'ondemand_cost', 'recommended_mode',
-                              'current_mode', 'status', 'savings_pct', 'current_cost', 'recommended_cost', 'number_of_days', 'current_min_capacity', 'simulated_min_capacity', 'current_max_capacity', 'simulated_max_capacity', 'current_target_utilization', 'simulated_target_utilizatio', 'autoscaling_enabled','Note'])
+                              'current_mode', 'status', 'savings_pct', 'current_cost', 'recommended_cost', 'number_of_days', 'current_min_capacity', 'simulated_min_capacity', 'current_max_capacity', 'simulated_max_capacity', 'current_target_utilization', 'simulated_target_utilization', 'autoscaling_enabled','Note'])
 
     return view_df, cost_estimate_df
