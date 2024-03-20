@@ -1,3 +1,6 @@
+### 2024-03-20 - Version 1.1.2 - switch180
+* Removed CMH 3yr RI because it does not appear on [public pricing page](https://aws.amazon.com/dynamodb/pricing/provisioned/).
+
 ### 2023-02-24 - Version 1.1.1 - switch180
 * Added three regions' 3-year RI rates to the configuration.
 

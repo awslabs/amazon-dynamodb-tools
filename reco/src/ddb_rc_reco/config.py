@@ -3,7 +3,7 @@ test_file_loc = 'test/b8f1d493-9aa2-4e5b-a5e8-121b7cfa131e_shrunk.csv.gz'
 wcu_regex = r'(?!.*IA-)(.*(^|-)WriteCapacityUnit.*)'
 rcu_regex = r'(?!.*IA-)(.*(^|-)ReadCapacityUnit.*)'
 
-version = '1.1.1'
+version = '1.1.2'
 
 #1yr RC rates listed only
 pricing = {"NRT":{"ut_region_match_filter":r'^APN1-', "dto":0.14, "wcu":0.000742,"rcu":0.0001484,"rwcu":0.001113,"rc1":{"rcu":{"base":34.2,"hour":0.0029},"wcu":{"base":171.4,"hour":0.0147}}, "rc3":{"rcu":{"base":41.0,"hour":0.0018},"wcu":{"base":205.6,"hour":0.0093}}},
@@ -21,7 +21,7 @@ pricing = {"NRT":{"ut_region_match_filter":r'^APN1-', "dto":0.14, "wcu":0.000742
 "LHR":{"ut_region_match_filter":r'^EUW2-', "dto":0.09, "wcu":0.000772,"rcu":0.0001544,"rwcu":0.001158,"rc1":{"rcu":{"base":35.6,"hour":0.0031 },"wcu":{"base":178,"hour":0.0153}}, "rc3":{"rcu":{"base":42.72,"hour":0.0019},"wcu":{"base":213.57,"hour":0.0097}}},
 "CDG":{"ut_region_match_filter":r'^EUW3-', "dto":0.09, "wcu":0.000772 ,"rcu":0.0001544,"rwcu":0.001158,"rc1":{"rcu":{"base": 35.6,"hour":0.0031},"wcu":{"base": 178.0,"hour":0.0153}}},
 "GRU":{"ut_region_match_filter":r'^SAE1-', "dto":0.25, "wcu":0.000975,"rcu":0.000195,"rwcu":0.001158,"rc1":{"rcu":{"base":45.0,"hour":0.0038},"wcu":{"base":225.0,"hour":0.0193}}, "rc3":{"rcu":{"base":54.0,"hour":0.0024},"wcu":{"base":270.0,"hour":0.0122}}},
-"CMH":{"ut_region_match_filter":r'^USE2-', "dto":0.09, "wcu":0.00065,"rcu":0.00013,"rwcu":0.000975,"rc1":{"rcu":{"base":30.0,"hour":0.0025},"wcu":{"base":150.0,"hour":0.0128}}, "rc3":{"rcu":{"base":36.0,"hour":0.0016},"wcu":{"base":180.0,"hour":0.0081}}},
+"CMH":{"ut_region_match_filter":r'^USE2-', "dto":0.09, "wcu":0.00065,"rcu":0.00013,"rwcu":0.000975,"rc1":{"rcu":{"base":30.0,"hour":0.0025},"wcu":{"base":150.0,"hour":0.0128}}},
 "KIX":{"ut_region_match_filter":r'^APN3-', "dto":0.114, "wcu":0.000742,"rcu":0.0001484,"rwcu":0.000975,"rc1":{"rcu":{"base":34.2,"hour":0.0029},"wcu":{"base":171.4,"hour":0.0147}}},
 "ICN":{"ut_region_match_filter":r'^APN2-', "dto":0.126, "wcu":0.0007049,"rcu":0.00014098,"rwcu":0.00105735,"rc1":{"rcu":{"base":32.49,"hour":0.0028},"wcu":{"base":162.83,"hour":0.014}}, "rc3":{"rcu":{"base":38.95,"hour":0.0017},"wcu":{"base":195.32,"hour":0.0088}}},
 "HKG":{"ut_region_match_filter":r'^APE1-', "dto":0.12, "wcu":0.000814,"rcu":0.0001628,"rwcu":0.00105735,"rc1":{"rcu":{"base":37.62,"hour":0.0032},"wcu":{"base":188.1,"hour":0.0161}}},
