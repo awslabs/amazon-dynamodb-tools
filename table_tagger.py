@@ -14,7 +14,7 @@ class DynamoDBEponymousTagger(object):
        and tag each table with its own name if not already tagged."""
     def __init__(self, args: argparse.Namespace):
             self.args = args
-            self.table_utility = TableUtility(region_name=self.args.region)
+            self.table_utility = TableUtility(region_name=self.args.region, profile_name=self.args.profile)
             
             # Setup logging
             log_level = logging.INFO
@@ -88,6 +88,9 @@ def main():
 
     parser.add_argument(
         '--tag-name', required=False, type=str, default='table_name',  help='tag table with tag TAG_NAME (default is "table_name")')
+    
+    parser.add_argument(
+        '--profile', required=False, type=str, default=None, help='set a custom profile name to perform the operation under')
 
     args = parser.parse_args()
     calculator = DynamoDBEponymousTagger(args)
