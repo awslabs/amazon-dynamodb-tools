@@ -232,7 +232,7 @@ def output_table(table_input):
     start_time = table_input['_meta']['start_time'][0]
     end_time = table_input['_meta']['end_time'][0]
     rc_term = table_input['_meta']['rc_term']
-    days_in_report = (parse_dt(end_time)-parse_dt(start_time)).days
+    days_in_report = (parse_dt(end_time) + timedelta(hours=1) - parse_dt(start_time)).days
     print_section_header("DynamoDB Reserved Capacity Report\nThese recommendations are based on data from {} to {}. The time span represents {} days of data. RC term length for the report is {} year(s)\n{}\nGenerated on {} with reco version v{}".format(start_time, end_time, days_in_report, rc_term, descriptions['banner'][lang]['warning_top']['text'],  print_dt(datetime.now()), version ))
     if days_in_report < 28 or days_in_report > 31:
         dynamic_warning = "WARNING: Non-standard number of days detected in the report. The fields marked monthly in this report represent the total cost for the selected time period, not the true monthly cost.\nRe-run the report with data for only one month to receive accurate monthly cost estimates."
