@@ -1,7 +1,7 @@
-import pandas as pd
-import numpy as np
-from src.pricing import PricingUtility
 import boto3
+import numpy as np
+import pandas as pd
+from src.pricing import PricingUtility
 
 
 def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_util, read_min, write_min, read_max, write_max, provisioned_pricing, ondemand_pricing):
@@ -160,20 +160,18 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
     q1['number_of_days'] = (q1['timestamp_max']
                             - q1['timestamp_min']).dt.days + 1
 
-    q1['recommended_mode'] = np.where(
-        (q1['est_provisioned_cost'] < q1['current_provisioned_cost'])
-        & (q1['est_provisioned_cost'] < q1['ondemand_cost'])
-        & (np.divide((q1['current_provisioned_cost'] - q1['est_provisioned_cost']),
-                     q1['current_provisioned_cost'], where=q1['current_provisioned_cost'] != 0) > overprovision_delta),
-        'Provisioned_Modify',
-        np.where(
-            (q1['current_provisioned_cost'] != 0)
-            & (q1['current_provisioned_cost'] < q1['ondemand_cost']),
-            'Provisioned',
-            np.where(q1['est_provisioned_cost']
-                     < q1['ondemand_cost'], 'Provisioned', 'Ondemand')
-        )
-    )
+        # Calculate the cost difference ratio
+    cost_diff_ratio = np.divide((q1['current_provisioned_cost'] - q1['est_provisioned_cost']),
+                                q1['current_provisioned_cost'],
+                                where=q1['current_provisioned_cost'] != 0,
+                                out=np.zeros_like(q1['current_provisioned_cost']))
+    # Create conditions for np.where
+    condition1 = (q1['est_provisioned_cost'] < q1['current_provisioned_cost']) & (q1['est_provisioned_cost'] < q1['ondemand_cost']) & (cost_diff_ratio > overprovision_delta)
+    condition2 = (q1['current_provisioned_cost'] != 0) & (q1['current_provisioned_cost'] < q1['ondemand_cost'])
+    condition3 = q1['est_provisioned_cost'] < q1['ondemand_cost']
+
+    # Apply np.where conditions
+    q1['recommended_mode'] = np.where(condition1, 'Provisioned_Modify', np.where(condition2, 'Provisioned', np.where(condition3, 'Provisioned', 'Ondemand')))
 
     q1 = q1[['index_name', 'base_table_name', 'class', 'metric_name', 'est_provisioned_cost',
              'current_provisioned_cost', 'ondemand_cost', 'recommended_mode', 'number_of_days', 'min_capacity',
@@ -202,25 +200,24 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
 
     view_df['status'] = np.where(
         view_df['recommended_mode'] == view_df['current_mode'], 'Optimized', 'Not Optimized')
-    view_df['savings_pct'] = np.where(
-        (view_df['current_mode'] == 'Ondemand') & (
-            view_df['recommended_mode'] == 'Provisioned'),
-        (view_df['ondemand_cost'] - view_df['est_provisioned_cost'])
-        / view_df['ondemand_cost'],
-        np.where(
-            (view_df['current_mode'] == 'Provisioned') & (
-                view_df['recommended_mode'] == 'Ondemand'),
-            np.divide((view_df['current_provisioned_cost'] - view_df['ondemand_cost']),
-                      view_df['current_provisioned_cost'], where=view_df['current_provisioned_cost'] != 0),
-            np.where(
-                (view_df['current_mode'] == 'Provisioned') & (
-                    view_df['recommended_mode'] == 'Provisioned_Modify'),
-                np.divide((view_df['current_provisioned_cost'] - view_df['est_provisioned_cost']),
-                          view_df['current_provisioned_cost'], where=view_df['current_provisioned_cost'] != 0),
-                np.nan
-            )
-        )
-    )
+
+    # Calculate the cost difference ratios
+    cost_diff_ratio1 = np.divide((view_df['current_provisioned_cost'] - view_df['ondemand_cost']),
+                                 view_df['current_provisioned_cost'],
+                                 where=view_df['current_provisioned_cost'] != 0,
+                                 out=np.zeros_like(view_df['current_provisioned_cost']))
+    cost_diff_ratio2 = np.divide((view_df['current_provisioned_cost'] - view_df['est_provisioned_cost']),
+                                 view_df['current_provisioned_cost'],
+                                 where=view_df['current_provisioned_cost'] != 0,
+                                 out=np.zeros_like(view_df['current_provisioned_cost']))
+    # Create conditions for np.where
+    condition1 = (view_df['current_mode'] == 'Ondemand') & (view_df['recommended_mode'] == 'Provisioned')
+    condition2 = (view_df['current_mode'] == 'Provisioned') & (view_df['recommended_mode'] == 'Ondemand')
+    condition3 = (view_df['current_mode'] == 'Provisioned') & (view_df['recommended_mode'] == 'Provisioned_Modify')
+    # Apply np.where conditions
+    view_df['savings_pct'] = np.where(condition1, (view_df['ondemand_cost'] - view_df['est_provisioned_cost']) / view_df['ondemand_cost'],
+                                      np.where(condition2, cost_diff_ratio1,
+                                               np.where(condition3, cost_diff_ratio2, np.nan)))
 
     view_df['current_cost'] = np.where(
         view_df['current_mode'] == 'Provisioned',
@@ -247,7 +244,7 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
                 'autoscaling_enabled'] = view_df['autoscaling_enabled'].fillna(False)
     view_df['index_name'] = view_df['index_name'].apply(
         lambda x: x.split(':')[1] if len(x.split(':')) > 1 else '')
-    
+
     view_df['Note'] = 'The analysis provided in this script compares your table consumption and simulates cost using different parameters. This tool does not have access to your contextual information, business requirements or organization best practices. When changing your capacity mode from on-demand to provisioned based on the results, remember there were some assumptions made: The analysis window is 14 days and auto-scaling responds instantaneously. (In reality, Auto scaling service might take 4 mins to provision new table capacity depending on your increase conditions).'
 
     view_df = view_df.reindex(columns=['base_table_name', 'index_name', 'class', 'metric_name', 'est_provisioned_cost', 'current_provisioned_cost', 'ondemand_cost', 'recommended_mode',
