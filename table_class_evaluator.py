@@ -35,7 +35,7 @@ class DynamoDBTableClassCalculator(object):
                     print(message)
                     exit(0)
 
-            self.table_utility = TableUtility(region_name=self.args.region)
+            self.table_utility = TableUtility(region_name=self.args.region, profile_name=self.args.profile)
 
 
             # Setup logging
@@ -128,6 +128,10 @@ def main():
     parser.add_argument(
         '--table-name', required=False, type=str, 
                         help='evaluate TABLE_NAME (defaults to all tables in region)')
+    
+    parser.add_argument(
+        '--profile', required=False, type=str, default=None, 
+                        help='set a custom profile name to perform the operation under')
 
     args = parser.parse_args()
     calculator = DynamoDBTableClassCalculator(args)

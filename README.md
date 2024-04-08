@@ -154,7 +154,7 @@ The tool is invoked from the command line like so:
 
 ```console
 user@host$ python3 table_class_evaluator.py --help
-usage: table_class_evaluator.py [-h] [--estimates-only] [--region REGION] [--table-name TABLE_NAME]
+usage: table_class_evaluator.py [-h] [--estimates-only] [--region REGION] [--table-name TABLE_NAME] [--profile PROFILE]
 
 Recommend Amazon DynamoDB table class changes to optimize costs.
 
@@ -164,6 +164,7 @@ optional arguments:
   --region REGION       evaluate tables in REGION (default: us-east-1)
   --table-name TABLE_NAME
                         evaluate TABLE_NAME (defaults to all tables in region)
+  --profile PROFILE     set a custom profile name to perform the operation under
 ```
 
 With no arguments, the tool will evaluate costs for all tables in the default region (us-east-1), and returns a list of JSON objects, each containing details for a change recommendation:
@@ -221,7 +222,7 @@ The tool is invoked from the command line like so:
 
 ```console
 user@host$ python3 table_tagger.py --help
-usage: table_tagger.py [-h] [--dry-run] [--region REGION] [--table-name TABLE_NAME] [--tag-name TAG_NAME]
+usage: table_tagger.py [-h] [--dry-run] [--region REGION] [--table-name TABLE_NAME] [--tag-name TAG_NAME] [--profile PROFILE]
 
 Tag all DynamoDB tables in a region with their own name.
 
@@ -232,6 +233,7 @@ optional arguments:
   --table-name TABLE_NAME
                         tag only TABLE_NAME (defaults to all tables in region)
   --tag-name TAG_NAME   tag table with tag TAG_NAME (default is "table_name")
+  --profile PROFILE     set a custom profile name to perform the operation under
 ```
 
 With no arguments, the tool will tag each table in the default region (us-east-1) that is not already correctly tagged, and returns a list of JSON objects, each containing applied tag and table details:

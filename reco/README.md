@@ -123,7 +123,7 @@ Loading CSV into memory. Please wait.
 Generating recommendations.
 ############################################################
 DynamoDB Reserved Capacity Report
-These recommendations are based on data from 05/01/19 00:00:00 to 05/31/19 23:00:00. The time span represents 30 days of data. RC term length for the report is 1 year(s)
+These recommendations are based on data from 05/01/19 00:00:00 to 05/31/19 23:00:00. The time span represents 31 days of data. RC term length for the report is 1 year(s)
 Please consult your account’s active reserved capacity reservations to determine the amount of capacity to own. The amounts below do not factor in what you already own. Instead, they reflect the amount you should have in your account. Please be aware reservations are not available for rWCUs, the table class S-IA, or for the on-demand capacity mode.
 Generated on 12/21/22 10:37:57 with reco version v1.1.0
 ############################################################
