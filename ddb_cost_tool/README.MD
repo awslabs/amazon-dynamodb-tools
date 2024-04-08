@@ -82,18 +82,26 @@ The role that you will assume to execute this script needs provides access to th
 
 ## Results
 
-The results of this scripts will be stored in the `cost_tool/output` folder, they are already compressed and ready to upload to the DynamoDB Cost Portal, ask your SA to provide a upload ID so you can upload the results to the DynamoDB Cost Portal. ![DynamoDB Cost Portal](./documentation/portal-01.png)
+The `cost_tool/output` folder will contain the compressed results of this script, which can be directly uploaded to the [DynamoDB Cost Portal](https://tiny.amazon.com/nil0ajwa).
 
-Fill the Upload ID and click in "Validate". If the id is valid, the screen will change so you can upload the compressed files.
+You will need to enter the username `ddb-cost-tool` and the password `DDB-cost-tool-2024`. This portal will allow you to upload the metadata files so the cost optimization tool can provide the analysis.
 
-![DynamoDB Cost Portal](./documentation/Portal-02.png)
+![Upload Results](./documentation/ddb-cost-tool-upload.gif)
 
-You can browse or drag and drop your files, you can upload up to 100 at the time.
+After submitting your credentials, generate a new report. The current version includes 3 fields (`user_id`, `customer_name`, and `aws_alias`) that are utilized for report search. You may input any desired values for these fields, as they are solely for identification purposes when accessing the report results.Please provide the generated `report_id` to your AWS Account SA, or TAM, and ask them to retrieve the results in the [DynamoDB Cost Optimization report page](https://tiny.amazon.com/12cqro6jh). Please notice Only AWS resources have access to this page.
 
-![DynamoDB Cost Portal](./documentation/Portal-03.png)
+When the analysis is complete, your AWS representative can access the report:
 
-Once they are all completed you can click in the "Complete" Button to finalize the process.
+![Report_View](./documentation/Report_view.png)
 
-![DynamoDB Cost Portal](./documentation/Portal-04.png)
+Once you select the report ID, the uploaded tables will be displayed.
 
-The previous procedure will start the analisys process where it will provide cost recommendations based on the information you have uploaded. Notice that you only have access to the uploads IDs that are provided by your Account SA, but also to the uplodas that you process.
+![Tables_view](./documentation/Tables_view.png)
+
+Clicking on the tables will provide you with in-depth information about each one.
+
+![Table_report_view](./documentation/Table_report_view.png)
+
+If you have any issue, feedback or comment, please open an issue and tag the cost optimization tool or the script.
+
+Thanks!
