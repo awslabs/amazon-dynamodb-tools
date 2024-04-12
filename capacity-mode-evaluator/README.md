@@ -51,7 +51,7 @@ There are two capacity modes available in DynamoDB:
 
 ## Requirements
 
-- Python 3.8
+- Python 3.10 or 3.11
 - AWS CLI configured with appropriate credentials and region
 - Required Python packages listed in `requirements.txt
 
@@ -61,7 +61,7 @@ There are two capacity modes available in DynamoDB:
 2. Create Python Virtual Environment for clean install
 
     ```sh
-    python3.8 -m venv .venv
+    python3 -m venv .venv
     source .venv/bin/activate
     ```
 

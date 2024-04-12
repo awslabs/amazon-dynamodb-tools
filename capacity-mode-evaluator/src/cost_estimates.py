@@ -41,7 +41,7 @@ def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_uti
 
     q1 = (
         results_estimates_df.groupby([
-            pd.Grouper(key='timestamp', freq='H', offset=0),
+            pd.Grouper(key='timestamp', freq='h', offset=0),
             'name', 'metric_name', 'class'
         ])
         .agg({
@@ -51,7 +51,7 @@ def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_uti
         .reset_index()
     )
 
-    q1['timestamp'] = q1['timestamp'].dt.floor('H')
+    q1['timestamp'] = q1['timestamp'].dt.floor('h')
     q1['Consumed_unit'] = q1['unit']
     q1['est_provisioned_unit'] = q1['estunit']
     q1['metric_name'], q1['min_capacity'], q1['max_capacity'], q1['target_utilization'], q1['provisioned_unit_cost'], q1['ondemand_unit_cost'] = zip(*[
@@ -66,7 +66,7 @@ def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_uti
 
     q2 = (
         results_metrics_df.groupby([
-            pd.Grouper(key='timestamp', freq='H', offset=0),
+            pd.Grouper(key='timestamp', freq='h', offset=0),
             'name', 'metric_name', 'class'
         ])
         .agg({
@@ -75,7 +75,7 @@ def cost_estimate(results_metrics_df, results_estimates_df, read_util, write_uti
         .reset_index()
     )
 
-    q2['timestamp'] = q2['timestamp'].dt.floor('H')
+    q2['timestamp'] = q2['timestamp'].dt.floor('h')
 
     q2['place_holder'], q2['unit_cost'] = zip(*[
         metric_map.get((metric, storage_class), (None, None))
@@ -243,11 +243,11 @@ def recommendation_summary(params, results_metrics_df, results_estimates_df, dyn
             )
         )
     )
-    view_df.loc[view_df['current_mode'] == 'Provisioned',
-                'autoscaling_enabled'] = view_df['autoscaling_enabled'].fillna(False)
+    view_df.loc[((view_df['current_mode'] == 'Provisioned') & view_df['autoscaling_enabled'].isna()),
+                'autoscaling_enabled'] = False
     view_df['index_name'] = view_df['index_name'].apply(
         lambda x: x.split(':')[1] if len(x.split(':')) > 1 else '')
-    
+
     view_df['Note'] = 'The analysis provided in this script compares your table consumption and simulates cost using different parameters. This tool does not have access to your contextual information, business requirements or organization best practices. When changing your capacity mode from on-demand to provisioned based on the results, remember there were some assumptions made: The analysis window is 14 days and auto-scaling responds instantaneously. (In reality, Auto scaling service might take 4 mins to provision new table capacity depending on your increase conditions).'
 
     view_df = view_df.reindex(columns=['base_table_name', 'index_name', 'class', 'metric_name', 'est_provisioned_cost', 'current_provisioned_cost', 'ondemand_cost', 'recommended_mode',

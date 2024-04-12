@@ -5,7 +5,11 @@ import boto3
 import src.metrics_estimates as estimates
 import pandas as pd
 from tqdm.contrib.concurrent import thread_map
+import logging
 
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def list_metrics(tablename: str) -> list:
     cw = boto3.client('cloudwatch')
@@ -25,10 +29,10 @@ def list_metrics(tablename: str) -> list:
     return metrics_list
 
 
-def process_results(metr_list, metric, metric_result_queue, estimate_result_queue, read_utilization, write_utilization, read_min, write_min, read_max, write_max):
+def process_results(metrics_list, metric, metric_result_queue, estimate_result_queue, read_utilization, write_utilization, read_min, write_min, read_max, write_max):
 
     metrics_result = []
-    for result in metr_list['MetricDataResults']:
+    for result in metrics_list['MetricDataResults']:
 
         try:
             name = str(metric[0]['Value']) + ":" + str(metric[1]['Value'])
@@ -114,18 +118,17 @@ def fetch_metric_data(metric, start_time, end_time, consumed_period, provisioned
     return None
 
 
-def get_table_metrics(metrics, start_time, end_time, consumed_period, provisioned_period, read_utilization, write_utilization, read_min, write_min, read_max, write_max, max_concurrent_tasks):
+def get_table_metrics(metrics, start_time, end_time, consumed_period, provisioned_period, read_utilization, write_utilization, read_min, write_min, read_max, write_max, max_concurrent_tasks,dynamodb_tablename):
     metric_result_queue = Queue()
     estimate_result_queue = Queue()
     metric_data_list = thread_map(lambda metric: fetch_metric_data(metric, start_time, end_time, consumed_period, provisioned_period),
-                                  metrics, max_workers=max_concurrent_tasks)
+                                  metrics, max_workers=max_concurrent_tasks, desc="Fetching CloudWatch metrics for: " + dynamodb_tablename)
 
     metric_data_list = [
         result for result in metric_data_list if result is not None]
 
-    print("starting process to estimate dynamodb table provisioned metrics")
     thread_map(lambda result: process_results(result[0], result[1], metric_result_queue, estimate_result_queue, read_utilization, write_utilization, read_min, write_min, read_max, write_max),
-               metric_data_list, max_workers=max_concurrent_tasks)
+               metric_data_list, max_workers=max_concurrent_tasks, desc="Estimating DynamoDB table provisioned metrics for: " + dynamodb_tablename)
 
     processed_metric = []
     processed_estimate = []
@@ -134,7 +137,7 @@ def get_table_metrics(metrics, start_time, end_time, consumed_period, provisione
     while not estimate_result_queue.empty():
         processed_estimate.append(estimate_result_queue.get())
     if all(df.empty for df in processed_metric):
-        print("No Metrics were retrived in check end date provided for CloudWatch.")
+        logger.info("No metrics were retrieved from CloudWatch.")
     else:
         metric_df = pd.concat(processed_metric, ignore_index=True)
         estimate_df = pd.concat(processed_estimate, ignore_index=True)
@@ -163,6 +166,6 @@ def get_metrics(params):
 
     metrics = list_metrics(dynamodb_tablename)
     result = get_table_metrics(metrics, start_time, end_time, consumed_period,
-                               provisioned_period, read_utilization, write_utilization, read_min, write_min, read_max, write_max, max_concurrent_tasks)
+                               provisioned_period, read_utilization, write_utilization, read_min, write_min, read_max, write_max, max_concurrent_tasks,dynamodb_tablename)
 
     return result
