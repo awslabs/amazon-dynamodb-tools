@@ -82,7 +82,7 @@ The role that you will assume to execute this script needs provides access to th
 
 ## Results
 
-The `cost_tool/output` folder will contain the compressed results of this script, which can be directly uploaded to the [DynamoDB Cost Portal](https://tiny.amazon.com/nil0ajwa).
+The `cost_tool/output` folder will contain the compressed results of this script, which can be directly uploaded to the [DynamoDB Cost Portal](https://bit.ly/3JzReos).
 
 You will need to enter the username `ddb-cost-tool` and the password `DDB-cost-tool-2024`. This portal will allow you to upload the metadata files so the cost optimization tool can provide the analysis.
 
