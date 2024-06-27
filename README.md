@@ -4,6 +4,7 @@ These tools are intended to make using Amazon DynamoDB effectively and easier. T
 
 - [DynamoDB reserved capacity recommendations](reco) - Generate reserved capacity purchase recommendations using existing AWS Cost and Usage Reports data
 - [Cost Template](#cost-template) - Model read, write, and storage costs for a DynamoDB table in Excel
+- [DynamoDB Table Class Calculators](#dynamodb-table-class-calculators) - Estimates costs and recommends the optimal DynamoDB table class based on known usage patterns. 
 - [MySQL to S3 Migrator](#mysql-to-s3-migrator) - Bring your relational data into Amazon S3 to prepare for a DynamoDB migration
 - [Table Class Evaluator](#table-class-evaluator-tool) - Recommend Amazon DynamoDB table class changes to optimize costs
 - [Eponymous Table Tagger](#eponymous-table-tagger-tool) - Tag tables with their own name to make per-table cost analysis easier
@@ -55,6 +56,64 @@ Because prices may change in the future, you can adjust these as needed, or for 
 The tool helps you model the core costs of a table,
 please refer to the [DynamoDB Pricing Page](https://aws.amazon.com/dynamodb/pricing/)
 for a full list of DynamoDB features, options and prices.
+
+## DynamoDB Table Class Calculators
+
+Optimize DynamoDB costs by recommending the ideal table class based on usage patterns and known costs.
+
+### Overview
+
+These calculators help DynamoDB users choose between Standard and Standard-IA table classes by estimating costs and providing recommendations based on different scenarios.
+
+
+### Purpose
+
+The DynamoDB Table Class Calculators address the challenge of selecting the most cost-effective table class for your DynamoDB workload. They provide data-driven recommendations by analyzing your usage patterns and costs, helping you optimize your DynamoDB expenses.
+
+### Calculators
+
+#### 1. Table Class Calc (Cost Unknown)
+
+This calculator estimates costs and recommends a table class when your actual spend is unknown but usage patterns are known.
+
+##### Key Features
+- Inputs usage metrics such as read/write operations, storage size, and consistency model
+- Calculates estimated costs for Standard and Standard-IA table classes
+- Recommends the most cost-effective table class
+- Displays potential savings from switching classes
+
+##### How to Use
+1. Enter your known usage metrics in the green input fields
+2. Review the calculated costs for Standard and Standard-IA classes
+3. Check the recommendation and potential savings
+
+#### 2. Table Class Calc (Cost Unknown)
+
+This calculator provides recommendations when your actual costs for Standard or Standard-IA are known.
+
+##### Key Features
+- Accepts actual Read/Write and Storage costs for either Standard or Standard-IA
+- Calculates equivalent costs for the alternative table class
+- Provides a recommendation based on cost comparison
+- Shows potential savings from switching classes
+
+##### How to Use
+1. Enter your actual Read/Write and Storage costs in the green input fields
+2. Review the calculated costs for the alternative table class
+3. Check the recommendation and potential savings
+
+### Decision Rules
+
+- Standard to Standard-IA: If the actual storage cost is greater than 42% of the throughput cost, Standard-IA is recommended
+- Standard-IA to Standard: If the actual storage cost is less than 13% of the actual throughput cost, Standard is recommended
+
+### Access the Calculators
+
+Both calculators are available in the Excel file: [DynamoDB Cost Template](https://github.com/awslabs/amazon-dynamodb-tools/blob/main/Excel/DynamoDB%2BCost%2BTemplate.xlsx)
+
+By leveraging these calculators, you can optimize your DynamoDB costs and ensure you're using the most appropriate table class for your workload characteristics, whether you're working with known usage patterns or actual costs.
+
+
 
 ## MySQL to S3 Migrator
 
