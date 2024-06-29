@@ -4,9 +4,12 @@ These tools are intended to make using Amazon DynamoDB effectively and easier. T
 
 - [DynamoDB reserved capacity recommendations](reco) - Generate reserved capacity purchase recommendations using existing AWS Cost and Usage Reports data
 - [Cost Template](#cost-template) - Model read, write, and storage costs for a DynamoDB table in Excel
-- [DynamoDB Table Class Calculators](#dynamodb-table-class-calculators) - Estimates costs and recommends the optimal DynamoDB table class based on known usage patterns. 
+- [DynamoDB Table Class Calculators](#dynamodb-table-class-calculators) - Excel and Python scripts to estimates costs and recommends the optimal DynamoDB table class
+  -   [Excel Calculators](#excel-calculators)
+      - [Table class Calculator (costs unknown)](#1-table-class-calculator-costs-unknown) - Excel Calculator to recommend Amazon DynamoDB table class changes when cost unknown
+      - [Table class calculator (costs known)](#2-table-class-calculator-costs-known) - Excel Calculator to recommend Amazon DynamoDB table class changes when costs known
+  - [Table Class Evaluator (Python Script)](#3-table-class-evaluator-tool) - Python tool to recommend Amazon DynamoDB table class changes to optimize costs
 - [MySQL to S3 Migrator](#mysql-to-s3-migrator) - Bring your relational data into Amazon S3 to prepare for a DynamoDB migration
-- [Table Class Evaluator](#table-class-evaluator-tool) - Recommend Amazon DynamoDB table class changes to optimize costs
 - [Eponymous Table Tagger](#eponymous-table-tagger-tool) - Tag tables with their own name to make per-table cost analysis easier
 - [Table Capacity Mode Evaluator](capacity-mode-evaluator) - Generate capacity mode recommendations by analyizing DynamoDB table usage
 - [DynamoDB cost optimization tool](#cost-optimization-tool) - Captures table metadata and metrics to generate cost savings recommendations.
@@ -59,20 +62,30 @@ for a full list of DynamoDB features, options and prices.
 
 ## DynamoDB Table Class Calculators
 
+### Excel Calculators
 Optimize DynamoDB costs by recommending the ideal table class based on usage patterns and known costs.
 
-### Overview
+#### Overview
 
 These calculators help DynamoDB users choose between Standard and Standard-IA table classes by estimating costs and providing recommendations based on different scenarios.
 
-
-### Purpose
+#### Purpose
 
 The DynamoDB Table Class Calculators address the challenge of selecting the most cost-effective table class for your DynamoDB workload. They provide data-driven recommendations by analyzing your usage patterns and costs, helping you optimize your DynamoDB expenses.
 
-### Calculators
+#### Decision Rules
 
-#### 1. Table Class Calc (Cost Unknown)
+- Standard to Standard-IA: If the actual storage cost is greater than 42% of the throughput cost, Standard-IA is recommended
+- Standard-IA to Standard: If the actual storage cost is less than 13% of the actual throughput cost, Standard is recommended
+
+#### Access the Calculators
+
+Both calculators are available in the Excel file: [DynamoDB Cost Template](https://github.com/awslabs/amazon-dynamodb-tools/blob/main/Excel/DynamoDB%2BCost%2BTemplate.xlsx)
+
+By leveraging these calculators, you can optimize your DynamoDB costs and ensure you're using the most appropriate table class for your workload characteristics, whether you're working with known usage patterns or actual costs.
+
+
+#### 1. Table class calculator (Costs Unknown)
 
 This calculator estimates costs and recommends a table class when your actual spend is unknown but usage patterns are known.
 
@@ -87,7 +100,7 @@ This calculator estimates costs and recommends a table class when your actual sp
 2. Review the calculated costs for Standard and Standard-IA classes
 3. Check the recommendation and potential savings
 
-#### 2. Table Class Calc (Cost Unknown)
+#### 2. Table class calculator (Costs Known)
 
 This calculator provides recommendations when your actual costs for Standard or Standard-IA are known.
 
@@ -97,23 +110,102 @@ This calculator provides recommendations when your actual costs for Standard or 
 - Provides a recommendation based on cost comparison
 - Shows potential savings from switching classes
 
-##### How to Use
-1. Enter your actual Read/Write and Storage costs in the green input fields
-2. Review the calculated costs for the alternative table class
-3. Check the recommendation and potential savings
-
-### Decision Rules
-
-- Standard to Standard-IA: If the actual storage cost is greater than 42% of the throughput cost, Standard-IA is recommended
-- Standard-IA to Standard: If the actual storage cost is less than 13% of the actual throughput cost, Standard is recommended
-
-### Access the Calculators
-
-Both calculators are available in the Excel file: [DynamoDB Cost Template](https://github.com/awslabs/amazon-dynamodb-tools/blob/main/Excel/DynamoDB%2BCost%2BTemplate.xlsx)
-
-By leveraging these calculators, you can optimize your DynamoDB costs and ensure you're using the most appropriate table class for your workload characteristics, whether you're working with known usage patterns or actual costs.
+#### How to Use
+  1. Enter your actual Read/Write and Storage costs in the green input fields
+  2. Review the calculated costs for the alternative table class
+  3. Check the recommendation and potential savings
 
 
+###  Ptyhon Tool
+#### 3. Table Class Evaluator Tool
+
+##### Overview
+
+Amazon DynamoDB supports two [table classes](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.TableClasses.html):
+
+- Standard: The default for new tables, this table class balances storage costs and provisioned throughput.
+
+- Standard Infrequent Access (Standard-IA): This table class offers lower storage pricing and higher throughput pricing comapred to the Standard table class. The Standard-IA table class is a good fit for tables where data is not queried frequently, and can be a good choice for tables using the Standard table class where storage costs exceed 50% of total throughput costs.
+
+The Table Class Evaluator tool evaluates one or more tables in an AWS region for suitability for the Infrequent Access table class. The tool accomplishes this by calculating costs for both table classes for the following cost dimensions:
+
+- AWS Region
+- Table storage utilization
+- Instantaneous provisioned throughput
+- Global Tables replicated writes
+- Global Secondary Indexes (GSIs)
+
+The tool will will return recommendations for tables that may benefit from a change in table class.
+
+##### Limitations
+
+The Table Class Evaluator tool has the following limitations:
+
+- Estimated costs are calculated from the current (instantaneous) provisioned throughput. If the provisioned capacity of the table being evaluated changes frequently due to Auto Scaling activity, the recommendation could be incorrect.
+- Tables using On-Demand pricing are not supported.
+- Local Secondary Index costs are not calculated.
+
+##### Using the Table Class Evaluator tool
+
+The Table Class Evaluator is a command-line tool written in Python 3, and requires the AWS Python SDK (Boto3) >= 1.23.18. You can find instructions for installing the AWS Python SDK at https://aws.amazon.com/sdk-for-python/. The tool can be run directly from the cloned repository without installation.
+
+The tool is invoked from the command line like so:
+
+```console
+user@host$ python3 table_class_evaluator.py --help
+usage: table_class_evaluator.py [-h] [--estimates-only] [--region REGION] [--table-name TABLE_NAME] [--profile PROFILE]
+
+Recommend Amazon DynamoDB table class changes to optimize costs.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --estimates-only      print table cost estimates instead of change recommendations
+  --region REGION       evaluate tables in REGION (default: us-east-1)
+  --table-name TABLE_NAME
+                        evaluate TABLE_NAME (defaults to all tables in region)
+  --profile PROFILE     set a custom profile name to perform the operation under
+```
+
+With no arguments, the tool will evaluate costs for all tables in the default region (us-east-1), and returns a list of JSON objects, each containing details for a change recommendation:
+
+```console
+user@host$ python3 table_class_evaluator.py
+[{
+    "recommendation_type": "CHANGE_TABLE_CLASS",
+    "recommended_table_class": "STANDARD_INFREQUENT_ACCESS",
+    "estimated_monthly_savings": "1.35",
+    "estimate_detail": {
+        "table_name": "test",
+        "pricing_data": {
+        "billing_mode": "PROVISIONED",
+        "size_in_gb": "13.61",
+        "provisioned_rcus": 5,
+        "provisioned_wcus": 5,
+        "table_arn": "arn:aws:dynamodb:us-east-1:123456789012:table/test",
+        "table_class": "STANDARD"
+        },
+        "table_mo_costs": {
+        "std_storage_cost": "3.40",
+        "std_mo_rcu_cost": "0.47",
+        "std_mo_wcu_cost": "2.37",
+        "std_mo_total_cost": "6.25",
+        "ia_mo_storage_cost": "1.36",
+        "ia_mo_rcu_cost": "0.58",
+        "ia_mo_wcu_cost": "2.96",
+        "ia_mo_total_cost": "4.90",
+        "total_std_mo_costs": "6.25",
+        "total_ia_mo_costs": "4.90"
+        }
+    }
+}]
+```
+
+If cost calculations don't reveal any change recommendations, the tool returns an empty list:
+
+```console
+user@host$ python3 table_class_evaluator.py
+[]
+```
 
 ## MySQL to S3 Migrator
 
@@ -175,96 +267,6 @@ HTTP 200 for object s3://s3-export-demo/demo/data_upto_5.json
 HTTP 200 for object s3://s3-export-demo/demo/data_upto_10.json
 HTTP 200 for object s3://s3-export-demo/demo/data_upto_15.json
 ...
-```
-
-## Table Class Evaluator Tool
-
-### Overview
-
-Amazon DynamoDB supports two [table classes](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.TableClasses.html):
-
-- Standard: The default for new tables, this table class balances storage costs and provisioned throughput.
-
-- Standard Infrequent Access (Standard-IA): This table class offers lower storage pricing and higher throughput pricing comapred to the Standard table class. The Standard-IA table class is a good fit for tables where data is not queried frequently, and can be a good choice for tables using the Standard table class where storage costs exceed 50% of total throughput costs.
-
-The Table Class Evaluator tool evaluates one or more tables in an AWS region for suitability for the Infrequent Access table class. The tool accomplishes this by calculating costs for both table classes for the following cost dimensions:
-
-- AWS Region
-- Table storage utilization
-- Instantaneous provisioned throughput
-- Global Tables replicated writes
-- Global Secondary Indexes (GSIs)
-
-The tool will will return recommendations for tables that may benefit from a change in table class.
-
-### Limitations
-
-The Table Class Evaluator tool has the following limitations:
-
-- Estimated costs are calculated from the current (instantaneous) provisioned throughput. If the provisioned capacity of the table being evaluated changes frequently due to Auto Scaling activity, the recommendation could be incorrect.
-- Tables using On-Demand pricing are not supported.
-- Local Secondary Index costs are not calculated.
-
-### Using the Table Class Evaluator tool
-
-The Table Class Evaluator is a command-line tool written in Python 3, and requires the AWS Python SDK (Boto3) >= 1.23.18. You can find instructions for installing the AWS Python SDK at https://aws.amazon.com/sdk-for-python/. The tool can be run directly from the cloned repository without installation.
-
-The tool is invoked from the command line like so:
-
-```console
-user@host$ python3 table_class_evaluator.py --help
-usage: table_class_evaluator.py [-h] [--estimates-only] [--region REGION] [--table-name TABLE_NAME] [--profile PROFILE]
-
-Recommend Amazon DynamoDB table class changes to optimize costs.
-
-optional arguments:
-  -h, --help            show this help message and exit
-  --estimates-only      print table cost estimates instead of change recommendations
-  --region REGION       evaluate tables in REGION (default: us-east-1)
-  --table-name TABLE_NAME
-                        evaluate TABLE_NAME (defaults to all tables in region)
-  --profile PROFILE     set a custom profile name to perform the operation under
-```
-
-With no arguments, the tool will evaluate costs for all tables in the default region (us-east-1), and returns a list of JSON objects, each containing details for a change recommendation:
-
-```console
-user@host$ python3 table_class_evaluator.py
-[{
-    "recommendation_type": "CHANGE_TABLE_CLASS",
-    "recommended_table_class": "STANDARD_INFREQUENT_ACCESS",
-    "estimated_monthly_savings": "1.35",
-    "estimate_detail": {
-        "table_name": "test",
-        "pricing_data": {
-        "billing_mode": "PROVISIONED",
-        "size_in_gb": "13.61",
-        "provisioned_rcus": 5,
-        "provisioned_wcus": 5,
-        "table_arn": "arn:aws:dynamodb:us-east-1:123456789012:table/test",
-        "table_class": "STANDARD"
-        },
-        "table_mo_costs": {
-        "std_storage_cost": "3.40",
-        "std_mo_rcu_cost": "0.47",
-        "std_mo_wcu_cost": "2.37",
-        "std_mo_total_cost": "6.25",
-        "ia_mo_storage_cost": "1.36",
-        "ia_mo_rcu_cost": "0.58",
-        "ia_mo_wcu_cost": "2.96",
-        "ia_mo_total_cost": "4.90",
-        "total_std_mo_costs": "6.25",
-        "total_ia_mo_costs": "4.90"
-        }
-    }
-}]
-```
-
-If cost calculations don't reveal any change recommendations, the tool returns an empty list:
-
-```console
-user@host$ python3 table_class_evaluator.py
-[]
 ```
 
 ## Eponymous Table Tagger Tool
