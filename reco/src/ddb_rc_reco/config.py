@@ -12,7 +12,7 @@ pricing = {"NRT":{"ut_region_match_filter":r'^APN1-', "dto":0.14, "wcu":0.000742
 "PDX":{"ut_region_match_filter":r'^USW2-', "dto":0.09, "wcu":0.00065,"rcu":0.00013,"rwcu":0.000975,"rc1":{"rcu":{"base":30,"hour":0.0025},"wcu":{"base":150,"hour":0.0128}}, "rc3":{"rcu":{"base":36,"hour":0.0016},"wcu":{"base":180,"hour":0.0081}}},
 "SFO":{"ut_region_match_filter":r'^USW1-', "dto":0.09, "wcu":0.000725,"rcu":0.000145,"rwcu":0.0010875,"rc1":{"rcu":{"base":33.6,"hour":0.0028},"wcu":{"base":168.0,"hour":0.0144}}, "rc3":{"rcu":{"base":40.32,"hour":0.0018},"wcu":{"base":201.6,"hour":0.0091}}},
 "DUB":{"ut_region_match_filter":r'^EU-', "dto":0.09, "wcu":0.000735,"rcu":0.000147,"rwcu":0.0011025,"rc1":{"rcu":{"base":33.9,"hour":0.0029},"wcu":{"base":169.5,"hour":0.0145}}, "rc1":{"rcu":{"base":33.9,"hour":0.0029},"wcu":{"base":169.5,"hour":0.0145}}, "rc3":{"rcu":{"base":40.68,"hour":0.0018},"wcu":{"base":203.4,"hour":0.0092}}},
-"BOM":{"ut_region_match_filter":r'^APS3-', "dto":0.1093, "wcu":0.00074,"rcu":0.000148,"rwcu":None ,"rc1":{"rcu":{"base":34.2,"hour":0.0029},"wcu":{"base":171.0,"hour":0.0146}}, "rc3":{"rcu":{"base":40.68,"hour":0.0018},"wcu":{"base":203.4,"hour":0.0092}}},
+"BOM":{"ut_region_match_filter":r'^APS3-', "dto":0.1093, "wcu":0.00074,"rcu":0.000148,"rwcu":0.00111 ,"rc1":{"rcu":{"base":34.2,"hour":0.0029},"wcu":{"base":171.0,"hour":0.0146}}, "rc3":{"rcu":{"base":40.68,"hour":0.0018},"wcu":{"base":203.4,"hour":0.0092}}},
 "SYD":{"ut_region_match_filter":r'^APS2-', "dto":0.114, "wcu":0.00074,"rcu":0.000148,"rwcu":0.00111,"rc1":{"rcu":{"base":34.2,"hour":0.0029},"wcu":{"base":171.0,"hour":0.0146}}, "rc3":{"rcu":{"base":41.04,"hour":0.0018},"wcu":{"base":205.2,"hour":0.0093}}},
 "PDT":{"ut_region_match_filter":r'^UGW1-', "dto":0.155, "wcu":0.00078 ,"rcu":0.000156 ,"rwcu":0.00117,"rc1":{"rcu":{"base":36.0,"hour":0.0031},"wcu":{"base":180,"hour":0.0122}}, "rc3":{"rcu":{"base":43.0,"hour":0.0019},"wcu":{"base":216,"hour":0.0097}}},
 "OSU":{"ut_region_match_filter":r'^UGE1-', "dto":0.155, "wcu":0.00078 ,"rcu":0.000156 ,"rwcu":0.00117,"rc1":{"rcu":{"base":36.0,"hour":0.0031},"wcu":{"base":180,"hour":0.0122}}, "rc3":{"rcu":{"base":43.0,"hour":0.0019},"wcu":{"base":216,"hour":0.0097}}},
@@ -26,10 +26,10 @@ pricing = {"NRT":{"ut_region_match_filter":r'^APN1-', "dto":0.14, "wcu":0.000742
 "ICN":{"ut_region_match_filter":r'^APN2-', "dto":0.126, "wcu":0.0007049,"rcu":0.00014098,"rwcu":0.00105735,"rc1":{"rcu":{"base":32.49,"hour":0.0028},"wcu":{"base":162.83,"hour":0.014}}, "rc3":{"rcu":{"base":38.95,"hour":0.0017},"wcu":{"base":195.32,"hour":0.0088}}},
 "HKG":{"ut_region_match_filter":r'^APE1-', "dto":0.12, "wcu":0.000814,"rcu":0.0001628,"rwcu":0.00105735,"rc1":{"rcu":{"base":37.62,"hour":0.0032},"wcu":{"base":188.1,"hour":0.0161}}},
 "ARN":{"ut_region_match_filter":r'^EUN1-', "dto":0.09, "wcu":0.000698,"rcu":0.00014,"rwcu":0.00105735,"rc1":{"rcu":{"base":32.2,"hour":0.0028},"wcu":{"base":161.0,"hour":0.0138}}},
-"CPT":{"ut_region_match_filter":r'^AFS1-', "dto":0.154, "wcu":0.00087465, "rcu":0.00017493,"rwcu":None,"rc1":{"rcu":{"base":40.341,"hour":0.0035},"wcu":{"base":201.705,"hour":0.0173}}},
-"BAH":{"ut_region_match_filter":r'^MES1-', "dto":0.117, "wcu":0.0008085, "rcu":0.0001617,"rwcu":None,"rc1":{"rcu":{"base":37.29,"hour":0.0032},"wcu":{"base":186.45,"hour":0.016}}},
+"CPT":{"ut_region_match_filter":r'^AFS1-', "dto":0.154, "wcu":0.00087465, "rcu":0.00017493,"rwcu":0.001311975,"rc1":{"rcu":{"base":40.341,"hour":0.0035},"wcu":{"base":201.705,"hour":0.0173}}},
+"BAH":{"ut_region_match_filter":r'^MES1-', "dto":0.117, "wcu":0.0008085, "rcu":0.0001617,"rwcu":0.00121275,"rc1":{"rcu":{"base":37.29,"hour":0.0032},"wcu":{"base":186.45,"hour":0.016}}},
 "MXP":{"ut_region_match_filter":r'^EUS1-', "dto":0.09, "wcu":0.00077175,"rcu":0.00015435,"rwcu":0.001158,"rc1":{"rcu":{"base":35.595,"hour":0.003},"wcu":{"base":177.975,"hour":0.0152}}},
-"TLV":{"ut_region_match_filter":r'^ILC1-', "dto":0.11, "wcu":0.000882, "rcu": 0.0001764,"rwcu": 0.001323,"rc1": {"rcu": {"base": 40.68, "hour": 0.0035},"wcu": {"base": 203.40, "hour": 0.0174},},},
+"TLV":{"ut_region_match_filter":r'^ILC1-', "dto":0.11, "wcu":0.000882, "rcu": 0.0001764,"rwcu": 0.001323,"rc1": {"rcu": {"base": 40.68, "hour": 0.0035},"wcu": {"base": 203.40, "hour": 0.0174}}},
 }
 
 plain_report_footer =  ("Reserved capacity to own: How much RC this payer account should own. You must compare the amount to own against your current RC reservations to determine the amount to buy. See report header."+
