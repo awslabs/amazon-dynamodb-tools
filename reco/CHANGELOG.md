@@ -1,5 +1,6 @@
 ### 2024-07-25 - Version 1.1.3 - switch180
-* Added pricing for TLV, and updated pricing for BOM, CPT, BAH
+* Added pricing for TLV and DXB
+* Updated pricing for BOM, CPT, BAH
 
 ### 2024-03-20 - Version 1.1.2 - switch180
 * Removed CMH 3yr RI because it does not appear on [public pricing page](https://aws.amazon.com/dynamodb/pricing/provisioned/).
