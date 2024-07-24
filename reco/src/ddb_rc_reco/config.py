@@ -30,7 +30,7 @@ pricing = {"NRT":{"ut_region_match_filter":r'^APN1-', "dto":0.14, "wcu":0.000742
 "BAH":{"ut_region_match_filter":r'^MES1-', "dto":0.117, "wcu":0.0008085, "rcu":0.0001617,"rwcu":0.00121275,"rc1":{"rcu":{"base":37.29,"hour":0.0032},"wcu":{"base":186.45,"hour":0.016}}},
 "MXP":{"ut_region_match_filter":r'^EUS1-', "dto":0.09, "wcu":0.00077175,"rcu":0.00015435,"rwcu":0.001158,"rc1":{"rcu":{"base":35.595,"hour":0.003},"wcu":{"base":177.975,"hour":0.0152}}},
 "TLV":{"ut_region_match_filter":r'^ILC1-', "dto":0.11, "wcu":0.000882, "rcu": 0.0001764,"rwcu": 0.001323,"rc1": {"rcu": {"base": 40.68, "hour": 0.0035},"wcu": {"base": 203.40, "hour": 0.0174}}},
-"DXB":{"ut_region_match_filter":r'^MEC1-', "dto":0.117,"wcu": 0.0008085,"rcu": 0.0001617,"rwcu": 0.00121275,"rc1": {"rcu": {"base": 37.29, "hour": 0.0032},"wcu": {"base": 186.45, "hour": 0.016}}},
+"DXB":{"ut_region_match_filter":r'^MEC1-', "dto":0.11,"wcu": 0.0008085,"rcu": 0.0001617,"rwcu": 0.00121275,"rc1": {"rcu": {"base": 37.29, "hour": 0.0032},"wcu": {"base": 186.45, "hour": 0.016}}},
 }
 
 plain_report_footer =  ("Reserved capacity to own: How much RC this payer account should own. You must compare the amount to own against your current RC reservations to determine the amount to buy. See report header."+
