@@ -24,11 +24,12 @@ Use the full user guide to effectively use the query.
 ## User Guide
 ### Execution
 1. Open your AWS Athena console
-2. Copy the query (select all query text)
+2. Copy the query text from DDB_TableClassReco.sql (select all query text)
 3. Paste the query into a new query window
-4. Adjust parameters in the 'parameters' as needed
-5. Run the query
-6. Review results in the Athena query results pane
+4. Rename the query with the correct Cost and Usage Report (CUR) database details: ([CUR_DB] and [CUR_TABLE]).
+5. Adjust parameters in the 'parameters' as needed
+6. Run the query
+7. Review results in the Athena query results pane
 
 ### Parameters
 At the beginning of the query, you can adjust five parameters:
@@ -76,7 +77,7 @@ Download the **DDB_TableClassReco.sql** file
 **When is it recommended to switch back to Standard?**
 - When you switch from Standard-IA to Standard, you will pay 20% less on the throughput (read/write) cost and 150% more on the storage cost. Particularly if throughput is the clear dominant cost driver for a table. The rule of thumb is if your throughput cost is x7.5 than the storage cost, Standard will be a be a more cost-effective table class for your usage.
 
-**How can this help customers running large workloads on DynamoDB?**
+**How can this help AWS customers running large workloads on DynamoDB?**
 - Reduce storage costs by 60% while increasing throughput costs by 25%
 - Clearly not applicable to net new workloads because storage costs would not be the dominant cost driver for those brand new tables
 
@@ -99,12 +100,8 @@ Download the **DDB_TableClassReco.sql** file
   - actual_storage_cost_ia < (0.2/1.5) *(actual_throughput_cost_ia)
   - Then the break-even: actual_storage_cost_ia / actual_throughput_cost_ia < ~13% (13.33%)
 
-**What should TAMs check?**
-- Run Query on customer's CUR files to obtain "Summary" of potential savings (use Summary parameter)
-- If considerable savings (your judgement), reach out to the customer and share the results of the "Detailed" report (using Detailed Parameter), which would be a detailed resource wise potential savings list for Standard-IA or Standard candidates. Customer must then look at switching these candidate tables to Standard IA or Standard for cost optimization.
-
-**What is the effort on the customer's side?**
-- The effort from customer's side is to flip the table class of their candidate DynamoDB tables from STANDARD to STANDARD_INFREQUENT_ACCESS using either the Console, SDKs or Infrastructure as Code Tools (CFN, Terraform etc)
+**What is the effort on the AWS customer's side?**
+- The effort from AWS customer's side is to flip the table class of their candidate DynamoDB tables from STANDARD to STANDARD_INFREQUENT_ACCESS using either the Console, SDKs or Infrastructure as Code Tools (CFN, Terraform etc)
 
 **How do I switch the table classes manually from the console?**
 - Here are the steps to manually switch a DynamoDB table from Standard from/to Standard-Infrequent Access (Standard-IA) class:
