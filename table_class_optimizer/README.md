@@ -1,8 +1,10 @@
 # DynamoDB Table Class Optimizer
 ## Table of Contents
 - [Overview](#overview)
+- [Exceptions](#exceptions)
 - [User Guide](#user-guide)
-  - [Execution](#execution)
+  - [Enabling Cost and Usage Report (CUR)](#enabling-cost-and-usage-report-cur)
+  - [Execution Steps](#execution-steps)
   - [Parameters](#parameters)
   - [Expected Output](#expected-output)
   - [Interpretation](#interpretation)
@@ -10,8 +12,6 @@
   - [Important Notes](#important-notes)
 - [The Query](#the-query)
 - [FAQ](#faq)
-- [Future Work](#future-work)
-- [Contact Us](#contact-us)
 
 ## Overview
 DynamoDB's Standard-IA table class lowers storage costs by 60%, but offsets these savings by increasing throughput costs by 25%. This Athena query on [AWS Cost & Usage Reports](https://docs.aws.amazon.com/cur/latest/userguide/what-is-cur.html) (CUR) data help determine whether switching between Standard and Standard-IA table classes is cost-effective for your DynamoDB tables based on your usage and parameters provided. For more information about table classes and their commonalities, see our [best practice guide](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/CostOptimization_TableClass.html) in the developer documentation.
@@ -20,16 +20,61 @@ To get a summary of your total potential savings at the payer level, use the que
 To get a detailed cost optimization report on a per-table level, use the query with **DETAILED** set in report_type parameter
 
 Use the full user guide to effectively use the query.
+## Exceptions
+
+1. **Reserved Capacity**:
+   - Reserved Capacity purchasing is currently not supported for the Standard-IA table class.
+   - Customers who have already purchased 1-year or 3-year Reserved Instances (RIs) for the Standard table class may not be able to instantly switch their tables to the Standard-IA class.
+   - This limitation applies only to tables in Provisioned Capacity mode, as there is no concept of RIs for On-Demand capacity mode.
+
+2. **Provisioned Tables with Reservations**:
+   - The Athena query automatically marks tables that are using reserved capacity as "Optimized".
+   - This is done to focus the results on tables without reservations, as switching the table class for reserved capacity tables may not result in additional cost savings.
+
+3. **New or Unstable Workloads**:
+   - The query and recommendations provided by this tool are most accurate for DynamoDB tables that have at least 3 months of stable usage data. 
+   - Tables with major changes in access patterns or storage/throughput needs may not show accurate recommendations, as the analysis relies on recent historical datad.
+
+4. **Table Class Update Limit**:
+   - Customers are limited to no more than two table class updates on a single table within a 30-day trailing period.
+
+5. **Query Execution Time**:
+   - Using a large `months_to_scan` value (greater than 6 months) may result in long and costly query execution times.
+   - It's recommended to start with a smaller time range, such as 3 months or less, to get faster results and lower query costs.
+     
+6. **Discount Percentages are Estimates**
+   - The discount percentages used in the tool when calculating the potential savings from switching table classes (60% for storage and 25% for throughput for example)   are average values.
+   - The actual discounts may slightly differ across AWS regions, so the table costs and potential savings shown are estimates and may vary from the actual values.
+
 
 ## User guide
+
+## Enabling Cost and Usage Report (CUR)
+Before running the Athena query, you'll need to ensure that your AWS account has the Cost and Usage Report (CUR) properly configured and up-to-date. Follow the steps in the [AWS documentation on setting up the CUR](https://docs.aws.amazon.com/cur/latest/userguide/cur-query-athena.html) to enable and configure the report for your use case.
+
+Some key settings to consider when setting up the CUR:
+
+- **Report name**: Use a descriptive name like "DynamoDB Cost Optimization".
+- **Report name prefix**: Set a unique prefix for your organization.
+- **Time unit**: Choose the "Hourly" time unit for the most granular analysis.
+- **Include resource IDs**: Set this option to "Yes".
+- **Compressed CSV file**: Ensure this option is enabled.
+- **S3 bucket**: Choose an appropriate S3 bucket to store the CUR files.
+
+After enabling the CUR, wait for the first report to be generated (this can take up to 24 hours) and verify that the CUR data is being delivered to the specified S3 bucket and contains the necessary information, including DynamoDB usage and costs.
+
+
 ### Execution steps
-1. Open your AWS Athena console
-2. Copy the query text from DDB_TableClassReco.sql (select all query text)
-3. Paste the query into a new query window
-4. Rename the query with the correct Cost and Usage Report (CUR) database details: ([CUR_DB] and [CUR_TABLE]).
-5. Adjust parameters in the 'parameters' as needed
-6. Run the query
-7. Review results in the Athena query results pane
+1. Before running the query, make sure you fully aware of the [Exceptions](#exceptions) list.
+2. Open your AWS Athena console
+3. Copy the query text from DDB_TableClassReco.sql (select all query text)
+4. Paste the query into a new query window
+5. Rename the query's SQL code with the correct Cost and Usage Report (CUR) database details. Search for these default values:
+   - `[CUR_DB]` : The CUR Database name 
+   - `[CUR_TABLE]` : The CUR table name 
+6. Adjust parameters in the query ([Parameters](#parameters)) as needed
+7. Run the query
+8. Review results in the Athena query results pane
 
 ### Parameters
 At the beginning of the query, you can adjust five parameters:
@@ -58,6 +103,7 @@ The query will output a detailed table-level report or a summary-level report, d
 - Use the 'DETAILED' report to identify specific tables for optimization.
 - Adjust the `min_savings_per_month` parameter to focus on the most impactful optimization opportunities.
 - Regularly run this query to identify new optimization opportunities as usage patterns change.
+- Analyze tables that have been in production for at least 3 months and have relatively stable usage patterns, as the recommendations are most accurate for such tables.
 
 ### Important notes
 - This query analyzes data from the AWS Cost and Usage Report (CUR).
@@ -76,10 +122,6 @@ Download the [DDB_TableClassReco.sql](DDB_TableClassReco.sql) file.
 
 **When is it recommended to switch back to Standard?**
 - When you switch from Standard-IA to Standard, you will pay 20% less on the throughput (read/write) cost and 150% more on the storage cost. Particularly if throughput is the clear dominant cost driver for a table. The rule of thumb is if your throughput cost is x7.5 than the storage cost, Standard will be a be a more cost-effective table class for your usage.
-
-**How can this help AWS customers running large workloads on DynamoDB?**
-- Reduce storage costs by 60% while increasing throughput costs by 25%
-- Clearly not applicable to net new workloads because storage costs would not be the dominant cost driver for those brand new tables
 
 **How to identify which tables are candidates for cost optimization with using Standard IA or Standard?**
 - If StorageCosts > 0.42 x ThroughputCosts, table is a candidate for Standard IA table class and can benefit with switching the table class for a quick cost optimization win
