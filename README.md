@@ -5,7 +5,7 @@ These tools are intended to make using Amazon DynamoDB effectively and easier. T
 - [DynamoDB reserved capacity recommendations](reco) - Generate reserved capacity purchase recommendations using existing AWS Cost and Usage Reports data
 - [Cost Template](#cost-template) - Model read, write, and storage costs for a DynamoDB table in Excel
 - [MySQL to S3 Migrator](#mysql-to-s3-migrator) - Bring your relational data into Amazon S3 to prepare for a DynamoDB migration
-- [Table Class Optimizer 2024](#table-class-optimizer) - Recommend Amazon DynamoDB table class changes to optimize costs
+- [Table Class Optimizer](#table-class-optimizer) [2024] - Recommend Amazon DynamoDB table class changes to optimize costs
 - [Eponymous Table Tagger](#eponymous-table-tagger-tool) - Tag tables with their own name to make per-table cost analysis easier
 - [Table Capacity Mode Evaluator](capacity-mode-evaluator) - Generate capacity mode recommendations by analyizing DynamoDB table usage
 - [DynamoDB cost optimization tool](#cost-optimization-tool) - Captures table metadata and metrics to generate cost savings recommendations.
@@ -120,7 +120,7 @@ HTTP 200 for object s3://s3-export-demo/demo/data_upto_15.json
 
 ## Table Class Optimizer
 
-See the [Table Class Optimizer](table_class_optimizer/README.md) 2024 Athena CUR query. This replaces the deprecated Python table class evaluator. 
+See the [Table Class Optimizer](table_class_optimizer/README.md) [2024]. This Athena CUR query replaces the deprecated Python table class evaluator. 
 
 ## Eponymous Table Tagger Tool
 
