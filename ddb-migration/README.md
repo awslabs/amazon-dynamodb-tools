@@ -108,9 +108,9 @@ cdk destroy -c sourceTableArn=$SOURCE_TABLE_ARN -c destinationTableArn=$DEST_TAB
 
 We would like to extend our heartfelt thanks to the major collaborators who made significant contributions to this project:
 
-- 🌟 [Esteban Serna](@tebanieo)
-- 🌟 [Sean Shriver](@switch180)
-- 🌟 [John Terhune](@terhunej)
+- 🌟 [Esteban Serna](https://github.com/tebanieo)
+- 🌟 [Sean Shriver](https://github.com/switch180)
+- 🌟 [John Terhune](https://github.com/terhunej)
 
 Their expertise, dedication, and hard work have been instrumental in the development and success of this DynamoDB Migration Project. We are truly grateful for their valuable input and collaborative spirit.
 
