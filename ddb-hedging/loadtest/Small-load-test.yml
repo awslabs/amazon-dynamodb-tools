@@ -6,7 +6,7 @@ config:
 
   payload:
     # path is relative to the location of the test script
-    path: "data/hedging-demo-101.csv"
+    path: "{{ $processEnvironment.DATAFILE }}"
     fields:
       - "recordId"
       - "entityNumber"
@@ -39,10 +39,8 @@ scenarios:
   - flow:
       #- loop:
           - post:
-              url: "/ddbDemo/readData"
+              url: "{{ $processEnvironment.REQUEST_URI }}"
               json:
                 recordId: "{{ recordId }}"
                 entityNumber: "{{ entityNumber }}"
-                #recordId: "{{ $loopElement.recordId }}"
-                #entityNumber: "{{ $loopElement.entityNumber }}"
         #over: entity-records

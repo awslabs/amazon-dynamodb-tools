@@ -6,19 +6,27 @@ config:
 
   payload:
     # path is relative to the location of the test script
-    path: "data/cc-auth-demo-newmod-101.csv"
+    path: "{{ $processEnvironment.DATAFILE }}"
     fields:
-      - "creditCardNumber"
-      - "clientNumber"
+      - "recordId"
+      - "entityNumber"
     #order: sequence  
     #loadAll: true
-    name: cc-auth # refer to the data as "cc-auth"
+    name: entity-records # refer to the data as "cc-auth"
     cast: false
   phases:
+    - duration: 15
+      arrivalRate: 1
+      rampTo: 5
+      name: Warm up phase
+    - duration: 60
+      arrivalRate: 5
+      rampTo: 25
+      name: Ramp up load
     - duration: 300
-      arrivalRate: 10
+      arrivalRate: 5
       rampTo: 50
-      name: Heavy
+      name: Heavy load
   # Load & configure a couple of useful plugins
   # https://docs.art/reference/extensions
   plugins:
@@ -31,11 +39,8 @@ scenarios:
   - flow:
       #- loop:
           - post:
-              url: "/ccauth"
+              url: "{{ $processEnvironment.REQUEST_URI }}"
               json:
-                creditCardNumber: "{{ creditCardNumber }}"
-                clientNumber: "{{ clientNumber }}"
-                #creditCardNumber: "{{ $loopElement.creditCardNumber }}"
-                #clientNumber: "{{ $loopElement.clientNumber }}"
-                amount: "10.01"
-        #over: cc-auth
+                recordId: "{{ recordId }}"
+                entityNumber: "{{ entityNumber }}"
+        #over: entity-records
