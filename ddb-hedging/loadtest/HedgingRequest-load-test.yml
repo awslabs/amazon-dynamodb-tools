@@ -6,13 +6,13 @@ config:
 
   payload:
     # path is relative to the location of the test script
-    path: "data/cc-auth-demo-import-006.csv"
+    path: "data/hedging-demo-101.csv"
     fields:
-      - "creditCardNumber"
-      - "clientNumber"
+      - "recordId"
+      - "entityNumber"
     #order: sequence  
     #loadAll: true
-    name: cc-auth # refer to the data as "cc-auth"
+    name: entity-records # refer to the data as "cc-auth"
     cast: false
   phases:
     - duration: 60
@@ -39,11 +39,10 @@ scenarios:
   - flow:
       #- loop:
           - post:
-              url: "/ccauth"
+              url: "/ddbDemo/readData"
               json:
-                creditCardNumber: "{{ creditCardNumber }}"
-                clientNumber: "{{ clientNumber }}"
-                #creditCardNumber: "{{ $loopElement.creditCardNumber }}"
-                #clientNumber: "{{ $loopElement.clientNumber }}"
-                amount: "10.01"
-        #over: cc-auth
+                recordId: "{{ recordId }}"
+                entityNumber: "{{ entityNumber }}"
+                #recordId: "{{ $loopElement.recordId }}"
+                #entityNumber: "{{ $loopElement.entityNumber }}"
+        #over: entity-records

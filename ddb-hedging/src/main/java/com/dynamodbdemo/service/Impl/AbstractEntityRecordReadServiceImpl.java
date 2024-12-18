@@ -20,7 +20,7 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
     @Override
     public RequestDTO transactRecords(RequestDTO requestDTO) throws Exception {
 
-        logger.log(Level.FINE, "transactRecords - Start " + Thread.currentThread());
+        logger.log(Level.FINE, "transactRecords - Start " + Thread.currentThread().toString());
 
         long startTime = System.currentTimeMillis();
 

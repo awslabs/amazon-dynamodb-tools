@@ -1,0 +1,48 @@
+config:
+  # This is a test server run by team Artillery
+  # It's designed to be highly scalable
+  
+  target: http://localhost:8080/api
+
+  payload:
+    # path is relative to the location of the test script
+    path: "data/hedging-demo-101.csv"
+    fields:
+      - "recordId"
+      - "entityNumber"
+    #order: sequence  
+    #loadAll: true
+    name: entity-records # refer to the data as "cc-auth"
+    cast: false
+  phases:
+    - duration: 60
+      arrivalRate: 1
+      rampTo: 5
+      name: Warm up phase
+    - duration: 60
+      arrivalRate: 5
+      rampTo: 10
+      name: Ramp up load
+    - duration: 30
+      arrivalRate: 10
+      rampTo: 30
+      name: Spike phase
+  # Load & configure a couple of useful plugins
+  # https://docs.art/reference/extensions
+  plugins:
+    ensure: {}
+  ensure:
+      thresholds:
+        - http.response_time.p99: 100
+        - http.response_time.p95: 75
+scenarios:
+  - flow:
+      #- loop:
+          - post:
+              url: "/ddbDemo/readData"
+              json:
+                recordId: "{{ recordId }}"
+                entityNumber: "{{ entityNumber }}"
+                #recordId: "{{ $loopElement.recordId }}"
+                #entityNumber: "{{ $loopElement.entityNumber }}"
+        #over: entity-records
