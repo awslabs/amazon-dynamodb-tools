@@ -1,42 +1,37 @@
 package com.dynamodbdemo.dao;
 
+import com.dynamodbdemo.model.auth.DDBResponse;
+
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
-import java.util.logging.Level;
 
-public class HedgingRequestHandler<T> {
+public class HedgingRequestHandler {
 
     private static final java.util.logging.Logger logger = java.util.logging.Logger.getLogger(HedgingRequestHandler.class.getName());
 
-    public CompletableFuture<T> hedgeRequest(Supplier<T> supplier, int delayInMillis) {
+    public CompletableFuture<DDBResponse> hedgeRequest(Supplier<DDBResponse> supplier, int delayInMillis) {
 
-        logger.log(Level.FINE, "hedgingRequest - start " + Thread.currentThread());
-
-        CompletableFuture<T> firstRequest = new CompletableFuture<>();
-        CompletableFuture<T> hedgedRequest = new CompletableFuture<>();
+        CompletableFuture<DDBResponse> firstRequest = new CompletableFuture<>();
+        CompletableFuture<DDBResponse> hedgedRequest = new CompletableFuture<>();
 
         firstRequest.completeAsync(() -> {
-            logger.log(Level.FINE, "hedgingRequest - Inside First - Start " + Thread.currentThread());
-            T response = supplier.get();
-            logger.log(Level.FINE, "hedgingRequest - First request - End.");
+            logger.info("First Request: " + Thread.currentThread());
+            DDBResponse response = supplier.get();
+            response.setRequestNumber(DDBResponse.FIRST_REQUEST);
             return response;
         });
 
 
         hedgedRequest.completeAsync(() -> {
-
-            logger.log(Level.FINE, "hedgingRequest - second request - start " + Thread.currentThread());
-
+            logger.info("Hedging Request: " + Thread.currentThread());
             if (firstRequest.isDone()) {
                 //Don't do anything if the first request has processed.
                 return null;
             }
-
-
-            T Response = supplier.get();
-            logger.log(Level.FINE, "hedgingRequest - second request - end");
-            return Response;
+            DDBResponse response = supplier.get();
+            response.setRequestNumber(DDBResponse.SECOND_REQUEST);
+            return response;
 
         }, CompletableFuture.delayedExecutor(delayInMillis, TimeUnit.MILLISECONDS));
 
@@ -45,7 +40,7 @@ public class HedgingRequestHandler<T> {
                 .thenApply(result -> {
                     if (!firstRequest.isDone()) firstRequest.cancel(true);
                     if (!hedgedRequest.isDone()) hedgedRequest.cancel(true);
-                    return (T) result;
+                    return (DDBResponse) result;
                 });
 
     }

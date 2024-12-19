@@ -25,7 +25,18 @@ public class EntityRecordReadServiceDDbNativeHedgingImpl extends AbstractEntityR
 
         long startTime = System.currentTimeMillis();
 
-        HedgingRequestHandler<DDBResponse> hedgingRequestHandler = new HedgingRequestHandler<>();
+        DDBResponse clientIDAndAppNumResponseItems = getDdbResponse(ccNum, clientId, delayInMillis);
+        long endTime = System.currentTimeMillis();
+        clientIDAndAppNumResponseItems.setActualLatency(endTime - startTime);
+
+        List<DDBMetaDataAccessor> metaDataAccessor = new ArrayList<>();
+        metaDataAccessor.add(clientIDAndAppNumResponseItems);
+
+        return metaDataAccessor;
+    }
+
+    private DDBResponse getDdbResponse(String ccNum, String clientId, int delayInMillis) throws InterruptedException, ExecutionException {
+        HedgingRequestHandler hedgingRequestHandler = new HedgingRequestHandler();
 
         CompletableFuture<DDBResponse> fetchByClientIDAndAppNumResponseFuture = hedgingRequestHandler.hedgeRequest(() -> {
             DDBResponse ddbResponse = entityRecordDDbNativeDAO.fetchByRecordIDAndEntityNumber(ccNum, clientId);
@@ -35,13 +46,6 @@ public class EntityRecordReadServiceDDbNativeHedgingImpl extends AbstractEntityR
         }, delayInMillis);
 
 
-        DDBResponse clientIDAndAppNumResponseItems = fetchByClientIDAndAppNumResponseFuture.get();
-        long endTime = System.currentTimeMillis();
-        clientIDAndAppNumResponseItems.setActualLatency(endTime - startTime);
-
-        List<DDBMetaDataAccessor> metaDataAccessor = new ArrayList<>();
-        metaDataAccessor.add(clientIDAndAppNumResponseItems);
-
-        return metaDataAccessor;
+        return fetchByClientIDAndAppNumResponseFuture.get();
     }
 }
