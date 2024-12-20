@@ -16,7 +16,7 @@ public class HedgingRequestHandler {
         CompletableFuture<DDBResponse> hedgedRequest = new CompletableFuture<>();
 
         firstRequest.completeAsync(() -> {
-            logger.info("First Request: " + Thread.currentThread());
+            logger.info("First Request");
             DDBResponse response = supplier.get();
             response.setRequestNumber(DDBResponse.FIRST_REQUEST);
             return response;
@@ -24,7 +24,7 @@ public class HedgingRequestHandler {
 
 
         hedgedRequest.completeAsync(() -> {
-            logger.info("Hedging Request: " + Thread.currentThread());
+            logger.info("Hedging Request");
             if (firstRequest.isDone()) {
                 //Don't do anything if the first request has processed.
                 return null;
