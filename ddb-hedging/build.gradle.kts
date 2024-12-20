@@ -40,6 +40,14 @@ dependencies {
 
 }
 
+//Run this task with like
+//  ./gradlew bootTestRun -DnumberOfRecordsToCreate=1000 -DnumberOfRecordsPerFile=100 -DddbTableName=MyDynamoDBTable
+tasks.bootTestRun {
+    systemProperties = System.getProperties().map { it.key.toString() to it.value.toString() }.toMap()
+    mainClass.set("com.dynamodbdemo.GenerateLoadTestData")
+}
+
+
 tasks.withType<Test> {
     useJUnitPlatform()
 }
