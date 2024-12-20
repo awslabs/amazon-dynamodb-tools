@@ -4,13 +4,19 @@ import org.apache.commons.lang3.RandomStringUtils;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Scanner;
+import java.util.Set;
+import java.util.zip.GZIPOutputStream;
 
 
 public class GenerateLoadTestData {
 
-    public static final int NUMBER_OF_RECORDS_TO_CREATE = 1000;
+    public static final int NUMBER_OF_RECORDS_TO_CREATE = 100;
 
     public static final int NUMBER_OF_RECORDS_PER_FILE = 100;
     public static final String DDB_TABLE_NAME = "hedging-demo-101";
@@ -77,10 +83,11 @@ public class GenerateLoadTestData {
 
                 System.out.println("Creating File : " + ddbFileName);
 
-                try (PrintWriter ddbDataFileWriter = new PrintWriter(ddbFileName, StandardCharsets.UTF_8)) {
+                try (BufferedWriter ddbDataFileWriter = new BufferedWriter(new OutputStreamWriter(
+                        new FileOutputStream(ddbFileName), StandardCharsets.UTF_8))) {
 
 
-                    for (int j = 0; j < NUMBER_OF_RECORDS_TO_CREATE; j++) {
+                    for (int j = 0; j < numberOfRecordsPerFile; j++) {
 
                         tokenMap = generateTestTokens(recordIDSet, entityNumbers);
                         String loadGenDataline = tokenMap.get(RECORD_ID_TAG) + "," + tokenMap.get(ENTITY_NUMBER_TAG);
@@ -94,10 +101,12 @@ public class GenerateLoadTestData {
                                 String key = entry.getKey();
                                 templateLine = templateLine.replace(key, entry.getValue());
                             }
-                            ddbDataFileWriter.println(templateLine);
+                            ddbDataFileWriter.write(templateLine);
+                            ddbDataFileWriter.newLine();
                         }
                     }
-                    gzipFile(ddbFileName);
+                    ddbDataFileWriter.flush();
+                    compressFile(ddbFileName, ddbFileName + ".gz");
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
@@ -109,28 +118,21 @@ public class GenerateLoadTestData {
 
     }
 
-    public static void gzipFile(String fileName) {
-        try {
-            ProcessBuilder processBuilder = new ProcessBuilder("gzip", fileName);
-            Process process = processBuilder.start();
+    // Method to compress a file using GZIP
+    public static void compressFile(String inputFile, String outputFile) {
+        try (FileInputStream fis = new FileInputStream(inputFile);
+             GZIPOutputStream gzipOS = new GZIPOutputStream(new FileOutputStream(outputFile))) {
 
-            // Wait for the process to complete and check exit value
-            int exitCode = process.waitFor();
-            if (exitCode != 0) {
-                // Read error stream if compression failed
-                try (BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(process.getErrorStream()))) {
-                    String error = reader.lines().collect(Collectors.joining("\n"));
-                    System.err.println("Gzip compression failed: " + error);
-                }
-                throw new IOException("Gzip compression failed with exit code: " + exitCode);
+            byte[] buffer = new byte[1024];
+            int len;
+            while ((len = fis.read(buffer)) != -1) {
+                gzipOS.write(buffer, 0, len);
             }
-        } catch (IOException | InterruptedException e) {
-            System.err.println("Error compressing file " + fileName + ": " + e.getMessage());
-            if (e instanceof InterruptedException) Thread.currentThread().interrupt(); // Restore interrupted status
-        }
-        System.out.println("File: " + fileName + " compressed successfully");
 
+        } catch (IOException e) {
+            System.err.println("Error compressing file: " + e.getMessage());
+            throw new RuntimeException(e);
+        }
     }
 
     public static Map<String, String> generateTestTokens(Set<String> recordIDSet,
