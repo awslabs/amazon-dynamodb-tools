@@ -44,7 +44,7 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
 
         endTime = System.currentTimeMillis();
 
-        PrintLog(endTime - startTime, metaDataAccessorCCAuthResponse);
+        PrintLog(endTime - startTime, requestDTO, metaDataAccessorCCAuthResponse);
 
         logger.log(Level.FINE, "transactRecords - End");
 
@@ -52,11 +52,11 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
     }
 
 
-    void PrintLog(Long totalTime, List<DDBMetaDataAccessor> metaDataAccesors) {
+    void PrintLog(Long totalTime, RequestDTO requestDTO, List<DDBMetaDataAccessor> metaDataAccesors) {
 
         StringBuilder LogMessage = new StringBuilder();
 
-        metaDataAccesors.forEach(dataAccessor -> LogMessage.append(dataAccessor.getRequestNumber()).append(":").append(dataAccessor.getResponseLatency()).append(":").append(dataAccessor.getActualLatency()).append(":").append(dataAccessor.getDDBRequestID()).append(":"));
+        metaDataAccesors.forEach(dataAccessor -> LogMessage.append(dataAccessor.getRequestNumber()).append(":").append(dataAccessor.getResponseLatency()).append(":").append(dataAccessor.getActualLatency()).append(":").append(requestDTO.getEntityNumber()).append("-").append(requestDTO.getRecordId()).append(":"));
 
         LogMessage.append(totalTime);
 
