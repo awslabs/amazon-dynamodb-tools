@@ -20,16 +20,13 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
     @Override
     public RequestDTO transactRecords(RequestDTO requestDTO) throws Exception {
 
-        logger.log(Level.FINE, "transactRecords - Start " + Thread.currentThread().toString());
+        logger.log(Level.FINE, "transactRecords - Start " + Thread.currentThread());
 
         long startTime = System.currentTimeMillis();
 
         String recordId = requestDTO.getRecordId();
 
         String entityNumber = requestDTO.getEntityNumber();
-
-
-        long endTime = System.currentTimeMillis();
 
 
         List<DDBMetaDataAccessor> metaDataAccessorCCAuthResponse = getEntityRecords(recordId, entityNumber, delayInMillis);
@@ -42,7 +39,7 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
 
         requestDTO.setItemCount(totalItems.get());
 
-        endTime = System.currentTimeMillis();
+        long endTime = System.currentTimeMillis();
 
         PrintLog(endTime - startTime, requestDTO, metaDataAccessorCCAuthResponse);
 
@@ -56,7 +53,7 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
 
         StringBuilder LogMessage = new StringBuilder();
 
-        metaDataAccesors.forEach(dataAccessor -> LogMessage.append(dataAccessor.getRequestNumber()).append(":").append(dataAccessor.getResponseLatency()).append(":").append(dataAccessor.getActualLatency()).append(":").append(requestDTO.getEntityNumber()).append("-").append(requestDTO.getRecordId()).append(":"));
+        metaDataAccesors.forEach(dataAccessor -> LogMessage.append(dataAccessor.getRequestNumber()).append(":").append(dataAccessor.getResponseLatency()).append(":").append(dataAccessor.getDDBRequestID()).append(":").append(requestDTO.getEntityNumber()).append("-").append(requestDTO.getRecordId()).append(":"));
 
         LogMessage.append(totalTime);
 
