@@ -36,6 +36,7 @@ public class HedgingRequestHandler {
         }, CompletableFuture.delayedExecutor(delayInMillis, TimeUnit.MILLISECONDS));
 
 
+
         return CompletableFuture.anyOf(firstRequest, hedgedRequest)
                 .thenApply(result -> {
                     if (!firstRequest.isDone()) firstRequest.cancel(true);

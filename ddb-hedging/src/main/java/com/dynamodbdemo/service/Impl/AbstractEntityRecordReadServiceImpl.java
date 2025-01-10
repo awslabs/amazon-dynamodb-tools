@@ -17,6 +17,9 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
     @Value("${ddb.hedging.request.delay}")
     protected int delayInMillis;
 
+    @Value("${ddb.hedging.number}")
+    protected int numberOfHedgers;
+
     @Override
     public RequestDTO transactRecords(RequestDTO requestDTO) throws Exception {
 
@@ -29,7 +32,7 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
         String entityNumber = requestDTO.getEntityNumber();
 
 
-        List<DDBMetaDataAccessor> metaDataAccessorCCAuthResponse = getEntityRecords(recordId, entityNumber, delayInMillis);
+        List<DDBMetaDataAccessor> metaDataAccessorCCAuthResponse = getEntityRecords(recordId, entityNumber, delayInMillis, numberOfHedgers);
 
         AtomicInteger totalItems = new AtomicInteger();
 
@@ -62,5 +65,5 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
     }
 
 
-    public abstract List<DDBMetaDataAccessor> getEntityRecords(String recordId, String entityNumber, int delayInMillis) throws ExecutionException, InterruptedException;
+    public abstract List<DDBMetaDataAccessor> getEntityRecords(String recordId, String entityNumber, int delayInMillis, int numberOfHedgers) throws ExecutionException, InterruptedException;
 }
