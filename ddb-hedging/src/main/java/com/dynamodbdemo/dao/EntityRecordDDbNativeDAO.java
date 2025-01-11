@@ -65,6 +65,7 @@ public class EntityRecordDDbNativeDAO {
             logger.log(Level.FINE, "fetchByRecordIDAndEntityNumber - End ");
 
         } catch (Exception e) {
+            logger.log(Level.SEVERE, "fetchByRecordIDAndEntityNumber - Error ", e);
             throw new RuntimeException(e);
         }
         return ddbResponse;

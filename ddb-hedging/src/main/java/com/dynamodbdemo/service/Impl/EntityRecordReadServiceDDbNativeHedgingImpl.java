@@ -55,9 +55,7 @@ public class EntityRecordReadServiceDDbNativeHedgingImpl extends AbstractEntityR
         MultiHedgingRequestHandler hedgingRequestHandler = new MultiHedgingRequestHandler();
 
         CompletableFuture<DDBResponse> fetchByClientIDAndAppNumResponseFuture = hedgingRequestHandler.hedgeRequest(() -> {
-            DDBResponse ddbResponse = entityRecordDDbNativeDAO.fetchByRecordIDAndEntityNumber(ccNum, clientId);
-            ddbResponse.setRequestNumber(DDBMetaDataAccessor.FIRST_REQUEST);
-            return ddbResponse;
+            return entityRecordDDbNativeDAO.fetchByRecordIDAndEntityNumber(ccNum, clientId);
 
         }, delayInMillis, numberOfHedgers);
 

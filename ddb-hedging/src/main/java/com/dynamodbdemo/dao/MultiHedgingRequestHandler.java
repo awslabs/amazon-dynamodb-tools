@@ -3,6 +3,7 @@ package com.dynamodbdemo.dao;
 import com.dynamodbdemo.model.auth.DDBResponse;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.logging.Level;
@@ -38,18 +39,18 @@ public class MultiHedgingRequestHandler {
             hedgedRequests[i] = new CompletableFuture<>();
 
             hedgedRequests[i].completeAsync(() -> {
-                try {
+
                     logger.info("Hedging Request #" + hedgeNumber);
                     if (firstRequest.isDone()) {
-                        return null;
+                        try {
+                            return firstRequest.get();
+                        } catch (InterruptedException | ExecutionException e) {
+                            throw new RuntimeException(e);
+                        }
                     }
                     DDBResponse response = supplier.get();
                     response.setRequestNumber(DDBResponse.FIRST_REQUEST + hedgeNumber );
                     return response;
-                } catch (Exception e) {
-                    logger.log(Level.SEVERE,"Error in hedge request #" + hedgeNumber, e);
-                    throw e;
-                }
             }, CompletableFuture.delayedExecutor((long) delayInMillis * hedgeNumber, TimeUnit.MILLISECONDS));
         }
 
@@ -60,8 +61,12 @@ public class MultiHedgingRequestHandler {
 
         return CompletableFuture.anyOf(allRequests)
                 .thenApply(result -> {
-                    // Cancel all incomplete futures
-                    cancelIncompleteFutures(allRequests);
+                    try {
+                        // Cancel all incomplete futures
+                        cancelIncompleteFutures(allRequests);
+                    } catch (Exception e) {
+                        logger.log(Level.SEVERE,"Cancellation failed: ", e);
+                    }
                     return (DDBResponse) result;
                 });
     }
