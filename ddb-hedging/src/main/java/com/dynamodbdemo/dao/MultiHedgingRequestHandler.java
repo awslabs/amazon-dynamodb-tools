@@ -17,11 +17,7 @@ public class MultiHedgingRequestHandler {
             throw new IllegalArgumentException("Number of hedges must be at least 1");
         }
 
-        CompletableFuture<DDBResponse> firstRequest = new CompletableFuture<>();
-        CompletableFuture<DDBResponse>[] hedgedRequests = new CompletableFuture[numberOfHedges];
-
-        // Initialize first request
-        firstRequest.completeAsync(() -> {
+        CompletableFuture<DDBResponse> firstRequest = CompletableFuture.supplyAsync(() -> {
             try {
                 logger.info("First Request");
                 DDBResponse response = supplier.get();
@@ -33,19 +29,29 @@ public class MultiHedgingRequestHandler {
             }
         });
 
+        // Create array to hold all futures using the helper method
+        CompletableFuture<DDBResponse>[] allRequests = createFutureArray(numberOfHedges + 1);
+        allRequests[0] = firstRequest;
+
         // Create multiple hedged requests
         for (int i = 0; i < numberOfHedges; i++) {
             final int hedgeNumber = i + 1;
-            hedgedRequests[i] = new CompletableFuture<>();
+            allRequests[hedgeNumber] = new CompletableFuture<>();
 
-            hedgedRequests[i].completeAsync(() -> {
+            allRequests[hedgeNumber].completeAsync(() -> {
 
                     logger.info("Hedging Request #" + hedgeNumber);
-                    if (firstRequest.isDone()) {
-                        try {
-                            return firstRequest.get();
-                        } catch (InterruptedException | ExecutionException e) {
-                            throw new RuntimeException(e);
+
+                    //Pre-check optimization to see whether any of the prior requests has completed before calling the supplier function.
+                    for (CompletableFuture<DDBResponse> request : allRequests) {
+                        if (request.isDone()) {
+                            try {
+                                logger.info("Pre-Check exit: Hedging Request #" + hedgeNumber);
+                                return request.get();
+                            } catch (InterruptedException | ExecutionException e) {
+                                //Continue checkin for other requests ignoring failed requests.
+                                logger.info("Bypass failed request. Continue processing...");
+                            }
                         }
                     }
                     DDBResponse response = supplier.get();
@@ -54,27 +60,29 @@ public class MultiHedgingRequestHandler {
             }, CompletableFuture.delayedExecutor((long) delayInMillis * hedgeNumber, TimeUnit.MILLISECONDS));
         }
 
-        // Combine all futures into a single future that completes when any of them complete
-        CompletableFuture<DDBResponse>[] allRequests = new CompletableFuture[numberOfHedges + 1];
-        allRequests[0] = firstRequest;
-        System.arraycopy(hedgedRequests, 0, allRequests, 1, numberOfHedges);
+
 
         return CompletableFuture.anyOf(allRequests)
                 .thenApply(result -> {
-                    try {
-                        // Cancel all incomplete futures
-                        cancelIncompleteFutures(allRequests);
-                    } catch (Exception e) {
-                        logger.log(Level.SEVERE,"Cancellation failed: ", e);
-                    }
+                    cancelIncompleteFutures(allRequests);
                     return (DDBResponse) result;
                 });
     }
 
+    @SuppressWarnings("unchecked")
+    private static <T> CompletableFuture<T>[] createFutureArray(int size) {
+        return new CompletableFuture[size];
+    }
+
     private void cancelIncompleteFutures(CompletableFuture<?>[] futures) {
-        for (CompletableFuture<?> future : futures) {
-            if (future != null && !future.isDone()) {
-                future.cancel(true);
+        for (int i = 0; i < futures.length; i++) {
+            try {
+                if (futures[i] != null && !futures[i].isDone()) {
+                    logger.info("Cancelling: Request #" + i);
+                    futures[i].cancel(true);
+                }
+            } catch (Exception e) {
+                logger.log(Level.SEVERE,"Cancellation failed: Request #" + i , e);
             }
         }
     }
