@@ -44,7 +44,7 @@ public class MultiHedgingRequestHandler {
 
                     //Pre-check optimization to see whether any of the prior requests has completed before calling the supplier function.
                     for (CompletableFuture<DDBResponse> request : allRequests) {
-                        if (request.isDone()) {
+                        if (request != null && request.isDone()) {
                             try {
                                 logger.info("Pre-Check exit: Hedging Request #" + hedgeNumber);
                                 return request.get();
