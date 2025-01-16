@@ -31,7 +31,7 @@ The first step is to decide the table's average storage, read and write velocity
 and then adjust the green values in cells C16-C18, and review the calculated costs in rows E, F, and G.
 Both On Demand and Provisioned Capacity costs are shown side by side, along with storage costs.
 
-![Cost Template Screenshot](https://dynamodb-images.s3.amazonaws.com/img/pricing_template_screenshot_sm.jpg "DynamoDB Cost Template")
+![Cost Template Screenshot](https://dynamodb-images.s3.amazonaws.com/img/pricing_template_screenshot_sm_2025.jpg "DynamoDB Cost Template")
 
 While Provisioned Capacity is generally less expensive, it is unrealistic to assume
 you will ever be 100% efficient in using the capacity you pay for.
