@@ -1,10 +1,12 @@
 package com.dynamodbdemo.service.Impl;
 
 import com.dynamodbdemo.dao.EntityRecordDDbNativeDAO;
-import com.dynamodbdemo.dao.HedgingRequestHandler;
+import com.dynamodbdemo.dao.SimpleHedgingRequestHandler;
 import com.dynamodbdemo.dao.MultiHedgingRequestHandler;
 import com.dynamodbdemo.model.auth.DDBMetaDataAccessor;
 import com.dynamodbdemo.model.auth.DDBResponse;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -13,8 +15,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 @Service("EntityRecordReadServiceDDbNativeHedgingImpl")
+@Configuration
 public class EntityRecordReadServiceDDbNativeHedgingImpl extends AbstractEntityRecordReadServiceImpl {
 
+
+    @Value("${ddb.hedging.simple}")
+    public boolean useSimpleHedging;
     private final EntityRecordDDbNativeDAO entityRecordDDbNativeDAO;
 
     public EntityRecordReadServiceDDbNativeHedgingImpl(EntityRecordDDbNativeDAO entityRecordDDbNativeDAO) {
@@ -26,7 +32,16 @@ public class EntityRecordReadServiceDDbNativeHedgingImpl extends AbstractEntityR
 
         long startTime = System.currentTimeMillis();
 
-        DDBResponse clientIDAndAppNumResponseItems = getDdbResponse(ccNum, clientId, delayInMillis, numberOfHedgers);
+
+
+        DDBResponse clientIDAndAppNumResponseItems = null;
+
+        if(useSimpleHedging) {
+            clientIDAndAppNumResponseItems = getDdbResponse(ccNum, clientId, delayInMillis);
+        } else {
+            clientIDAndAppNumResponseItems = getDdbResponse(ccNum, clientId, delayInMillis, numberOfHedgers);
+        }
+
         long endTime = System.currentTimeMillis();
         clientIDAndAppNumResponseItems.setActualLatency(endTime - startTime);
 
@@ -37,9 +52,9 @@ public class EntityRecordReadServiceDDbNativeHedgingImpl extends AbstractEntityR
     }
 
     private DDBResponse getDdbResponse(String ccNum, String clientId, int delayInMillis) throws InterruptedException, ExecutionException {
-        HedgingRequestHandler hedgingRequestHandler = new HedgingRequestHandler();
+        SimpleHedgingRequestHandler simpleHedgingRequestHandler = new SimpleHedgingRequestHandler();
 
-        CompletableFuture<DDBResponse> fetchByClientIDAndAppNumResponseFuture = hedgingRequestHandler.hedgeRequest(() -> {
+        CompletableFuture<DDBResponse> fetchByClientIDAndAppNumResponseFuture = simpleHedgingRequestHandler.hedgeRequest(() -> {
             DDBResponse ddbResponse = entityRecordDDbNativeDAO.fetchByRecordIDAndEntityNumber(ccNum, clientId);
             ddbResponse.setRequestNumber(DDBMetaDataAccessor.FIRST_REQUEST);
             return ddbResponse;

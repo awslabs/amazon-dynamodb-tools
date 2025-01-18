@@ -3,12 +3,13 @@ package com.dynamodbdemo.dao;
 import com.dynamodbdemo.model.auth.DDBResponse;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
-public class HedgingRequestHandler {
+public class SimpleHedgingRequestHandler {
 
-    private static final java.util.logging.Logger logger = java.util.logging.Logger.getLogger(HedgingRequestHandler.class.getName());
+    private static final java.util.logging.Logger logger = java.util.logging.Logger.getLogger(SimpleHedgingRequestHandler.class.getName());
 
     public CompletableFuture<DDBResponse> hedgeRequest(Supplier<DDBResponse> supplier, int delayInMillis) {
 
@@ -26,8 +27,13 @@ public class HedgingRequestHandler {
         hedgedRequest.completeAsync(() -> {
             logger.info("Hedging Request");
             if (firstRequest.isDone()) {
-                //Don't do anything if the first request has processed.
-                return null;
+                try {
+                    logger.info("Pre-Check exit: Hedging Request");
+                    return firstRequest.get();
+                } catch (InterruptedException | ExecutionException e) {
+                    //Continue checkin for other requests ignoring failed requests.
+                    logger.info("Bypass failed request. Continue processing...");
+                }
             }
             DDBResponse response = supplier.get();
             response.setRequestNumber(DDBResponse.SECOND_REQUEST);
