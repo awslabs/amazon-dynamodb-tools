@@ -1,10 +1,10 @@
 package com.dynamodbdemo.model.auth;
 
-import com.amazonaws.services.dynamodbv2.model.AttributeValue;
+
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
 import java.util.List;
 import java.util.Map;
-
 
 @lombok.Data
 public class DDBResponse implements DDBMetaDataAccessor {
@@ -41,10 +41,6 @@ public class DDBResponse implements DDBMetaDataAccessor {
         return requestNumber;
     }
 
-    public List<Map<String, AttributeValue>> getItems() {
-        return items;
-    }
-
     @Override
     public String getDDBRequestID() {
         return DDBRequestID;
@@ -53,10 +49,6 @@ public class DDBResponse implements DDBMetaDataAccessor {
     @Override
     public String getRequestName() {
         return requestName;
-    }
-
-    public long getActualLatency() {
-        return actualLatency;
     }
 
 }

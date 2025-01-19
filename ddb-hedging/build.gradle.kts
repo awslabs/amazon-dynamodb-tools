@@ -19,17 +19,18 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 
-// https://mvnrepository.com/artifact/com.amazonaws/aws-java-sdk-bom
-    implementation("com.amazonaws:aws-java-sdk-bom:1.12.770")
+    // AWS SDK v2.x BOM (Bill of Materials)
+    implementation(platform("software.amazon.awssdk:bom:2.30.2"))
 
-// https://mvnrepository.com/artifact/com.amazonaws/aws-java-sdk-dynamodb
-    implementation("com.amazonaws:aws-java-sdk-dynamodb:1.12.770")
+    // DynamoDB v2.x dependencies
+    implementation("software.amazon.awssdk:dynamodb")
+    implementation("software.amazon.awssdk:dynamodb-enhanced") // For higher-level DynamoDB operations
 
-// https://mvnrepository.com/artifact/com.amazonaws/aws-java-sdk-cloudwatch
-    implementation("com.amazonaws:aws-java-sdk-cloudwatch:1.12.770")
+    implementation("software.amazon.awssdk:netty-nio-client")
 
-// https://mvnrepository.com/artifact/com.amazonaws/aws-java-sdk-cloudwatchmetrics
-    implementation("com.amazonaws:aws-java-sdk-cloudwatchmetrics:1.12.770")
+    // CloudWatch v2.x dependencies
+//    implementation("software.amazon.awssdk:cloudwatch")
+//    implementation("software.amazon.awssdk:cloudwatchmetrics")
 
     // https://mvnrepository.com/artifact/org.projectlombok/lombok
     compileOnly("org.projectlombok:lombok:1.18.32")

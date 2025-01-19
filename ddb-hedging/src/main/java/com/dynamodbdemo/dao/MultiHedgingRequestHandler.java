@@ -1,91 +1,121 @@
 package com.dynamodbdemo.dao;
 
 import com.dynamodbdemo.model.auth.DDBResponse;
+import io.netty.channel.EventLoop;
+import io.netty.channel.EventLoopGroup;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
-import java.util.logging.Level;
+
 
 public class MultiHedgingRequestHandler {
+    private static final Logger logger = LoggerFactory.getLogger(MultiHedgingRequestHandler.class);
+    private static final int MAX_HEDGED_REQUESTS = 5;
 
-    private static final java.util.logging.Logger logger = java.util.logging.Logger.getLogger(MultiHedgingRequestHandler.class.getName());
+    private final EventLoopGroup eventLoopGroup;
 
-    public CompletableFuture<DDBResponse> hedgeRequest(Supplier<DDBResponse> supplier, int delayInMillis, int numberOfHedges) {
-        if (numberOfHedges < 1) {
-            throw new IllegalArgumentException("Number of hedges must be at least 1");
+    // Constructor that accepts an existing EventLoopGroup
+    public MultiHedgingRequestHandler(EventLoopGroup eventLoopGroup) {
+        this.eventLoopGroup = eventLoopGroup;
+    }
+
+
+    public CompletableFuture<DDBResponse> hedgeRequests(
+            Supplier<CompletableFuture<DDBResponse>> supplier,
+            List<Integer> delaysInMillis) {
+
+        if (delaysInMillis == null || delaysInMillis.isEmpty()) {
+            throw new IllegalArgumentException("Delays list cannot be null or empty");
         }
 
-        CompletableFuture<DDBResponse> firstRequest = CompletableFuture.supplyAsync(() -> {
-            try {
-                logger.info("First Request");
-                DDBResponse response = supplier.get();
-                response.setRequestNumber(DDBResponse.FIRST_REQUEST);
-                return response;
-            } catch (Exception e) {
-                logger.log(Level.SEVERE,"Error in first request", e);
-                throw e;
-            }
-        });
+        if (delaysInMillis.size() > MAX_HEDGED_REQUESTS) {
+            throw new IllegalArgumentException("Number of hedged requests cannot exceed " + MAX_HEDGED_REQUESTS);
+        }
 
-        // Create array to hold all futures using the helper method
-        CompletableFuture<DDBResponse>[] allRequests = createFutureArray(numberOfHedges + 1);
-        allRequests[0] = firstRequest;
+        List<CompletableFuture<DDBResponse>> futures = new ArrayList<>();
+        EventLoop eventLoop = getEventLoop(); // Get the current Netty EventLoop
 
-        // Create multiple hedged requests
-        for (int i = 0; i < numberOfHedges; i++) {
-            final int hedgeNumber = i + 1;
-            allRequests[hedgeNumber] = new CompletableFuture<>();
-
-            allRequests[hedgeNumber].completeAsync(() -> {
-
-                    logger.info("Hedging Request #" + hedgeNumber);
-
-                    //Pre-check optimization to see whether any of the prior requests has completed before calling the supplier function.
-                    for (CompletableFuture<DDBResponse> request : allRequests) {
-                        if (request != null && request.isDone()) {
-                            try {
-                                logger.info("Pre-Check exit: Hedging Request #" + hedgeNumber);
-                                return request.get();
-                            } catch (InterruptedException | ExecutionException e) {
-                                //Continue checkin for other requests ignoring failed requests.
-                                logger.info("Bypass failed request. Continue processing...");
-                            }
-                        }
-                    }
-                    DDBResponse response = supplier.get();
-                    response.setRequestNumber(DDBResponse.FIRST_REQUEST + hedgeNumber );
+        // Initial request
+        logger.info("Initiating request");
+        CompletableFuture<DDBResponse> initialRequest = supplier.get()
+                .thenApply(response -> {
+                    logger.info("Initial request completed");
+                    response.setRequestNumber(DDBResponse.FIRST_REQUEST);
                     return response;
-            }, CompletableFuture.delayedExecutor((long) delayInMillis * hedgeNumber, TimeUnit.MILLISECONDS));
+                });
+        futures.add(initialRequest);
+
+        // Create hedged requests
+        for (int i = 0; i < delaysInMillis.size(); i++) {
+            final int requestNumber = i + 2;
+            int delay = delaysInMillis.get(i);
+
+            CompletableFuture<DDBResponse> hedgedRequest = new CompletableFuture<>();
+
+            // Schedule the hedged request using Netty's EventLoop
+            eventLoop.schedule(() -> {
+                // Check if any previous request is complete
+                if (futures.stream().anyMatch(CompletableFuture::isDone)) {
+                    logger.info("Previous request already completed, skipping hedge request {}", requestNumber);
+                    Optional<CompletableFuture<DDBResponse>> completedFuture = futures.stream()
+                            .filter(CompletableFuture::isDone)
+                            .findFirst();
+
+                    if (completedFuture.isPresent()) {
+                        hedgedRequest.complete(completedFuture.get().join());
+                        return;
+                    }
+                }
+
+
+                logger.info("Initiating hedge request#{}", requestNumber);
+                supplier.get()
+                        .thenAccept(response -> {
+                            response.setRequestNumber(requestNumber);
+                            hedgedRequest.complete(response);
+                        })
+                        .exceptionally(throwable -> {
+                            if (!(throwable instanceof CancellationException)) {
+                                logger.warn("Hedged request {} failed: {}", requestNumber, throwable.getMessage());
+                                hedgedRequest.completeExceptionally(throwable);
+                            }
+                            return null;
+                        });
+            }, delay, TimeUnit.MILLISECONDS);
+
+            futures.add(hedgedRequest);
         }
 
-
-
-        return CompletableFuture.anyOf(allRequests)
+        // Return the first successful response
+        return CompletableFuture.anyOf(futures.toArray(new CompletableFuture[0]))
                 .thenApply(result -> {
-                    cancelIncompleteFutures(allRequests);
+                    cancelPendingRequests(futures, ((DDBResponse) result).getRequestNumber());
                     return (DDBResponse) result;
+                })
+                .exceptionally(throwable -> {
+                    logger.error("All requests failed", throwable);
+                    throw new RuntimeException("All hedged requests failed", throwable);
                 });
     }
 
-    @SuppressWarnings("unchecked")
-    private static <T> CompletableFuture<T>[] createFutureArray(int size) {
-        return new CompletableFuture[size];
-    }
-
-    private void cancelIncompleteFutures(CompletableFuture<?>[] futures) {
-        for (int i = 0; i < futures.length; i++) {
-            try {
-                if (futures[i] != null && !futures[i].isDone()) {
-                    logger.info("Cancelling: Request #" + i);
-                    futures[i].cancel(true);
-                }
-            } catch (Exception e) {
-                logger.log(Level.SEVERE,"Cancellation failed: Request #" + i , e);
+    private void cancelPendingRequests(List<CompletableFuture<DDBResponse>> futures, int completedRequestNumber) {
+        logger.info("Request {} completed, cancelling other pending requests", completedRequestNumber);
+        futures.forEach(future -> {
+            if (!future.isDone()) {
+                future.cancel(true);
             }
-        }
+        });
     }
 
 
+    private EventLoop getEventLoop() {
+        return eventLoopGroup.next();
+    }
 }

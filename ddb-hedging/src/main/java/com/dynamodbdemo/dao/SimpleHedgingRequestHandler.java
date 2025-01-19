@@ -1,55 +1,51 @@
 package com.dynamodbdemo.dao;
 
 import com.dynamodbdemo.model.auth.DDBResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 public class SimpleHedgingRequestHandler {
 
-    private static final java.util.logging.Logger logger = java.util.logging.Logger.getLogger(SimpleHedgingRequestHandler.class.getName());
+    private static final Logger logger = LoggerFactory.getLogger(SimpleHedgingRequestHandler.class);
 
-    public CompletableFuture<DDBResponse> hedgeRequest(Supplier<DDBResponse> supplier, int delayInMillis) {
+    public CompletableFuture<DDBResponse> hedgeRequest(
+            Supplier<CompletableFuture<DDBResponse>> supplier,
+            int delayInMillis) {
 
-        CompletableFuture<DDBResponse> firstRequest = new CompletableFuture<>();
-        CompletableFuture<DDBResponse> hedgedRequest = new CompletableFuture<>();
-
-        firstRequest.completeAsync(() -> {
-            logger.info("First Request");
-            DDBResponse response = supplier.get();
-            response.setRequestNumber(DDBResponse.FIRST_REQUEST);
-            return response;
-        });
-
-
-        hedgedRequest.completeAsync(() -> {
-            logger.info("Hedging Request");
-            if (firstRequest.isDone()) {
-                try {
-                    logger.info("Pre-Check exit: Hedging Request");
-                    return firstRequest.get();
-                } catch (InterruptedException | ExecutionException e) {
-                    //Continue checkin for other requests ignoring failed requests.
-                    logger.info("Bypass failed request. Continue processing...");
-                }
-            }
-            DDBResponse response = supplier.get();
-            response.setRequestNumber(DDBResponse.SECOND_REQUEST);
-            return response;
-
-        }, CompletableFuture.delayedExecutor(delayInMillis, TimeUnit.MILLISECONDS));
-
-
-
-        return CompletableFuture.anyOf(firstRequest, hedgedRequest)
-                .thenApply(result -> {
-                    if (!firstRequest.isDone()) firstRequest.cancel(true);
-                    if (!hedgedRequest.isDone()) hedgedRequest.cancel(true);
-                    return (DDBResponse) result;
+        logger.info("Initiating request");
+        CompletableFuture<DDBResponse> firstRequest = supplier.get()
+                .thenApply(response -> {
+                    response.setRequestNumber(DDBResponse.FIRST_REQUEST);
+                    return response;
                 });
 
-    }
+        return CompletableFuture.supplyAsync(() -> {
 
+                    // Check if first request is already complete
+                    if (firstRequest.isDone()) {
+                        logger.info("First request already completed, skipping hedge request");
+                        return firstRequest.join();
+                    }
+
+                    // If first request isn't complete, make hedged request
+                    logger.info("Initiating hedge request#{}", DDBResponse.SECOND_REQUEST);
+                    return supplier.get()
+                            .thenApply(response -> {
+                                response.setRequestNumber(DDBResponse.SECOND_REQUEST);
+                                return response;
+                            })
+                            .exceptionally(throwable -> {
+                                logger.warn("Hedged request failed: {}", throwable.getMessage());
+                                // If hedged request fails, wait for first request
+                                return firstRequest.join();
+                            })
+                            .join();
+                },  CompletableFuture.delayedExecutor(delayInMillis, TimeUnit.MILLISECONDS))
+                // Return whichever request completes first
+                .applyToEither(firstRequest, response -> response);
+    }
 }
