@@ -1,6 +1,7 @@
 package com.dynamodbdemo.dao;
 
 import com.dynamodbdemo.model.auth.DDBResponse;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
@@ -22,7 +23,7 @@ public class EntityRecordDDbNativeDAO {
     @Value("${aws.dynamodb.table-name}")
     private String tableName;
 
-    public EntityRecordDDbNativeDAO(DynamoDbAsyncClient ddbClient) {
+    public EntityRecordDDbNativeDAO(@Qualifier("DDBAsyncClient") DynamoDbAsyncClient ddbClient) {
         this.asyncClient = ddbClient;
     }
 

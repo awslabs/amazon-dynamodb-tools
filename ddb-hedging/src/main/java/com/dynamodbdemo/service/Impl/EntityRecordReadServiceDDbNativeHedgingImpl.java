@@ -1,13 +1,12 @@
 package com.dynamodbdemo.service.Impl;
 
 import com.dynamodbdemo.dao.EntityRecordDDbNativeDAO;
-import com.dynamodbdemo.dao.MultiHedgingRequestHandler;
-import com.dynamodbdemo.dao.SimpleHedgingRequestHandler;
+import com.dynamodbdemo.dao.HedgingRequestHandler;
 import com.dynamodbdemo.model.auth.DDBMetaDataAccessor;
 import com.dynamodbdemo.model.auth.DDBResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.stereotype.Service;
 
@@ -21,17 +20,14 @@ public class EntityRecordReadServiceDDbNativeHedgingImpl extends AbstractEntityR
 
     private static final Logger logger = LoggerFactory.getLogger(EntityRecordReadServiceDDbNativeHedgingImpl.class);
 
-    @Value("${ddb.hedging.simple:true}")
-    private boolean useSimpleHedging;
-
     private final EntityRecordDDbNativeDAO entityRecordDDbNativeDAO;
 
-    private final MultiHedgingRequestHandler multiHedgingRequestHandler;
+    private final HedgingRequestHandler hedgingRequestHandler;
 
     public EntityRecordReadServiceDDbNativeHedgingImpl(
-            EntityRecordDDbNativeDAO entityRecordDDbNativeDAO, MultiHedgingRequestHandler hedger) {
+            EntityRecordDDbNativeDAO entityRecordDDbNativeDAO, @Qualifier("hedgingRequestHandler") HedgingRequestHandler hedgingRequestHandler) {
         this.entityRecordDDbNativeDAO = entityRecordDDbNativeDAO;
-        this.multiHedgingRequestHandler = hedger;
+        this.hedgingRequestHandler = hedgingRequestHandler;
     }
 
     @Override
@@ -52,9 +48,7 @@ public class EntityRecordReadServiceDDbNativeHedgingImpl extends AbstractEntityR
             delaysInMillisList.add(delayInMillis);
         }
 
-        DDBResponse response = useSimpleHedging ?
-                getDdbResponseSimple(ccNum, clientId, delayInMillis) :
-                getDdbResponseMulti(ccNum, clientId, delaysInMillisList);
+        DDBResponse response = getDdbResponse(ccNum, clientId, delaysInMillisList);
 
         long endTime = System.currentTimeMillis();
         response.setActualLatency(endTime - startTime);
@@ -68,22 +62,13 @@ public class EntityRecordReadServiceDDbNativeHedgingImpl extends AbstractEntityR
         return metaDataAccessor;
     }
 
-    private DDBResponse getDdbResponseSimple(String ccNum, String clientId, int delayInMillis) {
-        SimpleHedgingRequestHandler simpleHedgingRequestHandler = new SimpleHedgingRequestHandler();
 
-        return simpleHedgingRequestHandler.hedgeRequest(() ->
-                        entityRecordDDbNativeDAO
-                                .fetchByRecordIDAndEntityNumberAsync(ccNum, clientId),
-                delayInMillis).join();
-    }
-
-
-    private DDBResponse getDdbResponseMulti(
+    private DDBResponse getDdbResponse(
             String ccNum,
             String clientId,
             List<Integer> delaysInMillis) {
 
-        CompletableFuture<DDBResponse> future = multiHedgingRequestHandler.hedgeRequests(
+        CompletableFuture<DDBResponse> future = hedgingRequestHandler.hedgeRequests(
                 () -> entityRecordDDbNativeDAO
                         .fetchByRecordIDAndEntityNumberAsync(ccNum, clientId),
                 delaysInMillis

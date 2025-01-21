@@ -15,18 +15,19 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 
-public class MultiHedgingRequestHandler {
-    private static final Logger logger = LoggerFactory.getLogger(MultiHedgingRequestHandler.class);
+public class NettyHedgingRequestHandler implements HedgingRequestHandler {
+    private static final Logger logger = LoggerFactory.getLogger(NettyHedgingRequestHandler.class);
     private static final int MAX_HEDGED_REQUESTS = 5;
 
     private final EventLoopGroup eventLoopGroup;
 
     // Constructor that accepts an existing EventLoopGroup
-    public MultiHedgingRequestHandler(EventLoopGroup eventLoopGroup) {
+    public NettyHedgingRequestHandler(EventLoopGroup eventLoopGroup) {
         this.eventLoopGroup = eventLoopGroup;
     }
 
 
+    @Override
     public CompletableFuture<DDBResponse> hedgeRequests(
             Supplier<CompletableFuture<DDBResponse>> supplier,
             List<Integer> delaysInMillis) {
@@ -83,7 +84,7 @@ public class MultiHedgingRequestHandler {
                         })
                         .exceptionally(throwable -> {
                             if (!(throwable instanceof CancellationException)) {
-                                logger.warn("Hedged request {} failed: {}", requestNumber, throwable.getMessage());
+                                logger.warn("Hedged request#{} failed: {}", requestNumber, throwable.getMessage());
                                 hedgedRequest.completeExceptionally(throwable);
                             }
                             return null;

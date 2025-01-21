@@ -27,6 +27,7 @@ dependencies {
     implementation("software.amazon.awssdk:dynamodb-enhanced") // For higher-level DynamoDB operations
 
     implementation("software.amazon.awssdk:netty-nio-client")
+    implementation("software.amazon.awssdk:aws-crt-client")
 
     // CloudWatch v2.x dependencies
 //    implementation("software.amazon.awssdk:cloudwatch")
