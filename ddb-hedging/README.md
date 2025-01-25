@@ -24,21 +24,25 @@ Request hedging is a technique where multiple identical requests are sent to Dyn
 
 The project provides two different request handler implementations for DynamoDB hedging, each optimized for different use cases.
 
+**Key Features:**
+- Implements inbound message handling for DynamoDB responses
+- Supports request hedging with configurable delays
+- configurable to send upto 5 staggered requests  
+
 ### CrtHedgingRequestHandler
 
 The CrtHedgingRequestHandler leverages the AWS Common Runtime (CRT) HTTP client, specifically designed for optimal performance with AWS services.
 
-**Key Features:**
-- Built on AWS CRT for enhanced performance with DynamoDB
-- Native integration with AWS SDK metrics
-- Efficient connection pooling and management
-- Optimized for AWS service communication
+**When to use:**
+- DynamoDB Clients using AwsCrtAsyncHttpClient
+
+### NettyHedgingRequestHandler
+
+The NettyHedgingRequestHandler is a Netty-based implementation.
 
 **When to use:**
-- AWS-heavy workloads
-- When minimal latency is critical
-- Production environments requiring AWS service optimization
-- When detailed AWS-specific metrics are needed
+- DynamoDB Clients using NettyNioAsyncHttpClient
+
 
 
 ## Configuration
