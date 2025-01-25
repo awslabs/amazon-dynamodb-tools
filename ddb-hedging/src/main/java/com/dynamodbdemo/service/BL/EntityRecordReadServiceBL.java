@@ -1,6 +1,6 @@
 package com.dynamodbdemo.service.BL;
 
-import com.dynamodbdemo.model.auth.RequestDTO;
+import com.dynamodbdemo.model.RequestDTO;
 
 public interface EntityRecordReadServiceBL {
 

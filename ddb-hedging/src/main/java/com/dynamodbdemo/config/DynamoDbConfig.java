@@ -1,7 +1,7 @@
 package com.dynamodbdemo.config;
 
-import com.dynamodbdemo.dao.CrtHedgingRequestHandler;
-import com.dynamodbdemo.dao.NettyHedgingRequestHandler;
+import com.dynamodbdemo.util.CrtHedgingRequestHandler;
+import com.dynamodbdemo.util.NettyHedgingRequestHandler;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

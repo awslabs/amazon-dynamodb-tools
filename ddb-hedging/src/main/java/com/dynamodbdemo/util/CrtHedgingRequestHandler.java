@@ -1,6 +1,6 @@
-package com.dynamodbdemo.dao;
+package com.dynamodbdemo.util;
 
-import com.dynamodbdemo.model.auth.DDBResponse;
+import com.dynamodbdemo.model.DDBResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

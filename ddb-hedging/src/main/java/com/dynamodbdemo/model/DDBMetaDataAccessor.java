@@ -1,9 +1,8 @@
-package com.dynamodbdemo.model.auth;
+package com.dynamodbdemo.model;
 
 public interface DDBMetaDataAccessor {
 
     int FIRST_REQUEST = 1;
-    int SECOND_REQUEST = 2;
 
     int getItemCount();
 
@@ -14,7 +13,5 @@ public interface DDBMetaDataAccessor {
     long getActualLatency();
 
     String getDDBRequestID();
-
-    String getRequestName();
 
 }

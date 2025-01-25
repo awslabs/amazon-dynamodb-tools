@@ -1,4 +1,4 @@
-package com.dynamodbdemo.model.auth;
+package com.dynamodbdemo.model;
 
 
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -44,11 +44,6 @@ public class DDBResponse implements DDBMetaDataAccessor {
     @Override
     public String getDDBRequestID() {
         return DDBRequestID;
-    }
-
-    @Override
-    public String getRequestName() {
-        return requestName;
     }
 
 }

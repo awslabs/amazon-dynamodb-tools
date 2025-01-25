@@ -1,6 +1,6 @@
 package com.dynamodbdemo.dao;
 
-import com.dynamodbdemo.model.auth.DDBResponse;
+import com.dynamodbdemo.model.DDBResponse;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;

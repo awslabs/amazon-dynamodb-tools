@@ -1,8 +1,8 @@
 package com.dynamodbdemo.service.Impl;
 
 import com.dynamodbdemo.dao.EntityRecordDDbNativeDAO;
-import com.dynamodbdemo.model.auth.DDBMetaDataAccessor;
-import com.dynamodbdemo.model.auth.DDBResponse;
+import com.dynamodbdemo.model.DDBMetaDataAccessor;
+import com.dynamodbdemo.model.DDBResponse;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;

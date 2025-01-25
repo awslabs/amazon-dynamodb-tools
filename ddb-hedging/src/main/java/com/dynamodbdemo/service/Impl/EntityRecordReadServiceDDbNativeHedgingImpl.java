@@ -1,9 +1,9 @@
 package com.dynamodbdemo.service.Impl;
 
 import com.dynamodbdemo.dao.EntityRecordDDbNativeDAO;
-import com.dynamodbdemo.dao.HedgingRequestHandler;
-import com.dynamodbdemo.model.auth.DDBMetaDataAccessor;
-import com.dynamodbdemo.model.auth.DDBResponse;
+import com.dynamodbdemo.util.HedgingRequestHandler;
+import com.dynamodbdemo.model.DDBMetaDataAccessor;
+import com.dynamodbdemo.model.DDBResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
