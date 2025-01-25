@@ -1,6 +1,6 @@
 # DynamoDB Request Hedging Demo
 
-This repository demonstrates how to implement request hedging with Amazon DynamoDB to reduce tail latency in Java Spring Boot applications. 
+This demonstrates how to implement request hedging with Amazon DynamoDB to reduce tail latency in AWS SDK for Java 2.x.
 
 ## Overview
 
