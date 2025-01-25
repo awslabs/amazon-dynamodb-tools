@@ -1,12 +1,13 @@
 package com.dynamodbdemo.service.Impl;
 
 import com.dynamodbdemo.dao.EntityRecordDDbNativeDAO;
-import com.dynamodbdemo.model.auth.DDBMetaDataAccessor;
-import com.dynamodbdemo.model.auth.DDBResponse;
+import com.dynamodbdemo.model.DDBMetaDataAccessor;
+import com.dynamodbdemo.model.DDBResponse;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 @Service("EntityRecordReadServiceDDbNativeImpl")
 public class EntityRecordReadServiceDDbNativeImpl extends AbstractEntityRecordReadServiceImpl {
@@ -23,7 +24,12 @@ public class EntityRecordReadServiceDDbNativeImpl extends AbstractEntityRecordRe
         long startTime = System.currentTimeMillis();
 
 
-        DDBResponse fetchByClientIDAndAppNumResponse = entityRecordDDbNativeDAO.fetchByRecordIDAndEntityNumber(recordId, entityNumber);
+        DDBResponse fetchByClientIDAndAppNumResponse;
+        try {
+            fetchByClientIDAndAppNumResponse = entityRecordDDbNativeDAO.fetchByRecordIDAndEntityNumberAsync(recordId, entityNumber).get();
+        } catch (ExecutionException e) {
+            throw new RuntimeException(e);
+        }
 
 
         long endTime = System.currentTimeMillis();

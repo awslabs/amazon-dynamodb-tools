@@ -1,6 +1,6 @@
 package com.dynamodbdemo.controller;
 
-import com.dynamodbdemo.model.auth.RequestDTO;
+import com.dynamodbdemo.model.RequestDTO;
 import com.dynamodbdemo.service.BL.EntityRecordReadServiceBL;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;

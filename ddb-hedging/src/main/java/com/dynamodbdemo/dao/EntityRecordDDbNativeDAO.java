@@ -1,74 +1,65 @@
 package com.dynamodbdemo.dao;
 
-import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
-import com.amazonaws.services.dynamodbv2.model.AttributeValue;
-import com.amazonaws.services.dynamodbv2.model.QueryRequest;
-import com.amazonaws.services.dynamodbv2.model.QueryResult;
-import com.dynamodbdemo.config.DynamoDbConfig;
-import com.dynamodbdemo.model.auth.DDBResponse;
+import com.dynamodbdemo.model.DDBResponse;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
+import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 @Service
 public class EntityRecordDDbNativeDAO {
+    private static final Logger logger = Logger.getLogger(EntityRecordDDbNativeDAO.class.getName());
 
-    Logger logger = Logger.getLogger(EntityRecordDDbNativeDAO.class.getName());
+    private final DynamoDbAsyncClient asyncClient;
 
-    final
-    DynamoDbConfig config;
+    @Value("${aws.dynamodb.table-name}")
+    private String tableName;
 
-    final
-    AmazonDynamoDB ddb;
-
-    public EntityRecordDDbNativeDAO(DynamoDbConfig config, AmazonDynamoDB ddb) {
-        this.config = config;
-        this.ddb = ddb;
+    public EntityRecordDDbNativeDAO(@Qualifier("DDBAsyncClient") DynamoDbAsyncClient ddbClient) {
+        this.asyncClient = ddbClient;
     }
 
+    public CompletableFuture<DDBResponse> fetchByRecordIDAndEntityNumberAsync(String recordID, String entityNumber) {
+        logger.log(Level.FINE, "fetchByRecordIDAndEntityNumberAsync - Start");
 
-    public DDBResponse fetchByRecordIDAndEntityNumber(String recordID, String entityNumber) {
+        String pk_EntityNumRecordID = entityNumber + "-" + recordID;
 
-        logger.log(Level.FINE, "fetchByRecordIDAndEntityNumber - Start");
+        // Build query request
+        QueryRequest queryRequest = QueryRequest.builder()
+                .tableName(tableName)
+                .keyConditionExpression("PK = :pk_EntityNumRecordID")
+                .expressionAttributeValues(Map.of(
+                        ":pk_EntityNumRecordID", AttributeValue.builder().s(pk_EntityNumRecordID).build()
+                ))
+                .build();
 
-        DDBResponse ddbResponse = new DDBResponse();
+        long startTime = System.currentTimeMillis();
 
-        List<Map<String, AttributeValue>> fetchedItems;
+        // Execute async query and transform the response
+        return asyncClient.query(queryRequest)
+                .thenApply(queryResponse -> {
+                    long endTime = System.currentTimeMillis();
 
-        try {
-            String pk_EntityNumRecordID = entityNumber + "-" + recordID;
+                    DDBResponse ddbResponse = new DDBResponse();
+                    ddbResponse.setItems(queryResponse.items());
+                    ddbResponse.setRequestName("fetchByRecordIDAndEntityNumberAsync");
+                    ddbResponse.setResponseLatency(endTime - startTime);
+                    ddbResponse.setDDBRequestID(queryResponse.responseMetadata().requestId());
 
-            HashMap<String, AttributeValue> fetchByRecordIDAndEntityNumberValues = new HashMap<>();
-            fetchByRecordIDAndEntityNumberValues.put(":pk_EntityNumRecordID", new AttributeValue().withS(pk_EntityNumRecordID));
-
-            // get all other data
-            QueryRequest fetchByRecordIDAndEntityNumberReq = new QueryRequest()
-                    .withTableName(config.ddbTableName)
-                    .withKeyConditionExpression("PK = :pk_EntityNumRecordID")
-                    .withExpressionAttributeValues(fetchByRecordIDAndEntityNumberValues);
-
-            long startTime = System.currentTimeMillis();
-
-            QueryResult fetchByRecordIDAndEntityNumberResponse = ddb.query(fetchByRecordIDAndEntityNumberReq);
-            fetchedItems = fetchByRecordIDAndEntityNumberResponse.getItems();
-
-            long endTime = System.currentTimeMillis();
-
-            ddbResponse.setItems(fetchedItems);
-            ddbResponse.setRequestName("fetchByRecordIDAndEntityNumber");
-            ddbResponse.setResponseLatency(endTime - startTime);
-            ddbResponse.setDDBRequestID(fetchByRecordIDAndEntityNumberResponse.getSdkResponseMetadata().getRequestId());
-            logger.log(Level.FINE, "fetchByRecordIDAndEntityNumber - End ");
-
-        } catch (Exception e) {
-            logger.log(Level.SEVERE, "fetchByRecordIDAndEntityNumber - Error ", e);
-            throw new RuntimeException(e);
-        }
-        return ddbResponse;
+                    logger.log(Level.FINE, "fetchByRecordIDAndEntityNumberAsync - End");
+                    return ddbResponse;
+                })
+                .exceptionally(throwable -> {
+                    logger.log(Level.SEVERE, "fetchByRecordIDAndEntityNumberAsync - Error ", throwable);
+                    throw new CompletionException(throwable);
+                });
     }
-
 }

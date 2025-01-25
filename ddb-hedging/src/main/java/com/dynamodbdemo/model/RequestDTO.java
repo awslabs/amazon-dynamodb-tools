@@ -1,4 +1,4 @@
-package com.dynamodbdemo.model.auth;
+package com.dynamodbdemo.model;
 
 import lombok.Data;
 

@@ -1,7 +1,7 @@
 package com.dynamodbdemo.service.Impl;
 
-import com.dynamodbdemo.model.auth.DDBMetaDataAccessor;
-import com.dynamodbdemo.model.auth.RequestDTO;
+import com.dynamodbdemo.model.DDBMetaDataAccessor;
+import com.dynamodbdemo.model.RequestDTO;
 import com.dynamodbdemo.service.BL.EntityRecordReadServiceBL;
 import org.springframework.beans.factory.annotation.Value;
 
@@ -36,9 +36,7 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
 
         AtomicInteger totalItems = new AtomicInteger();
 
-        metaDataAccessorCCAuthResponse.forEach(dataAccessor -> {
-            totalItems.set(totalItems.get() + dataAccessor.getItemCount());
-        });
+        metaDataAccessorCCAuthResponse.forEach(dataAccessor -> totalItems.set(totalItems.get() + dataAccessor.getItemCount()));
 
         requestDTO.setItemCount(totalItems.get());
 
