@@ -25,7 +25,7 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
 
         logger.log(Level.FINE, "transactRecords - Start " + Thread.currentThread());
 
-        long startTime = System.currentTimeMillis();
+        long startTime = System.nanoTime();
 
         String recordId = requestDTO.getRecordId();
 
@@ -40,7 +40,7 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
 
         requestDTO.setItemCount(totalItems.get());
 
-        long endTime = System.currentTimeMillis();
+        long endTime = System.nanoTime();
 
         PrintLog(endTime - startTime, requestDTO, metaDataAccessorCCAuthResponse);
 
@@ -54,9 +54,11 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
 
         StringBuilder LogMessage = new StringBuilder();
 
-        metaDataAccesors.forEach(dataAccessor -> LogMessage.append(dataAccessor.getRequestNumber()).append(":").append(dataAccessor.getResponseLatency()).append(":").append(dataAccessor.getDDBRequestID()).append(":").append(requestDTO.getEntityNumber()).append("-").append(requestDTO.getRecordId()).append(":"));
+        metaDataAccesors.forEach(dataAccessor -> LogMessage.append(dataAccessor.getRequestNumber()).append(":").append(String.format("%.2f", (float) dataAccessor.getResponseLatency() /1000000)).append(":").append(dataAccessor.getDDBRequestID()).append(":").append(requestDTO.getEntityNumber()).append("-").append(requestDTO.getRecordId()).append(":"));
 
-        LogMessage.append(totalTime);
+        float result = (float) totalTime / 1000000;
+        LogMessage.append(String.format("%.2f", result));
+
 
         logger.log(Level.INFO, LogMessage.toString());
 

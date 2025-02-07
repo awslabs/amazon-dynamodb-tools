@@ -41,12 +41,12 @@ public class EntityRecordDDbNativeDAO {
                 ))
                 .build();
 
-        long startTime = System.currentTimeMillis();
+        long startTime = System.nanoTime();
 
         // Execute async query and transform the response
         return asyncClient.query(queryRequest)
                 .thenApply(queryResponse -> {
-                    long endTime = System.currentTimeMillis();
+                    long endTime = System.nanoTime();
 
                     DDBResponse ddbResponse = new DDBResponse();
                     ddbResponse.setItems(queryResponse.items());

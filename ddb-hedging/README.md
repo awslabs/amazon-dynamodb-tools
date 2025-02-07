@@ -12,6 +12,9 @@ Request hedging is a technique where multiple identical requests are sent to Dyn
 - Gradle
 - AWS Account with DynamoDB access
 - AWS credentials configured
+- TODO: 
+  - DynamoDB table name 
+  - and PK, SK requirements?
 
 ## Building the Project
 
@@ -19,7 +22,16 @@ Request hedging is a technique where multiple identical requests are sent to Dyn
 ./gradlew clean build
 ```
 
+Todo:
+* How to run the project
+* Sample request:
+  * URIs
+  * http://localhost:8080/api/ddbDemo/readData
+  * 
 
+
+
+TODO: Following are the most classes in this repo are the hedging Request Handlers
 ## Request Handler Implementations
 
 The project provides two different request handler implementations for DynamoDB hedging, each optimized for different use cases.

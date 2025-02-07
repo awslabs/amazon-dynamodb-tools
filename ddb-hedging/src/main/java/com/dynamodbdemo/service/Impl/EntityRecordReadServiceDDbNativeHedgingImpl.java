@@ -39,7 +39,7 @@ public class EntityRecordReadServiceDDbNativeHedgingImpl extends AbstractEntityR
 
         validateInput(ccNum, clientId, delayInMillis, numberOfHedgers);
 
-        long startTime = System.currentTimeMillis();
+        long startTime = System.nanoTime();
         logger.debug("Starting getEntityRecords request for clientId: {}", clientId);
 
         //Create a list of delays for each hedger
@@ -50,7 +50,7 @@ public class EntityRecordReadServiceDDbNativeHedgingImpl extends AbstractEntityR
 
         DDBResponse response = getDdbResponse(ccNum, clientId, delaysInMillisList);
 
-        long endTime = System.currentTimeMillis();
+        long endTime = System.nanoTime();
         response.setActualLatency(endTime - startTime);
 
         logger.debug("Completed getEntityRecords request for clientId: {} in {}ms",

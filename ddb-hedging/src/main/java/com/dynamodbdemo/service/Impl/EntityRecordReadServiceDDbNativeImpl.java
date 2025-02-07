@@ -21,7 +21,7 @@ public class EntityRecordReadServiceDDbNativeImpl extends AbstractEntityRecordRe
     @Override
     public List<DDBMetaDataAccessor> getEntityRecords(String recordId, String entityNumber, int delayInMillis, int numberOfHedgers) throws InterruptedException {
 
-        long startTime = System.currentTimeMillis();
+        long startTime = System.nanoTime();
 
 
         DDBResponse fetchByClientIDAndAppNumResponse;
@@ -32,7 +32,7 @@ public class EntityRecordReadServiceDDbNativeImpl extends AbstractEntityRecordRe
         }
 
 
-        long endTime = System.currentTimeMillis();
+        long endTime = System.nanoTime();
         fetchByClientIDAndAppNumResponse.setActualLatency(endTime - startTime);
 
         List<DDBMetaDataAccessor> metaDataAccessors = new ArrayList<>();
