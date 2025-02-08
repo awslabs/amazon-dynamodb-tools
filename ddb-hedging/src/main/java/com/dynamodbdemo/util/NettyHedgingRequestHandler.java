@@ -30,7 +30,7 @@ public class NettyHedgingRequestHandler implements HedgingRequestHandler {
     @Override
     public CompletableFuture<DDBResponse> hedgeRequests(
             Supplier<CompletableFuture<DDBResponse>> supplier,
-            List<Integer> delaysInMillis) {
+            List<Float> delaysInMillis) {
 
         if (delaysInMillis == null || delaysInMillis.isEmpty()) {
             throw new IllegalArgumentException("Delays list cannot be null or empty");
@@ -56,7 +56,7 @@ public class NettyHedgingRequestHandler implements HedgingRequestHandler {
         // Create hedged requests
         for (int i = 0; i < delaysInMillis.size(); i++) {
             final int requestNumber = i + 2;
-            int delay = delaysInMillis.get(i);
+            long delay = (long)((double)delaysInMillis.get(i) * 1_000_000L);
 
             CompletableFuture<DDBResponse> hedgedRequest = new CompletableFuture<>();
 
@@ -89,7 +89,7 @@ public class NettyHedgingRequestHandler implements HedgingRequestHandler {
                             }
                             return null;
                         });
-            }, delay, TimeUnit.MILLISECONDS);
+            }, delay, TimeUnit.NANOSECONDS);
 
             futures.add(hedgedRequest);
         }

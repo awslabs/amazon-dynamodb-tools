@@ -9,5 +9,5 @@ import java.util.function.Supplier;
 public interface HedgingRequestHandler {
     CompletableFuture<DDBResponse> hedgeRequests(
             Supplier<CompletableFuture<DDBResponse>> supplier,
-            List<Integer> delaysInMillis);
+            List<Float> delaysInMillis);
 }

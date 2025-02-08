@@ -19,7 +19,7 @@ public class EntityRecordReadServiceDDbNativeImpl extends AbstractEntityRecordRe
     }
 
     @Override
-    public List<DDBMetaDataAccessor> getEntityRecords(String recordId, String entityNumber, int delayInMillis, int numberOfHedgers) throws InterruptedException {
+    public List<DDBMetaDataAccessor> getEntityRecords(String recordId, String entityNumber, float delayInMillis, int numberOfHedgers) throws InterruptedException {
 
         long startTime = System.nanoTime();
 

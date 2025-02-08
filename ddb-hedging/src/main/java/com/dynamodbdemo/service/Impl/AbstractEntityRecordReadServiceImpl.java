@@ -15,7 +15,7 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
     Logger logger = Logger.getLogger(AbstractEntityRecordReadServiceImpl.class.getName());
 
     @Value("${ddb.hedging.request.delay}")
-    protected int delayInMillis;
+    protected float delayInMillis;
 
     @Value("${ddb.hedging.number}")
     protected int numberOfHedgers;
@@ -65,5 +65,5 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
     }
 
 
-    public abstract List<DDBMetaDataAccessor> getEntityRecords(String recordId, String entityNumber, int delayInMillis, int numberOfHedgers) throws ExecutionException, InterruptedException;
+    public abstract List<DDBMetaDataAccessor> getEntityRecords(String recordId, String entityNumber, float delayInMillis, int numberOfHedgers) throws ExecutionException, InterruptedException;
 }

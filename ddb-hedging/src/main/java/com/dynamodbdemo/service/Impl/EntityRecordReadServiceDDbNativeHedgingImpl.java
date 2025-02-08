@@ -34,7 +34,7 @@ public class EntityRecordReadServiceDDbNativeHedgingImpl extends AbstractEntityR
     public List<DDBMetaDataAccessor> getEntityRecords(
             String ccNum,
             String clientId,
-            int delayInMillis,
+            float delayInMillis,
             int numberOfHedgers) {
 
         validateInput(ccNum, clientId, delayInMillis, numberOfHedgers);
@@ -43,7 +43,7 @@ public class EntityRecordReadServiceDDbNativeHedgingImpl extends AbstractEntityR
         logger.debug("Starting getEntityRecords request for clientId: {}", clientId);
 
         //Create a list of delays for each hedger
-        List<Integer> delaysInMillisList = new ArrayList<>();
+        List<Float> delaysInMillisList = new ArrayList<>();
         for (int i = 0; i < numberOfHedgers; i++) {
             delaysInMillisList.add(delayInMillis);
         }
@@ -66,7 +66,7 @@ public class EntityRecordReadServiceDDbNativeHedgingImpl extends AbstractEntityR
     private DDBResponse getDdbResponse(
             String ccNum,
             String clientId,
-            List<Integer> delaysInMillis) {
+            List<Float> delaysInMillis) {
 
         CompletableFuture<DDBResponse> future = hedgingRequestHandler.hedgeRequests(
                 () -> entityRecordDDbNativeDAO
@@ -77,7 +77,7 @@ public class EntityRecordReadServiceDDbNativeHedgingImpl extends AbstractEntityR
         return future.join();
     }
 
-    private void validateInput(String ccNum, String clientId, int delayInMillis, int numberOfHedgers) {
+    private void validateInput(String ccNum, String clientId, float delayInMillis, int numberOfHedgers) {
         if (ccNum == null || ccNum.trim().isEmpty()) {
             throw new IllegalArgumentException("ccNum cannot be null or empty");
         }

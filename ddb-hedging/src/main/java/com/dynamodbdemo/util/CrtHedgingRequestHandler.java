@@ -16,7 +16,7 @@ public class CrtHedgingRequestHandler implements HedgingRequestHandler {
 
     public CompletableFuture<DDBResponse> hedgeRequests(
             Supplier<CompletableFuture<DDBResponse>> supplier,
-            List<Integer> delaysInMillis) {
+            List<Float> delaysInMillis) {
 
         if (delaysInMillis == null || delaysInMillis.isEmpty()) {
             return supplier.get();
@@ -25,7 +25,7 @@ public class CrtHedgingRequestHandler implements HedgingRequestHandler {
         logger.info("Initiating initial request");
         CompletableFuture<DDBResponse> firstRequest = supplier.get()
                 .thenApply(response -> {
-                    response.setRequestNumber(0); // First request is number 0
+                    response.setRequestNumber(DDBResponse.FIRST_REQUEST); // First request is number 0
                     return response;
                 });
 
@@ -35,8 +35,8 @@ public class CrtHedgingRequestHandler implements HedgingRequestHandler {
 
         // Create hedged requests for each delay
         for (int i = 0; i < delaysInMillis.size(); i++) {
-            final int requestNumber = i + 1;
-            int delay = delaysInMillis.get(i);
+            final int requestNumber = i + 2;
+            long delay = (long)((double)delaysInMillis.get(i) * 1_000_000L);
 
             CompletableFuture<DDBResponse> hedgedRequest = CompletableFuture.supplyAsync(() -> {
                 // Check if any previous request is already complete
@@ -63,7 +63,7 @@ public class CrtHedgingRequestHandler implements HedgingRequestHandler {
                             return firstRequest.join();
                         })
                         .join();
-            }, CompletableFuture.delayedExecutor(delay, TimeUnit.MILLISECONDS));
+            }, CompletableFuture.delayedExecutor(delay, TimeUnit.NANOSECONDS));
 
             allRequests.add(hedgedRequest);
         }
