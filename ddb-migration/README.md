@@ -1,10 +1,11 @@
 # 🔄 DynamoDB Migration Project
 
-This sample development project presents the content explained in the [DynamoDB migration playbook](./documentation/migration-playbook.md). ⚠️ This project is not intended to be deployed in production as-is, and it is your responsibility to complete and run proper testing in lower environments. ⚠️
+This sample development project presents the content explained in the [DynamoDB migration playbook](./documentation/migration-playbook.md). 
+⚠️ This project is not intended to be deployed in production as-is, and it is your responsibility to complete and run proper testing in lower environments. ⚠️
 
 ## 🚀 Getting Started
 
-To execute this CDK project, you'll need to provide the `sourceTableArn` and the `destinationTableArn` DynamoDB table ARNs.
+To execute this CDK project, you'll need to provide the `sourceTableArn` and the `destinationTableArn` DynamoDB table ARNs. For the source table you must enable DynamoDB Streams to project Old and New images for this solution to work properly.
 
 📋 Before you begin, ensure your shell has credentials for the account you're operating in through your AWS profile or your environment variables.
 
@@ -61,33 +62,53 @@ Once you are ready to deploy your solution you can execute it with the following
 ```bash
 
 cdk deploy -c sourceTableArn=$SOURCE_TABLE_ARN -c destinationTableArn=$DEST_TABLE_ARN
+...
+...
+DdbMigration-source-table-To-destination-table | 33/33 | 11:45:37 AM | CREATE_COMPLETE      | AWS::CloudFormation::Stack          | DdbMigration-source-table-To-destination-table 
 
-✨  Synthesis time: 4.51s
+ ✅  DdbMigration-source-table-To-destination-table
 
-DdbMigration-my-source-table-To-my-source-table-migrated: deploying... [1/1]
-DdbMigration-my-source-table-To-my-source-table-migrated: creating CloudFormation changeset...
-
- ✅  DdbMigration-my-source-table-To-my-source-table-migrated
-
-✨  Deployment time: 42.28s
+✨  Deployment time: 81.71s
 
 Outputs:
-DdbMigration-my-source-table-To-my-source-table-migrated.DirectMigrationJobName = direct-migration-job
-DdbMigration-my-source-table-To-my-source-table-migrated.LargeMigrationJobName = large-migration-job
-DdbMigration-my-source-table-To-my-source-table-migrated.MigrationBucketName = ddbmigration-my-source-table-migrationbucketd3297513-bm7d2qoeijyz
-DdbMigration-my-source-table-To-my-source-table-migrated.StateMachineArn = arn:aws:states:us-east-1:680285499255:stateMachine:DdbMigration-my-source-table-To-my-source-table-migrated
+DdbMigration-source-table-To-destination-table.DestinationTablePolicy = {
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:PutItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DescribeTable"
+      ],
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::1111222223333:role/DdbMigration-source-table-To-de-GlueJobRoleF1B69418-DiAybmqsORAy",
+          "arn:aws:iam::1111222223333:role/DdbMigration-source-table-WriteCdcLambdaServiceRole-Zl7IcNJaFqsM"
+        ]
+      },
+      "Resource": "arn:aws:dynamodb:us-east-1:1111222223333:table/destination-table"
+    }
+  ]
+}
+DdbMigration-source-table-To-destination-table.DirectMigrationJobName = DirectMigrationJob-l63F97BtqXQq
+DdbMigration-source-table-To-destination-table.LargeMigrationJobName = LargeMigrationJob-VSYJGsC9ISBz
+DdbMigration-source-table-To-destination-table.MigrationBucketName = ddbmigration-source-table--migrationbucket1234567
+DdbMigration-source-table-To-destination-table.StateMachineArn = arn:aws:states:us-east-1:1111222223333:stateMachine:DdbMigration-source-table-To-destination-table
 Stack ARN:
-arn:aws:cloudformation:us-east-1:111122223333:stack/DdbMigration-my-source-table-To-my-source-table-migrated/db541610-a202-11ef-aac1-0e4d0ae812b7
+arn:aws:cloudformation:us-east-1:1111222223333:stack/DdbMigration-source-table-To-destination-table/eeab6590-eaf2-1111-a0a0-0affea56b8cb
+
+✨  Total time: 86.88s
 ```
+
+1. Run the `cdk deploy` command and note the output of the IAM policy in the Output _DestinationTablePolicy_.
+2. Copy the IAM policy into your clipboard. This is a resource-based policy that must be applied to the destination DynamoDB table in your destination account. If you do not see this output, the script has determined the source and destination are the same AWS account. You can also see this output on the CloudFormation stack in the AWS Management Console.
+3. Follow [these developer documentation instructions](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/rbac-attach-resource-based-policy.html) to add the policy to your destination table, preferably using the AWS Management Console.
+4. Execute the code in AWS Step Functions console as normal. The Lambda function WriteCdc will write cross-account into your table with the permissions granted by this resource-based policy
 
 ### 🌐 Cross-account access
 
 The resources for the migration as well as the source DynamoDB table must be in the same account, but the destination table can be in any account. However, you must update the destination table's permissions with a [resource-based policy](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/access-control-resource-based.html) created and placed into the CloudFormation stack Outputs section in order for the replication to work.
-
-1. Run the `cdk deploy` command and note the output of the IAM policy in the Output _DestinationTablePolicy_.
-1. Copy the IAM policy into your clipboard. This is a resource-based policy that must be applied to the destination DynamoDB table in your destination account. If you do not see this output, the script has determined the source and destination are the same AWS account. You can also see this output on the CloudFormation stack in the AWS Management Console.
-1. Follow [these developer documentation instructions](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/rbac-attach-resource-based-policy.html) to add the policy to your destination table, preferably using the AWS Management Console.
-1. Execute the code in AWS Step Functions console as normal. The Lambda function WriteCdc will write cross-account into your table with the permissions granted by this resource-based policy
 
 > 📝 **Note:** _If you attempt to deploy this into an AWS account different from the source table's account, the CloudFormation stack creation will fail with an error due to a custom resource we made to validate account ids called AccountValidationCustomResource. If you make this mistake, you must run the clean-up step to destroy the stack._
 

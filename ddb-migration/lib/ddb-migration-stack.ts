@@ -142,6 +142,8 @@ export class DdbMigrationStack extends cdk.Stack {
       code: lambda.Code.fromAsset("lambda/write-cdc"),
       environment: {
         DESTINATION_TABLE_NAME: props.destinationTableName,
+        SQS_FIFO_QUEUE_URL: changeDataCaptureFifo.queueUrl,
+        SQS_DLQ_URL: deadLetterQueue.queueUrl,
       },
     });
 
