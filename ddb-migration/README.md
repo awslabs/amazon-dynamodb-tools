@@ -5,7 +5,7 @@ This sample development project presents the content explained in the [DynamoDB 
 
 ## 🚀 Getting Started
 
-To execute this CDK project, you'll need to provide the `sourceTableArn` and the `destinationTableArn` DynamoDB table ARNs. For the source table you must enable DynamoDB Streams to project Old and New images for this solution to work properly.
+To execute this CDK project, you'll need to provide the `sourceTableArn` and the `destinationTableArn` DynamoDB table ARNs. For the source table you must enable DynamoDB Streams to project [`NEW_AND_OLD_IMAGES`](https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_StreamSpecification.html) view type for this solution to work properly.
 
 📋 Before you begin, ensure your shell has credentials for the account you're operating in through your AWS profile or your environment variables.
 
