@@ -56,6 +56,8 @@ public class NettyHedgingRequestHandler implements HedgingRequestHandler {
         // Create hedged requests
         for (int i = 0; i < delaysInMillis.size(); i++) {
             final int requestNumber = i + 2;
+
+            //Convert to nano seconds
             long delay = (long)((double)delaysInMillis.get(i) * 1_000_000L);
 
             CompletableFuture<DDBResponse> hedgedRequest = new CompletableFuture<>();

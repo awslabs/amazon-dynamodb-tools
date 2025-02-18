@@ -36,9 +36,12 @@ public class CrtHedgingRequestHandler implements HedgingRequestHandler {
         // Create hedged requests for each delay
         for (int i = 0; i < delaysInMillis.size(); i++) {
             final int requestNumber = i + 2;
+
+            //Convert to Nano Seconds
             long delay = (long)((double)delaysInMillis.get(i) * 1_000_000L);
 
             CompletableFuture<DDBResponse> hedgedRequest = CompletableFuture.supplyAsync(() -> {
+                logger.info("Check: Before hedged request#{} can be initiated", requestNumber);
                 // Check if any previous request is already complete
                 CompletableFuture<DDBResponse> completedFuture = allRequests.stream()
                         .filter(CompletableFuture::isDone)
