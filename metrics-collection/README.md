@@ -158,7 +158,27 @@ This configuration flexibility allows you to tailor the metrics collection to yo
 
 ## 📈 Visualize Your Data
 
-Want to turn your CSV data into stunning visualizations? Check out our companion project DynamoDB Metrics Visualizer to create interactive dashboards and charts!
+There is a companion project in the making where we will simplify metric visualization. Stay tuned for future updates!
+
+Want to turn your CSV data into stunning visualizations? Check out our companion project DynamoDB Metrics Visualizer to create interactive dashboards and charts! 
+
+The current report will present data in csv 
+
+| Region | Table Name | Read Utilization | Write Utilization |
+|--------|------------|------------------|-------------------|
+| us-east-1 | Table-Acccount-A | 0.00 | 0.00 |
+| us-east-1 | my_handler_table | 0.00 | 0.00 |
+| us-east-1 | my_table | 0.00 | 0.00 |
+| us-east-1 | vpc-test-table-01 | 0.00 | 0.06 |
+| us-east-1 | vpc-test-table-02 | 0.00 | 0.12 |
+| us-east-1 | vpc-test-table-03 | 0.00 | 0.18 |
+| us-east-1 | vpc-test-table-04 | 0.00 | 0.24 |
+| us-east-1 | vpc-test-table-05 | 0.00 | 0.30 |
+| us-east-1 | vpc-test-table-06 | 0.00 | 0.36 |
+| us-east-1 | vpc-test-table-07 | 0.00 | 0.41 |
+| us-east-1 | vpc-test-table-09 | 0.00 | 0.00 |
+| us-east-1 | vpc-test-table-10 | 0.00 | 0.00 |
+| ap-southeast-2 | ddbeventstable-StreamsSampleDDBTable-5W08OVKQE1PN | 0.00 | 0.00 |
 
 ## 🤝 Contributing
 
