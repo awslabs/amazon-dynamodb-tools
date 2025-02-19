@@ -9,6 +9,7 @@ These tools are intended to make using Amazon DynamoDB effectively and easier. T
 - [Eponymous Table Tagger](#eponymous-table-tagger-tool) - Tag tables with their own name to make per-table cost analysis easier
 - [Table Capacity Mode Evaluator](capacity-mode-evaluator) - Generate capacity mode recommendations by analyizing DynamoDB table usage
 - [DynamoDB cost optimization tool](#cost-optimization-tool) - Captures table metadata and metrics to generate cost savings recommendations.
+- [Metrics Collector](metrics-collector/README.md) - Captures DynamoDB table metris in your account, you can use this script to identify which tables are under over-provisioned.
 
 While we make efforts to test and verify the functionality of these tools, you are encouraged to read and understand the code, and use them at your own risk.
 
