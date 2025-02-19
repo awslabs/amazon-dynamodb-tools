@@ -4,7 +4,7 @@
 
 Are your DynamoDB tables optimized for performance and cost? The DynamoDB Metrics Collector is here to help you find out! This powerful tool scans your AWS regions, identifies provisioned DynamoDB tables, and provides detailed utilization metrics to help you optimize your database infrastructure.
 
-![DynamoDB Metrics Collector Demo](link_to_demo_gif_or_image)
+![DynamoDB Metrics Collector Demo](./documentation/metrics.gif)
 
 ## 🚀 Features
 
@@ -159,3 +159,6 @@ We welcome contributions! Please see our Contributing Guide for more details.
 This project is licensed under the MIT License - see the LICENSE file for details.
 
 Built with ❤️ by DynamoDB Specialist Solutions Architects. 
+
+poetry run python ddb_metrics_collection/utilization_example.py --start-time 2025-02-19
+
