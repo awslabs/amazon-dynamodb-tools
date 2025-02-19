@@ -1,7 +1,27 @@
+"""
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+SPDX-License-Identifier: MIT-0
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify,
+merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+"""
+
+# Experimental!
 import json
 import os
 import numpy as np
 from datetime import datetime
+from metrics_collection.logger_config import setup_logger
+
+logger = setup_logger(__name__)
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -16,6 +36,7 @@ class MetricsStorage:
         self.storage_type = storage_type
         self.base_path = base_path
         self.memory_storage = {}
+        logger.info("Initializing MetricsStorage")
 
     async def store(self, metrics):
         if self.storage_type == "disk":

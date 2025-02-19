@@ -1,53 +1,20 @@
 """
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+SPDX-License-Identifier: MIT-0
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify,
+merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 DynamoDB Utilization Metrics Collector
 
-This script collects and analyzes DynamoDB table utilization metrics across all AWS regions.
-It identifies tables with low utilization and generates CSV reports for both raw metrics and low-utilization tables.
-
-Usage:
-    python utilization_example.py [options]
-
-Options:
-    --start-time STR    Start time for metric collection in ISO8601 format
-    --end-time STR      End time for metric collection in ISO8601 format
-    --storage STR       Storage type: 'disk' or 'memory' (default: 'disk') (Experimental)
-    --output STR        Custom output file name for the utilization CSV
-    --config STR        Path to the metric configuration JSON file (default: 'metric_config.json')
-
-The script performs the following main tasks:
-1. Collects DynamoDB metrics for all tables across all regions
-2. Identifies tables with low utilization (below 45%)
-3. Generates two CSV reports:
-   - A report of tables with low utilization
-   - A raw metrics report for all tables
-
-Dependencies:
-    - asyncio: For asynchronous operations
-    - argparse: For parsing command-line arguments
-    - csv: For writing CSV files
-    - json: For reading the configuration file
-    - datetime: For date and time operations
-    - ddb_metrics_collection.collector: Custom module for collecting DynamoDB metrics
-    - ddb_metrics_collection.storage: Custom module for storing metrics (currently unused)
-
-Functions:
-    parse_iso8601(date_string: str) -> datetime:
-        Parses an ISO8601 formatted date string to a datetime object with UTC timezone.
-
-    write_csv(data: List[List], header: List[str], output_file: str) -> str:
-        Writes data to a CSV file with the given header and returns the output file path.
-
-    write_raw_metrics_csv(all_metrics: Dict, config: Dict, output_file: Optional[str] = None) -> str:
-        Generates a CSV file with raw metrics data for all tables and returns the file path.
-
-    write_utilization_csv(low_utilization_tables: Dict, output_file: Optional[str] = None) -> str:
-        Generates a CSV file with low utilization table data and returns the file path.
-
-    main() -> None:
-        The main function that orchestrates the metric collection and report generation process.
-
-Example:
-    python utilization_example.py --start-time 2023-05-01T00:00:00Z --end-time 2023-05-02T00:00:00Z --config my_config.json
 """
 
 import asyncio
@@ -55,9 +22,12 @@ import argparse
 import csv
 import json
 from datetime import datetime, timezone, timedelta
-from ddb_metrics_collection.collector import DynamoDBMetricsCollector
+from metrics_collection.collector import DynamoDBMetricsCollector
 
-# from ddb_metrics_collection.storage import MetricsStorage
+# from metrics_collection.storage import MetricsStorage
+from metrics_collection.logger_config import setup_logger
+
+logger = setup_logger(__name__)
 
 
 def parse_iso8601(date_string):
@@ -105,14 +75,10 @@ def write_raw_metrics_csv(all_metrics, config, output_file=None):
         str: The path to the written CSV file.
     """
     if output_file is None:
-        output_file = (
-            f"dynamodb_raw_metrics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        )
+        output_file = f"dynamodb_raw_metrics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
     header = ["Timestamp", "Region", "Table Name"]
-    header.extend(
-        f"{metric['MetricName']} ({metric['Stat']})" for metric in config["metrics"]
-    )
+    header.extend(f"{metric['MetricName']} ({metric['Stat']})" for metric in config["metrics"])
     header.extend(calc["id"] for calc in config["calculations"])
 
     data = []
@@ -121,9 +87,7 @@ def write_raw_metrics_csv(all_metrics, config, output_file=None):
             for metric in metrics:
                 row = [metric["Timestamp"], region, table]
                 row.extend(metric.get(m["Id"], "N/A") for m in config["metrics"])
-                row.extend(
-                    metric.get(calc["id"], "N/A") for calc in config["calculations"]
-                )
+                row.extend(metric.get(calc["id"], "N/A") for calc in config["calculations"])
                 data.append(row)
 
     return write_csv(data, header, output_file)
@@ -141,9 +105,7 @@ def write_utilization_csv(low_utilization_tables, output_file=None):
         str: The path to the written CSV file.
     """
     if output_file is None:
-        output_file = (
-            f"dynamodb_utilization_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        )
+        output_file = f"dynamodb_utilization_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
     header = ["Region", "Table Name", "Read Utilization", "Write Utilization"]
     data = [
@@ -200,32 +162,29 @@ async def main():
     start_time = (
         parse_iso8601(args.start_time)
         if args.start_time
-        else (now - timedelta(days=1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        else (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     )
     end_time = (
-        parse_iso8601(args.end_time)
-        if args.end_time
-        else now.replace(hour=23, minute=59, second=59, microsecond=999999)
+        parse_iso8601(args.end_time) if args.end_time else now.replace(hour=23, minute=59, second=59, microsecond=999999)
     )
 
-    print(f"Collecting metrics from {start_time} to {end_time}")
+    logger.info(f"Collecting metrics from {start_time} to {end_time}")
 
-    all_metrics, low_utilization_tables = await collector.collect_all_metrics(
-        start_time, end_time
-    )
+    all_metrics, low_utilization_tables = await collector.collect_all_metrics(start_time, end_time)
 
-    print("Metrics collected and stored successfully.\n")
+    logger.info("Metrics collected and stored successfully.")
 
     total_tables = sum(len(tables) for tables in low_utilization_tables.values())
-    print(f"Found {total_tables} tables with utilization below 45%")
+    logger.info(f"Found {total_tables} tables with utilization below 45%")
 
     csv_file = write_utilization_csv(low_utilization_tables, args.output)
-    print(f"Tables with low utilization are written to {csv_file}")
+    logger.info(f"Tables with low utilization are written to {csv_file}")
 
     raw_csv_file = write_raw_metrics_csv(all_metrics, config)
-    print(f"\nRaw metrics data written to {raw_csv_file}")
+    logger.info(f"Raw metrics data written to {raw_csv_file}")
+
+    raw_csv_file = write_raw_metrics_csv(all_metrics, config)
+    logger.info(f"Raw metrics data written to {raw_csv_file}")
 
 
 if __name__ == "__main__":

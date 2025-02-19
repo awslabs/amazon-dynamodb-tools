@@ -1,29 +1,30 @@
 """
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+SPDX-License-Identifier: MIT-0
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify,
+merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 DynamoDB Metrics Retrieval Module
-
-This module provides functionality to retrieve and process CloudWatch metrics for DynamoDB tables.
-It uses the AWS CloudWatch API to fetch metrics and performs custom calculations based on the provided configuration.
-
-The main function, get_metrics_for_table, retrieves metrics for a specific DynamoDB table
-within a given time range and processes them according to the provided configuration.
-
-Dependencies:
-    - logging: For error and info logging
-    - simpleeval: For safely evaluating simple expressions
 
 Note: This module is designed to be used asynchronously with aioboto3.
 """
 
-import logging
 from simpleeval import simple_eval
+from metrics_collection.logger_config import setup_logger
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
-async def get_metrics_for_table(
-    session, table_name, region, start_time, end_time, config
-):
+async def get_metrics_for_table(session, table_name, region, start_time, end_time, config):
     """
     Retrieve and process CloudWatch metrics for a specific DynamoDB table.
 
@@ -81,14 +82,10 @@ async def get_metrics_for_table(
                         EndTime=end_time,
                     )
 
-                metric_data_dict = {
-                    result["Id"]: result for result in response["MetricDataResults"]
-                }
+                metric_data_dict = {result["Id"]: result for result in response["MetricDataResults"]}
 
                 # Find the metric with the most data points to use as a base
-                base_metric = max(
-                    metric_data_dict.values(), key=lambda x: len(x["Timestamps"])
-                )
+                base_metric = max(metric_data_dict.values(), key=lambda x: len(x["Timestamps"]))
 
                 for i, timestamp in enumerate(base_metric["Timestamps"]):
                     result = {"Timestamp": timestamp}
@@ -104,10 +101,7 @@ async def get_metrics_for_table(
                     for calc in config["calculations"]:
                         try:
                             # Check if all required values are not None before performing calculation
-                            if all(
-                                result.get(var) is not None
-                                for var in calc.get("required_vars", [])
-                            ):
+                            if all(result.get(var) is not None for var in calc.get("required_vars", [])):
                                 result[calc["id"]] = simple_eval(
                                     calc["formula"],
                                     names={**result, "period": config["period"]},
@@ -127,7 +121,5 @@ async def get_metrics_for_table(
             return sorted(all_results, key=lambda x: x["Timestamp"])
 
         except Exception as e:
-            logger.error(
-                f"Error fetching metrics for table {table_name} in region {region}: {str(e)}"
-            )
+            logger.error(f"Error fetching metrics for table {table_name} in region {region}: {str(e)}")
             return []

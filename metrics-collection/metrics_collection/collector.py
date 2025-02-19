@@ -1,41 +1,32 @@
 """
-DynamoDB Metrics Collector
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+SPDX-License-Identifier: MIT-0
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify,
+merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-This module provides a class for collecting and analyzing DynamoDB table metrics across all AWS regions.
-It focuses on identifying provisioned tables and their utilization metrics.
-
-The DynamoDBMetricsCollector class offers methods to:
-1. Fetch all AWS regions
-2. Retrieve tables in each region
-3. Determine the billing mode of each table
-4. Collect metrics for provisioned tables
-5. Analyze table utilization
-
-The collector uses asynchronous operations to efficiently gather data from multiple regions and tables concurrently.
-
-Dependencies:
-    - asyncio: For asynchronous operations
-    - aioboto3: For asynchronous AWS API calls
-    - tqdm: For progress bars
-    - logging: For error logging
-
-Constants:
-    MAX_CONCURRENT_REGIONS (int): Maximum number of regions to process concurrently
-    MAX_CONCURRENT_TABLE_CHECKS (int): Maximum number of table checks to perform concurrently
+DynamoDB metrics collector
 """
 
 import asyncio
 import aioboto3
 from tqdm import tqdm
 from tqdm.asyncio import tqdm_asyncio
-from .metrics import get_metrics_for_table
-import logging
+from metrics_collection.metrics import get_metrics_for_table
+from metrics_collection.logger_config import setup_logger
+
+logger = setup_logger(__name__)
 
 MAX_CONCURRENT_REGIONS = 10
 MAX_CONCURRENT_TABLE_CHECKS = 1000
-
-logging.basicConfig(level=logging.ERROR)
-logger = logging.getLogger(__name__)
 
 
 class DynamoDBMetricsCollector:
@@ -48,6 +39,7 @@ class DynamoDBMetricsCollector:
         self.table_semaphore = asyncio.Semaphore(MAX_CONCURRENT_TABLE_CHECKS)
         self.region_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REGIONS)
         self.config = config
+        logger.info("Initializing DynamoDBMetricsCollector")
 
     async def get_all_regions(self):
         """
@@ -96,13 +88,9 @@ class DynamoDBMetricsCollector:
             async with self.session.client("dynamodb", region_name=region) as dynamodb:
                 try:
                     response = await dynamodb.describe_table(TableName=table_name)
-                    return table_name, response["Table"].get(
-                        "BillingModeSummary", {}
-                    ).get("BillingMode", "PROVISIONED")
+                    return table_name, response["Table"].get("BillingModeSummary", {}).get("BillingMode", "PROVISIONED")
                 except Exception as e:
-                    logger.error(
-                        f"Error getting billing mode for table {table_name} in region {region}: {str(e)}"
-                    )
+                    logger.error(f"Error getting billing mode for table {table_name} in region {region}: {str(e)}")
                     return table_name, None
 
     async def get_provisioned_tables(self, region):
@@ -118,9 +106,7 @@ class DynamoDBMetricsCollector:
         tables = await self.get_tables_in_region(region)
         tasks = [self.get_table_billing_mode(region, table) for table in tables]
         results = await asyncio.gather(*tasks)
-        return [
-            table for table, billing_mode in results if billing_mode == "PROVISIONED"
-        ]
+        return [table for table, billing_mode in results if billing_mode == "PROVISIONED"]
 
     async def get_tables_and_metrics(self, region, start_time, end_time):
         """
@@ -137,9 +123,7 @@ class DynamoDBMetricsCollector:
         async with self.region_semaphore:
             provisioned_tables = await self.get_provisioned_tables(region)
             tasks = [
-                get_metrics_for_table(
-                    self.session, table, region, start_time, end_time, self.config
-                )
+                get_metrics_for_table(self.session, table, region, start_time, end_time, self.config)
                 for table in provisioned_tables
             ]
             table_metrics = await asyncio.gather(*tasks)
@@ -159,25 +143,20 @@ class DynamoDBMetricsCollector:
         all_metrics = {}
         low_utilization_tables = {}
 
-        print("Fetching all AWS regions...")
+        logger.info("Fetching all AWS regions...")
         regions = await self.get_all_regions()
-        print(f"Found {len(regions)} regions.")
+        logger.info(f"Found {len(regions)} regions.")
 
-        print("Identifying provisioned tables in each region...")
+        logger.info("Identifying provisioned tables in each region...")
         total_provisioned_tables = 0
         async for region in tqdm_asyncio(regions, desc="Scanning regions"):
             provisioned_tables = await self.get_provisioned_tables(region)
             total_provisioned_tables += len(provisioned_tables)
 
-        print(
-            f"Found {total_provisioned_tables} provisioned tables across all regions."
-        )
+        logger.info(f"Found {total_provisioned_tables} provisioned tables across all regions.")
 
-        print("Collecting metrics for provisioned tables...")
-        region_tasks = [
-            self.get_tables_and_metrics(region, start_time, end_time)
-            for region in regions
-        ]
+        logger.info("Collecting metrics for provisioned tables...")
+        region_tasks = [self.get_tables_and_metrics(region, start_time, end_time) for region in regions]
 
         with tqdm(total=total_provisioned_tables, desc="Collecting metrics") as pbar:
             for future in asyncio.as_completed(region_tasks):
@@ -188,17 +167,11 @@ class DynamoDBMetricsCollector:
                 for table, metrics in zip(tables, table_metrics):
                     if metrics:
                         all_metrics[region][table] = metrics
-                        avg_read_util = self.calculate_average_utilization(
-                            metrics, "read_utilization"
-                        )
-                        avg_write_util = self.calculate_average_utilization(
-                            metrics, "write_utilization"
-                        )
+                        avg_read_util = self.calculate_average_utilization(metrics, "read_utilization")
+                        avg_write_util = self.calculate_average_utilization(metrics, "write_utilization")
 
                         if self.is_low_utilization(avg_read_util, avg_write_util):
-                            low_utilization_tables[region].append(
-                                (table, avg_read_util, avg_write_util)
-                            )
+                            low_utilization_tables[region].append((table, avg_read_util, avg_write_util))
                     pbar.update(1)
 
         return all_metrics, low_utilization_tables
@@ -215,9 +188,7 @@ class DynamoDBMetricsCollector:
         Returns:
             float or None: The average utilization, or None if no valid metrics are found.
         """
-        valid_metrics = [
-            m[utilization_type] for m in metrics if m[utilization_type] is not None
-        ]
+        valid_metrics = [m[utilization_type] for m in metrics if m[utilization_type] is not None]
         return sum(valid_metrics) / len(valid_metrics) if valid_metrics else None
 
     @staticmethod
@@ -233,6 +204,4 @@ class DynamoDBMetricsCollector:
         Returns:
             bool: True if the table has low utilization, False otherwise.
         """
-        return (read_util is None or 0 <= read_util <= threshold) and (
-            write_util is None or 0 <= write_util <= threshold
-        )
+        return (read_util is None or 0 <= read_util <= threshold) and (write_util is None or 0 <= write_util <= threshold)
