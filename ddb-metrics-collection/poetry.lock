@@ -731,6 +731,18 @@ botocore = ">=1.36.0,<2.0a.0"
 crt = ["botocore[crt] (>=1.36.0,<2.0a.0)"]
 
 [[package]]
+name = "simpleeval"
+version = "1.0.3"
+description = "A simple, safe single expression evaluator library."
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "simpleeval-1.0.3-py3-none-any.whl", hash = "sha256:e3bdbb8c82c26297c9a153902d0fd1858a6c3774bf53ff4f134788c3f2035c38"},
+    {file = "simpleeval-1.0.3.tar.gz", hash = "sha256:67bbf246040ac3b57c29cf048657b9cf31d4e7b9d6659684daa08ca8f1e45829"},
+]
+
+[[package]]
 name = "six"
 version = "1.17.0"
 description = "Python 2 and 3 compatibility utilities"
@@ -984,4 +996,4 @@ propcache = ">=0.2.0"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4.0"
-content-hash = "3356fa1a40add13e4d1592ceccfe97caa036b607704e97629cced737b012bdb1"
+content-hash = "895c511c6a3140a73bbec3618a8cd007db1de2102f3af25dd90935c9607f2265"

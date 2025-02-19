@@ -70,26 +70,3 @@ class MetricsStorage:
         elif self.storage_type == "memory":
             return self.memory_storage.get(region, {}).get(table)
         return None
-
-
-# class MetricsStorage:
-#     def __init__(self, storage_type="disk", file_path="metrics.json"):
-#         self.storage_type = storage_type
-#         self.file_path = file_path
-#         self.memory_storage = {}
-
-#     async def store(self, metrics):
-#         if self.storage_type == "disk":
-#             with open(self.file_path, "w") as f:
-#                 json.dump(metrics, f, cls=DateTimeEncoder, indent=2)
-#         elif self.storage_type == "memory":
-#             self.memory_storage = json.loads(json.dumps(metrics, cls=DateTimeEncoder))
-
-#     async def retrieve(self):
-#         if self.storage_type == "disk":
-#             if os.path.exists(self.file_path):
-#                 with open(self.file_path, "r") as f:
-#                     return json.load(f)
-#         elif self.storage_type == "memory":
-#             return self.memory_storage
-#         return None

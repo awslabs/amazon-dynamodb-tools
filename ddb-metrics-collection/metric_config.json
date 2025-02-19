@@ -1,0 +1,37 @@
+{
+  "metrics": [
+    {
+      "Id": "consumed_read",
+      "MetricName": "ConsumedReadCapacityUnits",
+      "Stat": "Sum"
+    },
+    {
+      "Id": "provisioned_read",
+      "MetricName": "ProvisionedReadCapacityUnits",
+      "Stat": "Average"
+    },
+    {
+      "Id": "consumed_write",
+      "MetricName": "ConsumedWriteCapacityUnits",
+      "Stat": "Sum"
+    },
+    {
+      "Id": "provisioned_write",
+      "MetricName": "ProvisionedWriteCapacityUnits",
+      "Stat": "Average"
+    }
+  ],
+  "period": 300,
+  "calculations": [
+    {
+      "id": "read_utilization",
+      "formula": "(consumed_read / period) / provisioned_read",
+      "required_vars": ["consumed_read", "provisioned_read"]
+    },
+    {
+      "id": "write_utilization",
+      "formula": "(consumed_write / period) / provisioned_write",
+      "required_vars": ["consumed_write", "provisioned_write"]
+    }
+  ]
+}
