@@ -181,6 +181,13 @@ The current report will present data in csv
 | us-east-1 | vpc-test-table-10 | 0.00 | 0.00 |
 | ap-southeast-2 | ddbeventstable-StreamsSampleDDBTable-5W08OVKQE1PN | 0.00 | 0.00 |
 
+## Compatibility
+
+This project has been tested with:
+
+- Python 3.10.6
+- Python 3.13.1
+
 ## 🤝 Contributing
 
 We welcome contributions! Please see our Contributing Guide for more details.
