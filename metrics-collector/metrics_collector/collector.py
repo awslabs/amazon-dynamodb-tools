@@ -20,8 +20,8 @@ import asyncio
 import aioboto3
 from tqdm import tqdm
 from tqdm.asyncio import tqdm_asyncio
-from metrics_collection.metrics import get_metrics_for_table
-from metrics_collection.logger_config import setup_logger
+from metrics_collector.metrics import get_metrics_for_table
+from metrics_collector.logger_config import setup_logger
 
 logger = setup_logger(__name__)
 

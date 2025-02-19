@@ -19,7 +19,7 @@ import json
 import os
 import numpy as np
 from datetime import datetime
-from metrics_collection.logger_config import setup_logger
+from metrics_collector.logger_config import setup_logger
 
 logger = setup_logger(__name__)
 

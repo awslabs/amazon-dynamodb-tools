@@ -19,7 +19,7 @@ Note: This module is designed to be used asynchronously with aioboto3.
 """
 
 from simpleeval import simple_eval
-from metrics_collection.logger_config import setup_logger
+from metrics_collector.logger_config import setup_logger
 
 logger = setup_logger(__name__)
 

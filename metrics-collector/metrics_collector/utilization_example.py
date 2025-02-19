@@ -22,10 +22,10 @@ import argparse
 import csv
 import json
 from datetime import datetime, timezone, timedelta
-from metrics_collection.collector import DynamoDBMetricsCollector
+from metrics_collector.collector import DynamoDBMetricsCollector
 
-# from metrics_collection.storage import MetricsStorage
-from metrics_collection.logger_config import setup_logger
+# from metrics_collector.storage import MetricsStorage
+from metrics_collector.logger_config import setup_logger
 
 logger = setup_logger(__name__)
 
