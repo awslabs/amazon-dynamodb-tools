@@ -79,6 +79,7 @@ For more information on when to select on-demand or provisioned capacity modes i
    - `--dynamodb-maximum-read-unit`: DynamoDB maximum read unit (default: 80000)
    - `--number-of-days-look-back`: Number(1-14) of days to look back for CloudWatch metrics (default: 14)
    - `--max-concurrent-tasks`: Maximum number of tasks to run concurrently (default: 5)
+   - `--show-dashboard`: Display results in a GUI for simple visualization (default: True when specified)
 
 - with default values:
 
@@ -89,7 +90,7 @@ For more information on when to select on-demand or provisioned capacity modes i
 - with the desired values:
 
   ```sh
-  python3 capacity_reco.py --dynamodb-tablename <table_name> --dynamodb-read-utilization <read_utilization> --dynamodb-write-utilization <write_utilization> --dynamodb-minimum-write-unit <minimum_write_unit> --dynamodb-maximum-write-unit <maximum_write_unit> --dynamodb-minimum-read-unit <minimum_read_unit> --dynamodb-maximum-read-unit <maximum_read_unit> --number-of-days-look-back <number_of_days_look_back> --max-concurrent-tasks <max_concurrent_tasks> [--debug]
+  python3 capacity_reco.py --dynamodb-tablename <table_name> --dynamodb-read-utilization <read_utilization> --dynamodb-write-utilization <write_utilization> --dynamodb-minimum-write-unit <minimum_write_unit> --dynamodb-maximum-write-unit <maximum_write_unit> --dynamodb-minimum-read-unit <minimum_read_unit> --dynamodb-maximum-read-unit <maximum_read_unit> --number-of-days-look-back <number_of_days_look_back> --max-concurrent-tasks <max_concurrent_tasks> --show-dashboard [--debug] 
   ```
 
   Add the `--debug` flag to save metrics and estimates as CSV files in the `output` folder.
@@ -126,3 +127,5 @@ The **`analysis_summary.csv`** file contains the following columns,
 - `recommended_cost`: The table's estimated cost for period analyzed considering the recommended capacity mode.
 - `autoscaling_enabled`: The Table's current Autoscaling Status.
 - `Note`: The analysis provided in this script compares your table consumption and simulates cost using different parameters. This tool does not have access to your contextual information, business requirements or organization best practices. When changing your capacity mode from on-demand to provisioned based on the results, remember there were some assumptions made: The analysis window is 14 days and auto-scaling responds instantaneously. (In reality, Auto scaling service might take 4 mins to provision new table capacity depending on your increase conditions).
+
+**GUI Visualization:** Use the `--show-dashboard` flag to interactively explore the data. Once processing is complete, a dashboard will present a summarized view of the results. To exit, press `Ctrl+C` in the terminal where the tool was launched.

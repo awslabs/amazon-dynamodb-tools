@@ -1,5 +1,6 @@
 import argparse
 import logging
+import subprocess
 from datetime import datetime
 from src.dynamodb import DDBScalingInfo
 from src.getmetrics import get_metrics
@@ -33,6 +34,7 @@ def get_params(args):
     params['dynamodb_maximum_read_unit'] = args.dynamodb_maximum_read_unit
     params['number_of_days_look_back'] = args.number_of_days_look_back
     params['max_concurrent_tasks'] = args.max_concurrent_tasks
+    params['show_dashboard'] = args.show_dashboard
 
     now = datetime.utcnow()
     midnight = datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=pytz.UTC)
@@ -114,6 +116,7 @@ if __name__ == '__main__':
                         default=14, help='Number of days to look back')
     parser.add_argument('--max-concurrent-tasks', type=int,
                         default=5, help='Maximum number of tasks to run concurrently')
+    parser.add_argument('--show-dashboard', action='store_true', help='Display results in a GUI for simple visualization')
     args = parser.parse_args()
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -131,3 +134,5 @@ if __name__ == '__main__':
 
     process_dynamodb_result = process_dynamodb_table(
         dynamo_tables_result, params, output_path, args.debug)
+    if params['show_dashboard']:
+        subprocess.run(["streamlit", "run", "./src/frontend.py"])
