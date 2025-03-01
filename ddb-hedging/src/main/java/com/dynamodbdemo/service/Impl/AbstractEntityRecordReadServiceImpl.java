@@ -6,6 +6,8 @@ import com.dynamodbdemo.service.BL.EntityRecordReadServiceBL;
 import org.springframework.beans.factory.annotation.Value;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
@@ -54,7 +56,7 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
 
         StringBuilder LogMessage = new StringBuilder();
 
-        metaDataAccesors.forEach(dataAccessor -> LogMessage.append(dataAccessor.getRequestNumber()).append(":").append(String.format("%.2f", (float) dataAccessor.getResponseLatency() /1000000)).append(":").append(dataAccessor.getDDBRequestID()).append(":").append(requestDTO.getEntityNumber()).append("-").append(requestDTO.getRecordId()).append(":"));
+        metaDataAccesors.forEach(dataAccessor -> LogMessage.append(dataAccessor.getRequestNumber()).append(":").append(String.format("%.2f", (float) dataAccessor.getResponseLatency() / 1000000)).append(":").append(dataAccessor.getDDBRequestID()).append(":").append(requestDTO.getEntityNumber()).append("-").append(requestDTO.getRecordId()).append(":"));
 
         //Convert to Millis
         float result = (float) totalTime / 1000000;
@@ -65,6 +67,55 @@ public abstract class AbstractEntityRecordReadServiceImpl implements EntityRecor
 
     }
 
+    @Override
+    public CompletableFuture<RequestDTO> transactRecordsAsync(RequestDTO requestDTO) {
+        return CompletableFuture.supplyAsync(() -> {
+            logger.log(Level.FINE, "transactRecords - Start " + Thread.currentThread());
+            long startTime = System.nanoTime();
+
+            try {
+                String recordId = requestDTO.getRecordId();
+                String entityNumber = requestDTO.getEntityNumber();
+
+                // Convert getEntityRecords to return CompletableFuture
+                CompletableFuture<List<DDBMetaDataAccessor>> futureRecords = getEntityRecordsAsync(
+                        recordId,
+                        entityNumber,
+                        delayInMillis,
+                        numberOfHedgers
+                );
+
+                // Wait for the records and process them
+                List<DDBMetaDataAccessor> metaDataAccessorCCAuthResponse = futureRecords.join();
+
+                AtomicInteger totalItems = new AtomicInteger();
+                metaDataAccessorCCAuthResponse.forEach(dataAccessor ->
+                        totalItems.set(totalItems.get() + dataAccessor.getItemCount())
+                );
+
+                requestDTO.setItemCount(totalItems.get());
+
+                long endTime = System.nanoTime();
+                PrintLog(endTime - startTime, requestDTO, metaDataAccessorCCAuthResponse);
+
+                logger.log(Level.FINE, "transactRecords - End");
+                return requestDTO;
+
+            } catch (Exception e) {
+                logger.log(Level.SEVERE, "Error in transactRecords", e);
+                throw new CompletionException(e);
+            }
+        });
+    }
+
+    public abstract CompletableFuture<List<DDBMetaDataAccessor>> getEntityRecordsAsync(
+            String recordId,
+            String entityNumber,
+            float delayInMillis,
+            int numberOfHedgers);
+
 
     public abstract List<DDBMetaDataAccessor> getEntityRecords(String recordId, String entityNumber, float delayInMillis, int numberOfHedgers) throws ExecutionException, InterruptedException;
+
+
 }

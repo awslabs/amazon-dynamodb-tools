@@ -9,6 +9,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.concurrent.CompletableFuture;
+
 @RestController
 @RequestMapping("/api/ddbDemo/")
 public class DemoRestController {
@@ -36,5 +38,11 @@ public class DemoRestController {
         requestDTOResponse.setTransId(Thread.currentThread().toString());
         return requestDTOResponse;
     }
+
+    @PostMapping("readDataAsyncWithHedging")
+    public CompletableFuture<RequestDTO> readDataAsyncWithHedging(@RequestBody RequestDTO requestDTO) {
+        return  entityRecordReadServiceBLHedging.transactRecordsAsync(requestDTO);
+    }
+
 
 }

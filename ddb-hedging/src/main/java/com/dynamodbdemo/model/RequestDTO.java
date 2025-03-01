@@ -10,4 +10,6 @@ public class RequestDTO {
     private int itemCount;
     private String entityNumber;
 
+    public void setError(String message) {
+    }
 }

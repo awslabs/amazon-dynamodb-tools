@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 @Service("EntityRecordReadServiceDDbNativeImpl")
@@ -16,6 +17,11 @@ public class EntityRecordReadServiceDDbNativeImpl extends AbstractEntityRecordRe
 
     public EntityRecordReadServiceDDbNativeImpl(EntityRecordDDbNativeDAO entityRecordDDbNativeDAO) {
         this.entityRecordDDbNativeDAO = entityRecordDDbNativeDAO;
+    }
+
+    @Override
+    public CompletableFuture<List<DDBMetaDataAccessor>> getEntityRecordsAsync(String recordId, String entityNumber, float delayInMillis, int numberOfHedgers) {
+        return null;
     }
 
     @Override
@@ -40,4 +46,5 @@ public class EntityRecordReadServiceDDbNativeImpl extends AbstractEntityRecordRe
 
         return metaDataAccessors;
     }
+
 }

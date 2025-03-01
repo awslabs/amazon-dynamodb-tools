@@ -16,7 +16,7 @@ public class CrtHedgingRequestHandler implements HedgingRequestHandler {
 
     public CompletableFuture<DDBResponse> hedgeRequests(
             Supplier<CompletableFuture<DDBResponse>> supplier,
-            List<Float> delaysInMillis) {
+            List<Float> delaysInMillis, boolean cancelPending) {
 
         if (delaysInMillis == null || delaysInMillis.isEmpty()) {
             return supplier.get();
@@ -51,6 +51,7 @@ public class CrtHedgingRequestHandler implements HedgingRequestHandler {
                 if (completedFuture != null) {
                     logger.info("Previous request already completed, skipping hedge request#{}", requestNumber);
                     return completedFuture.join();
+                    //throw new CancellationException("Previous request already completed");
                 }
 
                 // If no previous request is complete, make new hedged request
@@ -74,15 +75,22 @@ public class CrtHedgingRequestHandler implements HedgingRequestHandler {
         // Return the result of whichever request completes first and cancel others
         return CompletableFuture.anyOf(allRequests.toArray(new CompletableFuture[0]))
                 .thenApply(result -> {
+                    DDBResponse ddbResponse = (DDBResponse) result;
                     // Cancel all pending requests
-                    allRequests.forEach(request -> {
-                        if (!request.isDone()) {
-                            request.cancel(true);
-                            logger.info("Cancelled pending request");
-                        }
-                    });
-                    return (DDBResponse) result;
+                    if (cancelPending) {
+                        cancelPendingRequests(allRequests, ddbResponse.getRequestNumber());
+                    }
+                    return ddbResponse;
                 });
+    }
+
+    private void cancelPendingRequests(List<CompletableFuture<DDBResponse>> allRequests, int requestNumber) {
+        logger.info("Request {} completed, cancelling other pending requests", requestNumber);
+        allRequests.forEach(request -> {
+            if (!request.isDone()) {
+                request.cancel(true);
+            }
+        });
     }
 
 }
