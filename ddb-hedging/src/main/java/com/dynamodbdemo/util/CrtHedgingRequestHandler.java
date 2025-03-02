@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 public class CrtHedgingRequestHandler implements HedgingRequestHandler {
@@ -25,7 +26,7 @@ public class CrtHedgingRequestHandler implements HedgingRequestHandler {
         logger.info("Initiating initial request");
         CompletableFuture<DDBResponse> firstRequest = supplier.get()
                 .thenApply(response -> {
-                    response.setRequestNumber(DDBResponse.FIRST_REQUEST); // First request is number 0
+                    response.setRequestNumber(DDBResponse.FIRST_REQUEST);
                     return response;
                 });
 
@@ -33,28 +34,36 @@ public class CrtHedgingRequestHandler implements HedgingRequestHandler {
         List<CompletableFuture<DDBResponse>> allRequests = new ArrayList<>();
         allRequests.add(firstRequest);
 
+        // Create a CompletableFuture for final result
+        CompletableFuture<DDBResponse> finalResult = new CompletableFuture<>();
+
+        // Atomic reference to track which request succeeded
+        final AtomicInteger completedRequestNumber = new AtomicInteger(-1);
+
+        // Set completion handler for first request
+        firstRequest.whenComplete((response, throwable) -> {
+            if (throwable == null && !finalResult.isDone() &&
+                    completedRequestNumber.compareAndSet(-1, DDBResponse.FIRST_REQUEST)) {
+                finalResult.complete(response);
+
+                if (cancelPending) {
+                    cancelPendingRequests(allRequests);
+                }
+            }
+        });
+
         // Create hedged requests for each delay
         for (int i = 0; i < delaysInMillis.size(); i++) {
             final int requestNumber = i + 2;
-
-            //Convert to Nano Seconds
-            long delay = (long)((double)delaysInMillis.get(i) * 1_000_000L);
+            long delay = (long)(delaysInMillis.get(i) * 1_000_000L);
 
             CompletableFuture<DDBResponse> hedgedRequest = CompletableFuture.supplyAsync(() -> {
-                logger.info("Check: Before hedged request#{} can be initiated", requestNumber);
-                // Check if any previous request is already complete
-                CompletableFuture<DDBResponse> completedFuture = allRequests.stream()
-                        .filter(CompletableFuture::isDone)
-                        .findFirst()
-                        .orElse(null);
-
-                if (completedFuture != null) {
+                // Don't execute if a request already completed
+                if (completedRequestNumber.get() >= 0) {
                     logger.info("Previous request already completed, skipping hedge request#{}", requestNumber);
-                    return completedFuture.join();
-                    //throw new CancellationException("Previous request already completed");
+                    return null;
                 }
 
-                // If no previous request is complete, make new hedged request
                 logger.info("Initiating hedge request#{}", requestNumber);
                 return supplier.get()
                         .thenApply(response -> {
@@ -63,34 +72,35 @@ public class CrtHedgingRequestHandler implements HedgingRequestHandler {
                         })
                         .exceptionally(throwable -> {
                             logger.warn("Hedged request#{} failed: {}", requestNumber, throwable.getMessage());
-                            // If hedged request fails, wait for first request
-                            return firstRequest.join();
+                            return null;
                         })
                         .join();
             }, CompletableFuture.delayedExecutor(delay, TimeUnit.NANOSECONDS));
 
             allRequests.add(hedgedRequest);
+
+            // Set completion handler for this hedged request
+            hedgedRequest.whenComplete((response, throwable) -> {
+                if (throwable == null && response != null && !finalResult.isDone() &&
+                        completedRequestNumber.compareAndSet(-1, requestNumber)) {
+                    finalResult.complete(response);
+
+                    if (cancelPending) {
+                        cancelPendingRequests(allRequests);
+                    }
+                }
+            });
         }
 
-        // Return the result of whichever request completes first and cancel others
-        return CompletableFuture.anyOf(allRequests.toArray(new CompletableFuture[0]))
-                .thenApply(result -> {
-                    DDBResponse ddbResponse = (DDBResponse) result;
-                    // Cancel all pending requests
-                    if (cancelPending) {
-                        cancelPendingRequests(allRequests, ddbResponse.getRequestNumber());
-                    }
-                    return ddbResponse;
-                });
+        return finalResult;
     }
 
-    private void cancelPendingRequests(List<CompletableFuture<DDBResponse>> allRequests, int requestNumber) {
-        logger.info("Request {} completed, cancelling other pending requests", requestNumber);
+    private void cancelPendingRequests(List<CompletableFuture<DDBResponse>> allRequests) {
+        logger.info("Cancelling pending requests");
         allRequests.forEach(request -> {
-            if (!request.isDone()) {
+            if (!request.isDone() && !request.isCancelled()) {
                 request.cancel(true);
             }
         });
     }
-
 }
