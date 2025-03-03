@@ -5,6 +5,8 @@ import io.netty.channel.EventLoop;
 import io.netty.channel.EventLoopGroup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -14,7 +16,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
-
+@Component("hedgingRequestHandler")
+@ConditionalOnProperty(name = "aws.dynamodb.use-crt-client", havingValue = "false")
 public class NettyHedgingRequestHandler implements HedgingRequestHandler {
     private static final Logger logger = LoggerFactory.getLogger(NettyHedgingRequestHandler.class);
     private static final int MAX_HEDGED_REQUESTS = 5;

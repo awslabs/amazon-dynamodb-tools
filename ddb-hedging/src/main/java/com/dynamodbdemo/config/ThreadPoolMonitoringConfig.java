@@ -1,15 +1,17 @@
 package com.dynamodbdemo.config;
 
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -22,15 +24,17 @@ public class ThreadPoolMonitoringConfig {
     int period = 1;
 
     @Bean
-    public ScheduledExecutorService threadPoolMonitor(ThreadPoolTaskExecutor executor) {
-        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    public ScheduledExecutorService threadPoolMonitor(
+            @Qualifier("hedgingThreadPool") ThreadPoolTaskExecutor executor,
+            @Qualifier("hedgingScheduler") ThreadPoolTaskScheduler scheduler) {
 
+        ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor();
 
-
-        scheduler.scheduleAtFixedRate(() -> {
+        monitor.scheduleAtFixedRate(() -> {
+            // Monitor the executor
             ThreadPoolExecutor threadPoolExecutor = executor.getThreadPoolExecutor();
 
-            logger.info("Thread Pool Metrics: " +
+            logger.info("HedgingThreadPool Metrics: " +
                             " Active Threads: {}" +
                             " Core Threads: {}" +
                             " Pool Size: {}" +
@@ -48,8 +52,35 @@ public class ThreadPoolMonitoringConfig {
                     threadPoolExecutor.getCompletedTaskCount(),
                     threadPoolExecutor.getQueue().remainingCapacity()
             );
+
+            // Monitor the scheduler - extract the underlying ScheduledThreadPoolExecutor
+            ScheduledThreadPoolExecutor schedulerExecutor =
+                    (ScheduledThreadPoolExecutor) scheduler.getScheduledExecutor();
+
+            logger.info("HedgingScheduler Metrics: " +
+                            " Active Threads: {}" +
+                            " Core Threads: {}" +
+                            " Pool Size: {}" +
+                            " Queue Size: {}" +
+                            " Task Count: {}" +
+                            " Completed Tasks: {}" +
+                            " Scheduled Task Count: {}",
+                    schedulerExecutor.getActiveCount(),
+                    schedulerExecutor.getCorePoolSize(),
+                    schedulerExecutor.getPoolSize(),
+                    schedulerExecutor.getQueue().size(),
+                    schedulerExecutor.getTaskCount(),
+                    schedulerExecutor.getCompletedTaskCount(),
+                    schedulerExecutor.getQueue().size() // Approximation of scheduled tasks
+            );
+
         }, 0, period, TimeUnit.MINUTES);
 
-        return scheduler;
+        return monitor;
+    }
+
+    @Bean(destroyMethod = "shutdown")
+    public ScheduledExecutorService monitorCleanupService() {
+        return Executors.newSingleThreadScheduledExecutor();
     }
 }
