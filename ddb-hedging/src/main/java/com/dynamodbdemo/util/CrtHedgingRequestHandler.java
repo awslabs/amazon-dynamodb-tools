@@ -18,8 +18,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 
-@Component("hedgingRequestHandler")
-@ConditionalOnProperty(name = "aws.dynamodb.use-crt-client", havingValue = "true", matchIfMissing = true)
+//@Component("hedgingRequestHandler")
+//@ConditionalOnProperty(name = "aws.dynamodb.use-crt-client", havingValue = "true", matchIfMissing = true)
 public class CrtHedgingRequestHandler implements HedgingRequestHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(CrtHedgingRequestHandler.class);
