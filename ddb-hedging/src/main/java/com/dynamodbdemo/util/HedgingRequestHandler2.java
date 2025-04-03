@@ -46,7 +46,7 @@ public class HedgingRequestHandler2 implements HedgingRequestHandler {
             long delay = (long)((double)delaysInMillis.get(i) * 1_000_000L);
 
             CompletableFuture<DDBResponse> hedgedRequest = CompletableFuture.supplyAsync(() -> {
-                logger.info("Check: Before hedged request#{} can be initiated", requestNumber);
+                logger.info("Check Before hedged request#{} can be initiated", requestNumber);
                 // Check if any previous request is already complete
                 CompletableFuture<DDBResponse> completedFuture = allRequests.stream()
                         .filter(CompletableFuture::isDone)
