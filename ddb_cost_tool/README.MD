@@ -1,3 +1,7 @@
+> [!NOTE]  
+> We are actively working on improving the cost tool and the web portal suggestions, the links to upload the files and the web portal have been removed. Please use the [metrics-collector](../metrics-collector/README.md) to capture the information and generate recommendations. We are working on someting good! 
+
+
 # DynamoDB Cost tool metrics and metadata retrieval
 
 This script will help you obtain the table metadata and metrics for the tables in your current account.
@@ -80,15 +84,18 @@ The role that you will assume to execute this script needs provides access to th
 
 ```
 
-## Results
+## Results - Deprecated
 
-The `cost_tool/output` folder will contain the compressed results of this script, which can be directly uploaded to the [DynamoDB Cost Portal](https://bit.ly/3JzReos).
+> [!NOTE]  
+> We are actively working on improving the cost tool and the web portal suggestions, the links to upload the files and the web portal have been removed. Please use the [metrics-collector](../metrics-collector/README.md) to capture the information and generate recommendations. 
+
+The `cost_tool/output` folder will contain the compressed results of this script, which can be directly uploaded to the DynamoDB Cost Portal.
 
 You will need to enter the username `ddb-cost-tool` and the password `DDB-cost-tool-2024`. This portal will allow you to upload the metadata files so the cost optimization tool can provide the analysis.
 
 ![Upload Results](./documentation/ddb-cost-tool-upload.gif)
 
-After submitting your credentials, generate a new report. The current version includes 3 fields (`user_id`, `customer_name`, and `aws_alias`) that are utilized for report search. You may input any desired values for these fields, as they are solely for identification purposes when accessing the report results.Please provide the generated `report_id` to your AWS Account SA, or TAM, and ask them to retrieve the results in the [DynamoDB Cost Optimization report page](https://tiny.amazon.com/12cqro6jh). Please notice Only AWS resources have access to this page.
+After submitting your credentials, generate a new report. The current version includes 3 fields (`user_id`, `customer_name`, and `aws_alias`) that are utilized for report search. You may input any desired values for these fields, as they are solely for identification purposes when accessing the report results.Please provide the generated `report_id` to your AWS Account SA, or TAM, and ask them to retrieve the results in the DynamoDB Cost Optimization report page. Please notice Only AWS resources have access to this page.
 
 When the analysis is complete, your AWS representative can access the report:
 
