@@ -20,6 +20,7 @@ def handler(event, context):
         # Check if streams are enabled
         stream_specification = table['Table'].get('StreamSpecification', {})
         streams_enabled = stream_specification.get('StreamEnabled', False)
+        stream_view_type = stream_specification.get('StreamViewType', False)
         
         # Check PITR status
         pitr_description = dynamodb.describe_continuous_backups(TableName=table_name)
@@ -29,6 +30,8 @@ def handler(event, context):
         ex_message = list()
         if not streams_enabled:
             ex_message.append("DynamoDB Streams")
+        elif stream_view_type != "NEW_AND_OLD_IMAGES":
+            ex_message.append("DynamoDB Streams (NEW_AND_OLD_IMAGES view type)")
         if is_large and not pitr_enabled:
             ex_message.append("DynamoDB PITR")
 

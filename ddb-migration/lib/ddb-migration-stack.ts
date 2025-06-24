@@ -416,7 +416,7 @@ export class DdbMigrationStack extends cdk.Stack {
     );
 
     // Make and output a RBP for the destination DynamoDB table if this is x-account
-    if (destinationAccountId !== cdk.Aws.ACCOUNT_ID) {
+    if (destinationAccountId !== sourceAccountId) {
       const dynamoDbRbp = {
         Version: "2012-10-17",
         Statement: [
