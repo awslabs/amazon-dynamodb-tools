@@ -4,7 +4,7 @@
 Take Amazon DynamoDB for a test drive with this benchmarking solution. As a database scientist, you can craft two similar experiments, with one being the control. The other experiment can introduce an API feature, table configuration, or design decision that you wish to understand better. Run experiment jobs from your application host, and the latencies of each request will be recorded in a file. Then you can view summary statistics and interactive charts using an included web app.
 
 
-![spash-image](/public/tester_1.png)
+![spash-image](/amazon-dynamodb-tools/tester/public/tester_1.png)
 
 
 
@@ -29,7 +29,7 @@ As you discuss the team's database performance requirements, additional question
 
 #### Questions when considering DynamoDB [Global Tables](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/GlobalTables.html) with [Multi-Region Strong Consistency](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/multi-region-strong-consistency-gt.html).
 
-![spash-image_s03](/public/tester_s03.png)
+![spash-image_s03](/amazon-dynamodb-tools/tester/public/tester_s03.png)
 
  * What is the latency profile of a GT MRSC (two-region) write, versus a single-region table write?
   
@@ -42,7 +42,7 @@ As you discuss the team's database performance requirements, additional question
 
 ## Tester framework: 
 
-![spash-image_001](/public/tester_s01.png)
+![spash-image_001](/amazon-dynamodb-tools/tester/public/tester_s01.png)
 
 This testing framework will allow you to:
 

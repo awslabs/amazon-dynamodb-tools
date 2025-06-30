@@ -9,7 +9,7 @@ There are three main components of this solution:
  * **jobs**: Multi-step job definitions that save request latency details to S3
  * **app**: A custom Next.JS web app that renders charts of experiment results
 
-![spash-image_002](/public/tester_s02.png)
+![spash-image_002](/amazon-dynamodb-tools/tester/public/tester_s02.png)
 
 It's recommended to deploy and run the job system within AWS on an EC2 host. When jobs are run in AWS in the same region as the DynamoDB table, the lowest latencies will be seen.
 
@@ -31,13 +31,13 @@ aws sts get-caller-identity
 1. Clone this repository
 
  ```
- git clone https://github.com/robm26/tester.git
+ git clone https://github.com/awslabs/amazon-dynamodb-tools.git
  ```
 
 1. Install Node.JS dependencies
    
    ```
-   cd tester
+   cd amazon-dynamodb-tools/tester
    npm install
    ```
 
@@ -70,12 +70,12 @@ The server-side component of tester is now set. Let's switch gears and deploy th
 1. From your laptop, open a terminal (command) prompt, and clone the project repository again. 
 
  ```
- git clone https://github.com/robm26/tester.git
+ git clone https://github.com/awslabs/amazon-dynamodb-tools.git
  ```
    
 1.  Next, install the required dependency modules (these listed in the *package.json* file).
 ```
-cd tester
+cd amazon-dynamodb-tools/tester
 npm install
 ```
    
