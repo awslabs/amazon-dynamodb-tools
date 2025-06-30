@@ -9,7 +9,7 @@ There are three main components of this solution:
  * **jobs**: Multi-step job definitions that save request latency details to S3
  * **app**: A custom Next.JS web app that renders charts of experiment results
 
-![spash-image_002](/amazon-dynamodb-tools/tester/public/tester_s02.png)
+![spash-image_002](../public/tester_s02.png)
 
 It's recommended to deploy and run the job system within AWS on an EC2 host. When jobs are run in AWS in the same region as the DynamoDB table, the lowest latencies will be seen.
 
