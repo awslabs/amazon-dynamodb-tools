@@ -1,0 +1,385 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: DynamoDB Storage Optimization
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Execution Configuration
+        Parameters:
+          - AthenaWorkgroup
+          - AthenaCURDatabase
+          - AthenaCURTable
+          - OrganizationlUnitIds
+          - CronDayOfMonth
+          - CronHour
+          - CronMinute
+          - SesSenderIdentity
+          - SesSenderEmailAddress
+          - NotificationEmailRecipients
+          - ExecuteRecommendations
+      - Label:
+          default: Query Configuration
+        Parameters:
+          - CostColumn
+          - AccountIds
+          - MinimumSavings
+          - PayerIds
+          - TableNames
+          - RegionNames
+
+Parameters:
+  AthenaWorkgroup:
+    Type: String
+    Default: primary
+
+  AthenaCURDatabase:
+    Type: String
+    MinLength: 1
+
+  AthenaCURTable:
+    Type: String
+    MinLength: 1
+
+  OrganizationlUnitIds:
+    Type: CommaDelimitedList
+    AllowedPattern: ^(r-[0-9a-z]{4,32})|(ou-[0-9a-z]{4,32}-[0-9a-z]{8,32})$
+    Description: "Comma separated list of Root ID (r-....) or Organizational unit (OU) ID (ou-....-.........). Example: r-aaaa,ou-12ab-1234abcd"
+    ConstraintDescription: Either Root ID (r-....) or Organizational unit (OU) ID (ou-....-.........)
+
+  CronDayOfMonth:
+    Type: String
+    Default: "10"
+    AllowedPattern: ^(L|LW|(1?[1-9]|[12][0-9]|3[01])W?)$
+    ConstraintDescription: 'Single day of month (1-31: days of month such as 31 that don''t occur in a given month such as February, won''t run that month). Check EventBridge Cron documentation'
+
+  CronHour:
+    Type: Number
+    AllowedValues:
+      - 0
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
+      - 7
+      - 8
+      - 9
+      - 10
+      - 11
+      - 12
+      - 13
+      - 14
+      - 15
+      - 16
+      - 17
+      - 18
+      - 19
+      - 20
+      - 21
+      - 22
+      - 23
+    Default: "0"
+
+  CronMinute:
+    Type: Number
+    AllowedValues:
+      - 0
+      - 5
+      - 10
+      - 15
+      - 20
+      - 25
+      - 30
+      - 35
+      - 40
+      - 45
+      - 50
+      - 55
+    Default: 0
+
+  SesSenderIdentity:
+    Description: "SES Sender Identity. Can be the same as the SesSenderEmailAddress. Must already have Production approval in SES. Example: example.com"
+    Type: String
+
+  SesSenderEmailAddress:
+    Description: "SES Sender Email Address. This email must either be a Verified Identity or belong to a Verified Domain in SES in this Region. Can be the same as the SesSenderIdentity. Example: no_reply@example.com"
+    Type: String
+    AllowedPattern: (?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9]))\.){3}(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9])|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\]) # https://stackoverflow.com/a/201378/28277718
+    ConstraintDescription: Must be a valid email address. This email must either be a Verified Identity or belong to a Verified Domain in SES in this Region.
+
+  NotificationEmailRecipients:
+    Description: "Email addresses (comma separated) that get notified with the optimization report. Example: alice@example.com,bob@example.com"
+    Type: CommaDelimitedList
+    AllowedPattern: (?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9]))\.){3}(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9])|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\]) # https://stackoverflow.com/a/201378/28277718
+    ConstraintDescription: Each item must be a valid email address.
+
+  ExecutionMode:
+    Description: If set to ReportAndExecute, the system will automatically apply the Table Class modifications found in the report. Note - Table Class updates are limited to 2 per month per Table. Also, if you manage a table in Infrastructure as Code, this update can cause drift and you should update your IaC appropriately.
+    Type: String
+    AllowedValues:
+      - ReportAndExecute
+      - ReportOnly
+    Default: ReportOnly
+
+  PricingTerms:
+    Description: Price you pay on your invoice (NET) or list price (GROSS). These are often the same.
+    Type: String
+    AllowedValues:
+      - NET
+      - GROSS
+    Default: NET
+
+  AccountIds:
+    Description: Comma serparated list of single quote (') wrapped AWS Account IDs to scan.
+    Type: String
+    Default: '''ALL'''
+    AllowedPattern: ^(('ALL')|('[0-9]{12}'(,'[0-9]{12}')*))$
+    ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more 12-digit AWS Account IDs wrapped in single quotes (eg. '111111111111','222222222222')
+
+  MinimumSavings:
+    Description: Minimum monthly savings threshold in dollars.
+    Type: Number
+    Default: 50
+    MinValue: 0
+    MaxValue: 1000000
+
+  PayerIds:
+    Description: Comma serparated list of single quote (') wrapped "Payer" AWS Account IDs.
+    Type: String
+    Default: '''ALL'''
+    AllowedPattern: ^(('ALL')|('[0-9]{12}'(,'[0-9]{12}')*))$
+    ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more 12-digit AWS Account IDs wrapped in single quotes (eg. '111111111111','222222222222')
+
+  TableNames:
+    Description: Comma serparated list of single quote (') wrapped DynamoDB Table names.
+    Type: String
+    Default: '''ALL'''
+    AllowedPattern: ^(('ALL')|('[a-zA-Z0-9_\-.]{3,255}'(,'[a-zA-Z0-9_\-.]{3,255}')*))$
+    ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more DynamoDB Table names wrapped in single quotes (eg. 'Table1','my_other_table')
+
+  RegionNames:
+    Description: Comma serparated list of single quote (') wrapped AWS Regions to scan.
+    Type: String
+    Default: '''ALL'''
+    AllowedPattern: ^(('ALL')|('[a-z]{2}-[a-z]+-[0-9]{1,2}'(,'[a-z]{2}-[a-z]+-[0-9]{1,2}')*))$
+    ConstraintDescription: Must either be 'ALL' (with the single quotes) or comma separated list of 1 or more AWS Region names wrapped in single quotes (eg. 'us-east-1','il-central-1')
+
+Resources:
+  StepFunctionPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Policy for DynamoDB Table Class Optimizer's Step Function
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - lambda:InvokeFunction
+            Resource:
+              - !GetAtt TableClassUpdaterFunction.Arn
+      Roles:
+        - !Ref StepFunctionRole
+
+  StepFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Description: Role for DynamoDB-StorageClass-Optimizer Step Function
+      ManagedPolicyArns: # TODO: lock it down
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonS3ReadOnlyAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonAthenaFullAccess
+
+  EventBridgeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Description: Role for DynamoDB-StorageClass-Optimizer Event Bridge
+      Policies:
+        - PolicyName: InvokeStepFunction
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource:
+                  - !Ref DynamoDBOptimizer
+
+  EventBridgeRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Monthly Trigger of the Step Function that optimizes DynamoDB Table Storage Classes
+      ScheduleExpression: !Sub cron(${CronMinute} ${CronHour} ${CronDayOfMonth} * ? *)
+      Name: DynamoDB-StorageClass-Optimizer
+      State: ENABLED
+      Targets:
+        - Arn: !Ref DynamoDBOptimizer
+          Id: DynamoDBOptimizer
+          RoleArn: !GetAtt EventBridgeRole.Arn
+
+  DynamoDBOptimizer:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      Definition:
+        QueryLanguage: JSONata
+        StartAt: Get Named Query
+        States:
+          Get Named Query:
+            Type: Task
+            Resource: !Sub arn:${AWS::Partition}:states:::aws-sdk:athena:getNamedQuery
+            Next: Execute Query
+            Arguments:
+              NamedQueryId: !GetAtt AthenaNamedQuery.NamedQueryId
+          Execute Query:
+            Type: Task
+            Resource: !Sub arn:${AWS::Partition}:states:::athena:startQueryExecution.sync
+            Next: Process Query Results
+            Arguments:
+              QueryString: '{% $states.input.NamedQuery.QueryString %}'
+              WorkGroup: '{% $states.input.NamedQuery.WorkGroup %}'
+            Output:
+              QueryExecutionId: '{% $states.result.QueryExecution.QueryExecutionId %}'
+              QueryOutputLocation: '{% $states.result.QueryExecution.ResultConfiguration.OutputLocation %}'
+          Process Query Results:
+            Type: Task
+            Resource: !Sub arn:${AWS::Partition}:states:::lambda:invoke
+            Output: '{% $states.result.Payload %}'
+            Arguments:
+              FunctionName: !GetAtt TableClassUpdaterFunction.Arn
+              Payload:
+                QueryExecutionId: '{% $states.input.QueryExecutionId  %}'
+                QueryOutputLocation: '{% $states.input.QueryOutputLocation  %}'
+            End: true
+      RoleArn: !GetAtt StepFunctionRole.Arn
+      StateMachineName: DynamoDB-StorageClass-Optimizer
+      StateMachineType: STANDARD
+
+  AthenaNamedQuery:
+    Type: AWS::Athena::NamedQuery
+    Properties:
+      Database: !Ref AthenaCURDatabase
+      Description: DynamoDB Storage Class Optimizer
+      Name: DynamoDB-StorageClass-Optimizer
+      QueryString: !Sub
+        - |
+          {{ athena_query_string }}
+        - AccountIds: !Ref AccountIds
+      WorkGroup: !Ref AthenaWorkgroup
+
+  RoleStackSet:
+    Type: AWS::CloudFormation::StackSet
+    Properties:
+      StackSetName: DynamoDBOptimizerChildAccount
+      Description: Resources for Child Accounts for the DynamoDB Table Class Optimizer
+      PermissionModel: SERVICE_MANAGED
+      AutoDeployment:
+        Enabled: True
+        RetainStacksOnAccountRemoval: False
+      OperationPreferences:
+        ConcurrencyMode: STRICT_FAILURE_TOLERANCE
+        FailureToleranceCount: 5
+        MaxConcurrentCount: 4
+        RegionConcurrencyType: PARALLEL
+      StackInstancesGroup:
+        - Regions:
+            - us-east-1
+          DeploymentTargets:
+            OrganizationalUnitIds: !Ref OrganizationlUnitIds
+      Capabilities:
+        - CAPABILITY_NAMED_IAM
+      TemplateBody: !Sub |
+        AWSTemplateFormatVersion: '2010-09-09'
+        Resources:
+          LambdaRole:
+            Type: AWS::IAM::Role
+            Properties:
+              AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                - Effect: Allow
+                  Principal:
+                    AWS: "${LambdaRole.Arn}"
+                  Action: sts:AssumeRole
+              Description: Role for DynamoDB-StorageClass-Optimizer in child account
+              Policies:
+              - PolicyName: DynamoDBStorageClassOptimizer
+                PolicyDocument:
+                  Version: '2012-10-17'
+                  Statement:
+                  - Effect: Allow
+                    Action:
+                    - dynamodb:UpdateTable
+                    - dynamodb:DescribeTable
+                    Resource:
+                    - Fn::Sub: arn:${!AWS::Partition}:dynamodb:*:${!AWS::AccountId}:table/*
+              RoleName: DynamoDBStorageClassOptimizer
+
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Description: Role for DynamoDB-StorageClass-Optimizer Lambda
+      ManagedPolicyArns: # TODO: lock it down
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonS3ReadOnlyAccess
+      Policies:
+        - PolicyName: LambdaPermissions
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - athena:GetQueryResults
+                  - dynamodb:DescribeTable
+                  - dynamodb:UpdateTable
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                  - sts:AssumeRole
+                Resource:
+                  - !Sub arn:${AWS::Partition}:athena:${AWS::Region}:${AWS::AccountId}:workgroup/${AthenaWorkgroup}
+                  - !Sub arn:${AWS::Partition}:dynamodb:*:${AWS::AccountId}:table/*
+                  - !Sub arn:${AWS::Partition}:iam::*:role/DynamoDBStorageClassOptimizer
+                  - !Sub arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesSenderIdentity}
+
+  TableClassUpdaterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Architectures:
+        - arm64
+      Code:
+        ZipFile: |
+          {{ lambda_handler_code }}
+      Description: Performs the DynamoDB Table Class Updates
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaRole.Arn
+      Runtime: python3.13
+      Environment:
+        Variables:
+          EXECUTION_MODE: !Ref ExecutionMode
+          RECIPIENTS: !Join
+            - ','
+            - !Ref NotificationEmailRecipients
+          SENDER_ADDRESS: !Ref SesSenderEmailAddress
+          MASTER_ACCOUNT_ID: !Ref AWS::AccountId
+      Timeout: 60
