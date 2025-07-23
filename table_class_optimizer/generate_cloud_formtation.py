@@ -39,6 +39,8 @@ def main():
             )
         )
         output.write(result)
+    print("Generated `template.yaml`. You can now use it to create a CloudFormation stack.")
+    print("For more information see https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/stacks.html")
 
 
 if __name__ == "__main__":
