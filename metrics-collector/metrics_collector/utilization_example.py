@@ -133,6 +133,11 @@ async def main():
     parser.add_argument("--start-time", type=str, help="Start time in ISO8601 format")
     parser.add_argument("--end-time", type=str, help="End time in ISO8601 format")
     parser.add_argument(
+        "--region",
+        type=str,
+        help="AWS region to scan (if not specified, all regions will be scanned)",
+    )
+    parser.add_argument(
         "--storage",
         choices=["disk", "memory"],
         default="disk",
@@ -170,7 +175,7 @@ async def main():
 
     logger.info(f"Collecting metrics from {start_time} to {end_time}")
 
-    all_metrics, low_utilization_tables = await collector.collect_all_metrics(start_time, end_time)
+    all_metrics, low_utilization_tables = await collector.collect_all_metrics(start_time, end_time, args.region)
 
     logger.info("Metrics collected and stored successfully.")
 
