@@ -187,7 +187,7 @@ Example of parameters screen in CloudFormation:
 - Type: String
 - Default: 'ALL'
 - Format: 'ALL' or comma-separated list of Payer AWS Account IDs in single quotes
-- Example: '***************************'
+- Example: '111122223333' for specific payer or leave it as 'ALL' to all include all payers
 - Description: Specifies which Payer accounts to analyze.
 
 **TableNames**
