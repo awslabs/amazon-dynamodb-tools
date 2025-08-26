@@ -58,13 +58,15 @@ ses = boto3.client("sesv2")
 execution_mode_str = os.environ.get("EXECUTION_MODE", ExecutionMode.REPORT_ONLY.value)
 execution_mode = ExecutionMode(execution_mode_str)
 
+execution_role_name = os.environ["EXECUTION_ROLE_NAME"]
+
 
 def get_dynamodb_client(
     account_id: str,
     region_name: str,
 ):
     response = sts.assume_role(
-        RoleArn=f"arn:aws:iam::{account_id}:role/DynamoDBStorageClassOptimizer",
+        RoleArn=f"arn:aws:iam::{account_id}:role/{execution_role_name}",
         RoleSessionName="DynamoDBStorageClassOptimizer",
     )
     credentials = response["Credentials"]

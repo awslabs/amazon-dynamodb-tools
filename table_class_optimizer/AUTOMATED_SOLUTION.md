@@ -95,7 +95,7 @@ Use the following commands to deploy via CLI:
             NotificationEmailRecipients=<emails> \
             OrganizationlUnitIds=<ou-id> 
 
-            
+
 ## Configuration Parameters
 
 Example of parameters screen in CloudFormation: 
