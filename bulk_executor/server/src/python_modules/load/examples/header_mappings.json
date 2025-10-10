@@ -1,0 +1,14 @@
+{
+  "mappings": [
+    ["col0", "string", "id", "string"],
+    ["col1", "string", "first_name", "string"],
+    ["col2", "string", "last_name", "string"],
+    ["col3", "string", "email", "string"],
+    ["col4", "string", "age", "int"],
+    ["col5", "string", "phone", "string"],
+    ["col5", "string", "city", "string"],
+    ["col6", "string", "country", "string"],
+    ["col7", "string", "occupation", "string"],
+    ["col8", "string", "hobby", "string"]
+  ]
+}
