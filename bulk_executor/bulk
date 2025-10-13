@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+
+import importlib
+import sys
+
+sys.path.append('./client/src/')
+import utils
+from env_configs import EnvConfigs
+from infrastructure import BootstrapInfrastructure
+from runner import BulkDynamoDbRunner
+
+
+CLIENT_SIDE_ACTION_SCRIPT_FUNCTION_NAME = 'run'
+HELP_FILE_PATH = 'HELP.md'
+MODULE_PATH = 'client/python_modules'
+
+def _show_help():
+    with open(HELP_FILE_PATH, 'r') as file:
+        content = file.read()
+        print(content)
+
+def _show_missing_module(action):
+    if action:
+        print(f"Error: Could not locate action named '{action}'\n")
+    path = 'client/src/python_modules'
+    print(f"Available actions found in {path}:")
+
+    try:
+        import os
+        files = os.listdir(path)
+        modules = [
+            f[:-3] for f in files
+            if f.endswith('.py') and not f.startswith('__')
+        ]
+        for module in sorted(modules):
+            print(f"  - {module}")
+    except OSError as e:
+        print(e)
+
+def _get_action_script_function(action):
+    # Import the module
+    module_name = f"python_modules.{action}"
+    sys.path.append(MODULE_PATH)
+
+    try:
+        module = importlib.import_module(module_name)
+        action_script_function = getattr(module, CLIENT_SIDE_ACTION_SCRIPT_FUNCTION_NAME)
+    except ImportError as e:
+        _show_help()
+        _show_missing_module(action)
+        return None
+
+    if '--help' in sys.argv:
+        action_script_function({})
+        return None # Force only showing help output for specified verb if --help flag set.
+
+    return action_script_function
+
+def _get_env_configs():
+    environment_input, _ = utils.parse_environment_arguments()
+    environment_args = utils.filter_none_or_false_values(vars(environment_input))
+
+    from utils.logger import init # Import order intentional to determine if XDebug flag present (for debug logging)
+    if '--XDebug' in sys.argv:
+        environment_args['XDebug'] = True
+    init(environment_args)
+
+    # Run client side verb script
+    env_configs = EnvConfigs(environment_args)
+
+    return env_configs
+
+
+action_input, _ = utils.parse_action()
+if(action_input.XAction is None):
+    _show_help()
+    _show_missing_module(None)
+    exit(1) # No verb/action provided - nothing else to do.
+
+action = vars(action_input)["XAction"] # XAction is always a required input.
+
+action_script_function = _get_action_script_function(action)
+if(action_script_function is None):
+    exit(1) # No verb to take additional action on.
+
+env_configs = _get_env_configs()
+
+# Run client side verb script
+is_client_and_server_action, processed_args = action_script_function(env_configs)  # Run the client side verb function
+
+if(is_client_and_server_action): # Only run the server if the client script DNE or verifies the server script should also be run.
+    # Run server side verb script
+    args = utils.get_args_from_processed_args(processed_args)
+    script_args = utils.convert_client_dict_to_script_args(processed_args)
+
+    # Dev Mode - Push new code to S3 without a full bootstrap
+    if(args.get('XDev')):
+        BootstrapInfrastructure(env_configs).update_python_modules_in_s3()
+
+    # Run the server side verb function (Glue Job)
+    BulkDynamoDbRunner(env_configs).run(args, script_args)
