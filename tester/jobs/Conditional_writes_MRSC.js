@@ -60,7 +60,7 @@ const run = async (req) => {
 
     // *************************** Test MREC conditional writes ***************************
     params = {
-        experiment: expName, 
+        experiment: expNum, 
         test: 'MREC conditional writes',
         operation: 'put', 
         targetTable: tableNames[0], items: summary.itemCount, 
@@ -77,7 +77,7 @@ const run = async (req) => {
      // *************************** Test MRSC writes ***************************
 
      params = {
-        experiment: expName, 
+        experiment: expNum, 
         test: 'MRSC writes',  
         operation: 'put',   
         targetTable: tableNames[1], items: summary.itemCount, 
@@ -91,7 +91,7 @@ const run = async (req) => {
     // *************************** Test MRSC conditional writes ***************************
 
     params = {
-        experiment: expName, 
+        experiment: expNum, 
         test: 'MRSC conditional writes',  
         operation: 'put',   
         targetTable: tableNames[1], items: summary.itemCount, 

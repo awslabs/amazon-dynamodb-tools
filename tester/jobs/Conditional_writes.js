@@ -62,7 +62,7 @@ const run = async (req) => {
     //  *************************** Test single region table writes ***************************
 
     params = {
-        experiment: expName, 
+        experiment: expNum, 
         test: 'Writes',  
         operation: 'put',   
         targetTable: tableNames[2], items: summary.itemCount, 
@@ -76,7 +76,7 @@ const run = async (req) => {
     // // *************************** Test single region table conditional writes ***************************
 
     params = {
-        experiment: expName, 
+        experiment: expNum, 
         test: 'Conditional writes',  
         operation: 'put',   
         targetTable: tableNames[2], items: summary.itemCount, 

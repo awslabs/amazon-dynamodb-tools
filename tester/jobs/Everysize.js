@@ -68,7 +68,7 @@ const run = async (req) => {
 
         params = {
             experiment: expNum, 
-            test: 'MREC everysize writes',
+            test: 'MREC writes',
             region: 'us-east-1',
             operation: 'put', 
             targetTable: tableNames[0], 
@@ -88,7 +88,7 @@ const run = async (req) => {
 
         params = {
             experiment: expNum, 
-            test: 'MRSC everysize writes',
+            test: 'MRSC writes',
             region: 'us-east-1',
             operation: 'put', 
             targetTable: tableNames[1], 
