@@ -43,16 +43,23 @@ For more details on the automated solution, please refer to the [Automated Optim
 ## Manual Query User Guide
 
 ### Enabling Cost and Usage Report (CUR)
-Before running the Athena query, you'll need to ensure that your AWS account has the Cost and Usage Report (CUR) properly configured and up-to-date. Follow the steps in the [AWS documentation on setting up the CUR](https://docs.aws.amazon.com/cur/latest/userguide/cur-query-athena.html) to enable and configure the report for your use case.
+Before running the Athena query, you'll need to ensure that your AWS account has the Cost and Usage Report (CUR) properly configured and up-to-date. Follow the steps in the [AWS documentation on setting up the CUR](https://docs.aws.amazon.com/cur/latest/userguide/cur-create.html) to enable and configure the report for your use case.
 
-Some key settings to consider when setting up the CUR:
-
-- **Report name**: Use a descriptive name like "DynamoDB Cost Optimization".
-- **Report name prefix**: Set a unique prefix for your organization.
-- **Time unit**: Choose the "Hourly" time unit for the most granular analysis.
-- **Include resource IDs**: Set this option to "Yes".
-- **Compressed CSV file**: Ensure this option is enabled.
-- **S3 bucket**: Choose an appropriate S3 bucket to store the CUR files.
+Some key steps and settings to consider when setting up the CUR in AWS Data Exports:
+- In your AWS Console, Go to **"Billing and Cost Management"** --> Select **"Data Exports"** on the left pane --> Click **"Create"**
+- Select **"Legacy CUR export"**
+- **Export name**: Give your report a unique name, something easy to rememenber like "CUR_Data"
+- **Export content**:
+  - Mark **"Include resource IDs"**
+  - Data refresh settings: Mark **"Refresh automatically"**   
+- **"Data export delivery options"**:
+  - Report data time granularity: Keep it **Hourly**
+  - Mark **"Overwrite existing report"**
+  - Report data integration: Mark **"Amazon Athena"**
+- **Data export storage settings**
+  - S3 bucket: Select an existing bucket or create appropriate S3 bucket to store the CUR files.
+  - S3 path prefix: Type your **12-digits account_id** (payer_id).
+- Click **"Create report"**
 
 After enabling the CUR, wait for the first report to be generated (this can take up to 24 hours) and verify that the CUR data is being delivered to the specified S3 bucket and contains the necessary information, including DynamoDB usage and costs.
 
