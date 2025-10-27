@@ -1,4 +1,5 @@
 import json
+import random
 import threading
 import time
 import uuid
@@ -58,7 +59,7 @@ class DistributedDynamoDBMonitorWorker:
     def _sync_loop(self):
         while not self.stop_event.is_set():
             try:
-                time.sleep(self.sync_interval)
+                time.sleep(self.sync_interval * random.uniform(0.9, 1.1)) # +/- 10% for jitter 
 
                 # Upload own metrics to worker-specific S3 file
                 upload_key = f"{self.prefix}worker-{self.worker_id}.json"
