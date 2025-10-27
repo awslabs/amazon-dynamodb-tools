@@ -6,6 +6,12 @@ class DynamoDBMonitor:
     def __init__(self, session, max_read_rate=1500, max_write_rate=500, reset_interval=10, enable_reporting=True):
         self.max_read_rate = max_read_rate
         self.max_write_rate = max_write_rate
+        if max_read_rate < 1 or max_write_rate < 1:
+            raise ValueError(
+                f"Invalid rate limits: read={max_read_rate}, write={max_write_rate}. "
+                "Both must be >= 1 capacity units per second."
+            )
+
         self.reset_interval = reset_interval
 
         self.metrics = defaultdict(float)
@@ -18,6 +24,9 @@ class DynamoDBMonitor:
             'read_so_far': 0,
             'write_so_far': 0
         }
+
+        self._read_gate  = threading.Lock()
+        self._write_gate = threading.Lock()
 
         # register hooks
         events = session.events
@@ -41,29 +50,31 @@ class DynamoDBMonitor:
         operation = model.name
         is_read = operation in ('GetItem', 'BatchGetItem', 'Query', 'Scan', 'TransactGetItems')
         is_write = operation in ('PutItem', 'UpdateItem', 'DeleteItem', 'BatchWriteItem', 'TransactWriteItems')
+        if not (is_read or is_write):
+            return
 
-        now = time.monotonic()
-        with self.rate_limit_lock:
-            elapsed = now - self.rate_limit_state['checkpoint_time']
-            if elapsed >= self.reset_interval:
-                self.rate_limit_state['checkpoint_time'] = now
-                self.rate_limit_state['read_so_far'] = 0
-                self.rate_limit_state['write_so_far'] = 0
-                elapsed = 0
+        gate = self._read_gate if is_read else self._write_gate
 
-            allowed_reads = self.max_read_rate * elapsed
-            allowed_writes = self.max_write_rate * elapsed
+        # Let reads and writes thread block separately
+        with gate:
+            now = time.monotonic()
+            sleep_needed = 0.0
+            with self.rate_limit_lock:
+                elapsed = now - self.rate_limit_state['checkpoint_time']
+                if elapsed >= self.reset_interval:
+                    self.rate_limit_state['checkpoint_time'] = now
+                    self.rate_limit_state['read_so_far'] = 0.0
+                    self.rate_limit_state['write_so_far'] = 0.0
+                    elapsed = 0
+                
+                rate     = self.max_read_rate if is_read else self.max_write_rate
+                used     = self.rate_limit_state['read_so_far'] if is_read else self.rate_limit_state['write_so_far']
+                allowed  = rate * elapsed
+                over     = used - allowed
+                if over > 0:
+                    sleep_needed = over / rate
 
-            sleep_needed = 0
-            if is_read:
-                over_reads = self.rate_limit_state['read_so_far'] - allowed_reads
-                if over_reads > 0:
-                    sleep_needed = over_reads / self.max_read_rate
-            elif is_write:
-                over_writes = self.rate_limit_state['write_so_far'] - allowed_writes
-                if over_writes > 0:
-                    sleep_needed = over_writes / self.max_write_rate
-
+            # Intentionally sleep while holding the read or write gate
             if sleep_needed > 0:
                 time.sleep(sleep_needed)
 
