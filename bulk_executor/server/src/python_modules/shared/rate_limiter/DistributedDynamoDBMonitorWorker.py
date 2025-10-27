@@ -67,7 +67,7 @@ class DistributedDynamoDBMonitorWorker:
 
                 with self.monitor.metrics_lock, self.monitor.rate_limit_lock:
                     elapsed = time.monotonic() - self.monitor.rate_limit_state['checkpoint_time']
-                    elapsed = max(elapsed, 1e-6)  # avoid division by zero
+                    elapsed = max(elapsed, 0.25)  # avoid division by zero, or overly small division creating a massive read/write rate
 
                     read_rate = self.monitor.rate_limit_state['read_so_far'] / elapsed
                     write_rate = self.monitor.rate_limit_state['write_so_far'] / elapsed
