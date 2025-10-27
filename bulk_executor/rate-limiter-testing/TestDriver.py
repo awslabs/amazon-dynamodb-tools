@@ -94,7 +94,7 @@ def local_main():
     session = boto3.Session()
 
     # instantiate the monitor (registers hooks & starts reporting)
-    DynamoDBMonitor(session, max_read_rate=10, max_write_rate=10, reset_interval=5)
+    DynamoDBMonitor(session, max_read_rate=10, max_write_rate=10)
 
     # pass the monitor to the test driver, along with table name
     driver = TestDriver(session, table_name='throttles', pk_name='pk')
@@ -129,7 +129,8 @@ def distributed_main(bucket, prefix=None, table_name=None,
             aggregate_max_read_rate=aggregate_max_read_rate,
             aggregate_max_write_rate=aggregate_max_write_rate,
             worker_max_read_rate=worker_max_read_rate,
-            worker_max_write_rate=worker_max_write_rate
+            worker_max_write_rate=worker_max_write_rate,
+            enable_reporting=True
         )
         workers.append(worker)
 
