@@ -14,7 +14,6 @@ class DistributedDynamoDBMonitorWorker:
                  worker_max_write_rate=500,
                  worker_initial_read_rate=None,
                  worker_initial_write_rate=None,
-                 reset_interval=10,
                  sync_interval=5,
                  worker_id=None,
                  summary_key='summary.json',
@@ -47,9 +46,10 @@ class DistributedDynamoDBMonitorWorker:
             session=session,
             max_read_rate=worker_initial_read_rate,
             max_write_rate=worker_initial_write_rate,
-            reset_interval=reset_interval,
             enable_reporting=enable_reporting
         )
+
+        self._last_metrics_snapshot = None  # (mono_t, total_read, total_write)
 
         # start background sync thread
         self._sync_thread = None
@@ -59,26 +59,36 @@ class DistributedDynamoDBMonitorWorker:
     def _sync_loop(self):
         while not self.stop_event.is_set():
             try:
-                time.sleep(self.sync_interval * random.uniform(0.9, 1.1)) # +/- 10% for jitter 
+                if self.stop_event.wait(self.sync_interval * random.uniform(0.9, 1.1)): # +/- 10% for jitter 
+                    break
 
                 # Upload own metrics to worker-specific S3 file
                 upload_key = f"{self.prefix}worker-{self.worker_id}.json"
-                timestamp = time.time()
+                wall_ts = time.time()
+                mono_now = time.monotonic()
 
-                with self.monitor.metrics_lock, self.monitor.rate_limit_lock:
-                    elapsed = time.monotonic() - self.monitor.rate_limit_state['checkpoint_time']
-                    elapsed = max(elapsed, 0.25)  # avoid division by zero, or overly small division creating a massive read/write rate
+                with self.monitor.metrics_lock:
+                    total_read  = float(self.monitor.metrics['read_capacity'])
+                    total_write = float(self.monitor.metrics['write_capacity'])
 
-                    read_rate = self.monitor.rate_limit_state['read_so_far'] / elapsed
-                    write_rate = self.monitor.rate_limit_state['write_so_far'] / elapsed
+                if self._last_metrics_snapshot is None:
+                    read_rate = 0.0
+                    write_rate = 0.0
+                else:
+                    last_t, last_r, last_w = self._last_metrics_snapshot
+                    dt = max(mono_now - last_t, 1e-6)
+                    read_rate  = max(0.0, (total_read  - last_r) / dt)
+                    write_rate = max(0.0, (total_write - last_w) / dt)
 
-                    payload = json.dumps({
-                        "worker_id": self.worker_id,
-                        "timestamp": timestamp,
-                        "read_rate": read_rate,
-                        "write_rate": write_rate
-                    })
-                    #print(f"[{self.worker_id}] Writing {payload} to {upload_key}")
+                self._last_metrics_snapshot = (mono_now, total_read, total_write)
+
+                payload = json.dumps({
+                    "worker_id": self.worker_id,
+                    "timestamp": wall_ts,
+                    "read_rate": read_rate,
+                    "write_rate": write_rate,
+                })
+                #print(f"[{self.worker_id}] Writing {payload} to {upload_key}")
 
                 self.s3_client.put_object(Bucket=self.bucket, Key=upload_key, Body=payload.encode('utf-8'))
 
