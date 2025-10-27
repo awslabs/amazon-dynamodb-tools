@@ -36,31 +36,31 @@ class DistributedDynamoDBMonitorAggregator:
         now = time.time()
         valid_workers = []
 
-        # list all worker files under prefix
-        response = self.s3_client.list_objects_v2(Bucket=self.bucket, Prefix=self.prefix)
-        files = response.get('Contents', [])
+        # list all worker files under prefix, paginated in case > 1000 objects
+        paginator = self.s3_client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=self.prefix):
 
-        for obj in files:
-            key = obj['Key']
-            if key.endswith('.json') and not key.endswith(self.output_key):
-                try:
-                    file_obj = self.s3_client.get_object(Bucket=self.bucket, Key=key)
-                    content = file_obj['Body'].read().decode('utf-8')
-                    data = json.loads(content)
+            for obj in page.get("Contents", []):
+                key = obj['Key']
+                if key.endswith('.json') and not key.endswith(self.output_key):
+                    try:
+                        file_obj = self.s3_client.get_object(Bucket=self.bucket, Key=key)
+                        content = file_obj['Body'].read().decode('utf-8')
+                        data = json.loads(content)
 
-                    timestamp = data.get('timestamp')
-                    if timestamp is None:
-                        continue
+                        timestamp = data.get('timestamp')
+                        if timestamp is None:
+                            continue
 
-                    age = now - timestamp
-                    if age > self.staleness_cutoff:
-                        log.debug(f"[Aggregator] Skipping stale worker {key} (age {age:.1f}s)")
-                        continue
+                        age = now - timestamp
+                        if age > self.staleness_cutoff:
+                            log.debug(f"[Aggregator] Skipping stale worker {key} (age {age:.1f}s)")
+                            continue
 
-                    valid_workers.append(data)
+                        valid_workers.append(data)
 
-                except Exception as e:
-                    log.debug(f"[Aggregator] Failed to read {key}: {e}")
+                    except Exception as e:
+                        log.debug(f"[Aggregator] Failed to read {key}: {e}")
 
         # sum rates
         aggregated_read_rate = sum(w['read_rate'] for w in valid_workers)
