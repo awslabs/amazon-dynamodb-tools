@@ -69,4 +69,4 @@ class RateLimiterWorker:
 
     def shutdown(self):
         log.info("Shutting down... Cleaning up rate limit worker.")
-        self.rate_limiter_monitor_worker.stop()
+        self.rate_limiter_monitor_worker.cleanup()
