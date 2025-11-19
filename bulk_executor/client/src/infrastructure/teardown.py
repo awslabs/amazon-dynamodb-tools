@@ -69,25 +69,8 @@ class TeardownInfrastructure:
 
         log.debug(f"Deleting role {role_name}...")
 
-        managed_policies = []
-
-        # Verify the Role Exists and Get Attached Policies
-        try:
-            managed_policies = self.iam_client.list_attached_role_policies(RoleName=role_name)['AttachedPolicies']
-        except self.iam_client.exceptions.NoSuchEntityException:
-            log.info(f"The role '{role_name}' does not exist.")
-            return # Early return intentional.
-        except Exception as e:
-            log.error(f'Unexpected error listing policies for role {role_name}: {e}')
-            exit(1)
-
-        # Detach all managed policies from the role
-        for policy in managed_policies:
-            try:
-                self.iam_client.detach_role_policy(RoleName=role_name, PolicyArn=policy['PolicyArn'])
-            except Exception as e:
-                log.error(f"Unexpected error detaching policy {policy['PolicyArn']}: {e}")
-                exit(1)
+        self._delete_managed_policies(role_name)
+        self._delete_inline_policies(role_name)
 
         # Delete the role
         try:
@@ -96,6 +79,50 @@ class TeardownInfrastructure:
         except Exception as e:
             log.error(f'Unexpected error deleting role {role_name}: {e}')
             exit(1)
+
+    def _delete_inline_policies(self, role_name):
+        inline_policies = []
+
+        # Get inline policy names
+        try:
+            inline_policies = self.iam_client.list_role_policies(RoleName=role_name)['PolicyNames']
+        except self.iam_client.exceptions.NoSuchEntityException:
+            log.info(f"The role '{role_name}' does not exist.")
+            return  # Early return intentional.
+        except Exception as e:
+            log.error(f'Unexpected error listing inline policies for role {role_name}: {e}')
+            exit(1)
+
+        # Delete all inline policies from the role
+        for policy_name in inline_policies:
+            try:
+                log.info(f"Deleting inline policy '{policy_name}'...")
+                self.iam_client.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
+            except Exception as e:
+                log.error(f"Unexpected error deleting inline policy {policy_name}: {e}")
+                exit(1)
+
+    def _delete_managed_policies(self, role_name):
+        managed_policies = []
+
+        # Verify the Role Exists and Get Attached Policies
+        try:
+            managed_policies = self.iam_client.list_attached_role_policies(RoleName=role_name)['AttachedPolicies']
+        except self.iam_client.exceptions.NoSuchEntityException:
+            log.info(f"The role '{role_name}' does not exist.")
+            return  # Early return intentional.
+        except Exception as e:
+            log.error(f'Unexpected error listing policies for role {role_name}: {e}')
+            exit(1)
+
+        # Detach all managed policies from the role
+        for policy in managed_policies:
+            try:
+                log.info(f"Detaching managed policy '{policy['PolicyName']}'...")
+                self.iam_client.detach_role_policy(RoleName=role_name, PolicyArn=policy['PolicyArn'])
+            except Exception as e:
+                log.error(f"Unexpected error detaching policy {policy['PolicyArn']}: {e}")
+                exit(1)
 
     def _get_glue_job_bucket_name(self):
         # Return the existing persisted S3 Bucket name
