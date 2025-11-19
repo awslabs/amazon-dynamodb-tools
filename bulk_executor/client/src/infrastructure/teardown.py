@@ -69,7 +69,7 @@ class TeardownInfrastructure:
 
         log.debug(f"Deleting role {role_name}...")
 
-        self._delete_managed_policies(role_name)
+        self._detach_managed_policies(role_name)
         self._delete_inline_policies(role_name)
 
         # Delete the role
@@ -102,7 +102,7 @@ class TeardownInfrastructure:
                 log.error(f"Unexpected error deleting inline policy {policy_name}: {e}")
                 exit(1)
 
-    def _delete_managed_policies(self, role_name):
+    def _detach_managed_policies(self, role_name):
         managed_policies = []
 
         # Verify the Role Exists and Get Attached Policies
