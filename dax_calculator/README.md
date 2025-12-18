@@ -6,7 +6,7 @@ A command-line tool for sizing AWS DynamoDB Accelerator (DAX) clusters. Automate
 
 The DAX Cluster Calculator helps you determine the appropriate DAX cluster configuration based on your workload characteristics. It calculates:
 
-- **Normalized RPS**: Total units of work required by your DAX cluster
+- **Normalized RPS**: Total units of work required by your DAX cluster.
 - **Target RPS**: Actual capacity needed accounting for utilization targets and node failure tolerance
 - **Node Type Recommendations**: Optimal instance types and cluster sizes for your workload
 - **Monthly Cost Estimates**: Calculates the monthly cost for each recommended configuration
