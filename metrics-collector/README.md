@@ -29,19 +29,25 @@ This project is built with Poetry for dependency management. To get started:
 3. Alternatively, you can use pip with the provided `requirements.txt`:
 `pip install -r requirements.txt`
 
-The install might take a couple of minutes because of the dependencies. 
+The install might take a couple of minutes because of the dependencies.
 
 ## 🏃‍♂️ Usage
 
 Run the metrics collector with a single command:
 
 ```bash
+# Scan all regions
 python -m metrics_collector.utilization_example --start-time 2025-02-19
+
+# Scan only a specific region
+python -m metrics_collector.utilization_example --start-time 2025-02-19 --region us-east-1
+```
 
 Options:
 
 --start-time: Specify the start time for metric collection (ISO8601 format)
 --end-time: Specify the end time (defaults to current time if not provided)
+--region: AWS region to scan (if not specified, all regions will be scanned)
 --config: Path to a custom configuration file
 --output: Custom name for the output CSV file
 ```
@@ -161,9 +167,9 @@ This configuration flexibility allows you to tailor the metrics collection to yo
 
 There is a companion project in the making where we will simplify metric visualization. Stay tuned for future updates!
 
-Want to turn your CSV data into stunning visualizations? Check out our companion project DynamoDB Metrics Visualizer to create interactive dashboards and charts! 
+Want to turn your CSV data into stunning visualizations? Check out our companion project DynamoDB Metrics Visualizer to create interactive dashboards and charts!
 
-The current report will present data in csv 
+The current report will present data in csv
 
 | Region | Table Name | Read Utilization | Write Utilization |
 |--------|------------|------------------|-------------------|
@@ -196,4 +202,4 @@ We welcome contributions! Please see our Contributing Guide for more details.
 
 This project is licensed under the MIT License - see the [LICENSE](../LICENSE) file for details.
 
-Built with ❤️ by DynamoDB Specialist Solutions Architects. 
+Built with ❤️ by DynamoDB Specialist Solutions Architects.

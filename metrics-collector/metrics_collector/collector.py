@@ -129,13 +129,14 @@ class DynamoDBMetricsCollector:
             table_metrics = await asyncio.gather(*tasks)
             return region, provisioned_tables, table_metrics
 
-    async def collect_all_metrics(self, start_time, end_time):
+    async def collect_all_metrics(self, start_time, end_time, specific_region=None):
         """
-        Collect metrics for all provisioned DynamoDB tables across all regions.
+        Collect metrics for all provisioned DynamoDB tables across all regions or a specific region.
 
         Args:
             start_time (datetime): The start time for metric collection.
             end_time (datetime): The end time for metric collection.
+            specific_region (str, optional): If provided, only collect metrics for this region.
 
         Returns:
             tuple: A tuple containing all metrics and low utilization tables.
@@ -143,9 +144,13 @@ class DynamoDBMetricsCollector:
         all_metrics = {}
         low_utilization_tables = {}
 
-        logger.info("Fetching all AWS regions...")
-        regions = await self.get_all_regions()
-        logger.info(f"Found {len(regions)} regions.")
+        if specific_region:
+            logger.info(f"Collecting metrics for specific region: {specific_region}")
+            regions = [specific_region]
+        else:
+            logger.info("Fetching all AWS regions...")
+            regions = await self.get_all_regions()
+            logger.info(f"Found {len(regions)} regions.")
 
         logger.info("Identifying provisioned tables in each region...")
         total_provisioned_tables = 0
@@ -153,7 +158,7 @@ class DynamoDBMetricsCollector:
             provisioned_tables = await self.get_provisioned_tables(region)
             total_provisioned_tables += len(provisioned_tables)
 
-        logger.info(f"Found {total_provisioned_tables} provisioned tables across all regions.")
+        logger.info(f"Found {total_provisioned_tables} provisioned tables across {'all regions' if not specific_region else specific_region}.")
 
         logger.info("Collecting metrics for provisioned tables...")
         region_tasks = [self.get_tables_and_metrics(region, start_time, end_time) for region in regions]
