@@ -199,7 +199,7 @@ class BootstrapInfrastructure:
 
         # Add XEnvironmentArguments to be used by the Glue Job
         for key, value in args.items():
-            if key.startswith('X'):
+            if key.startswith('X') and key not in ('XRole', 'XRegion'):
                 default_arguments[f'--{key}'] = str(value)
 
         default_arguments.update({ # Update last intentional.
