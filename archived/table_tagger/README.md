@@ -70,6 +70,77 @@ for table in $(aws dynamodb list-tables --query 'TableNames[]' --output text); d
 done
 ```
 
+## Original Documentation
+
+### Overview
+
+[AWS Cost Explorer](https://aws.amazon.com/aws-cost-management/aws-cost-explorer/) will group all Amazon DynamoDB table cost categories in a region by default. In order to view table-level cost breakdowns in Cost Explorer (for example, storage costs for a specific table), tables must be tagged so costs can be grouped by that tag. Tagging each DynamoDB table with its own name enables this table-level cost analysis. This tool automatically tags each table in a region with its own name, if it is not already thus tagged.
+
+### Using the Eponymous Table Tagger tool
+
+The Eponymous Table Tagger is a command-line tool written in Python 3, and requires the AWS Python SDK (Boto3). The tool can be run directly from the cloned repository without installation.
+
+The tool is invoked from the command line like so:
+
+```console
+user@host$ python3 table_tagger.py --help
+usage: table_tagger.py [-h] [--dry-run] [--region REGION] [--table-name TABLE_NAME] [--tag-name TAG_NAME] [--profile PROFILE]
+
+Tag all DynamoDB tables in a region with their own name.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --dry-run             output results but do not actually tag tables
+  --region REGION       tag tables in REGION (default: us-east-1)
+  --table-name TABLE_NAME
+                        tag only TABLE_NAME (defaults to all tables in region)
+  --tag-name TAG_NAME   tag table with tag TAG_NAME (default is "table_name")
+  --profile PROFILE     set a custom profile name to perform the operation under
+```
+
+With no arguments, the tool will tag each table in the default region (us-east-1) that is not already correctly tagged, and returns a list of JSON objects, each containing applied tag and table details:
+
+```console
+user@host$ python3 table_tagger.py
+[
+ {
+    "table_arn": "arn:aws:dynamodb:us-east-1:123456789012:table/customers",
+    "tag_key": "table_name",
+    "tag_value": "customers"
+  },
+  {
+    "table_arn": "arn:aws:dynamodb:us-east-1:123456789012:table/datasource",
+    "tag_key": "table_name",
+    "tag_value": "datasource"
+  },
+]
+```
+
+You can choose to run the tool in a different region, and use a different tag name than the default:
+
+```console
+user@host$ python3 table_tagger.py --region us-east-2 --tag-name dynamodb_table
+[
+ {
+    "table_arn": "arn:aws:dynamodb:us-east-2:123456789012:table/moviefacts",
+    "tag_key": "dynamodb_table",
+    "tag_value": "moviefacts"
+  },
+  {
+    "table_arn": "arn:aws:dynamodb:us-east-2:123456789012:table/topsongs",
+    "tag_key": "dynamodb_table",
+    "tag_value": "topsongs"
+  },
+]
+```
+
+If the tool does not tag any tables (usually because they are already tagged), the tool returns an empty list:
+
+```console
+user@host$ python3 table_tagger.py
+[]
+```
+
 ## Original Dependencies
 
 If you need to reference the original code, it depended on:
