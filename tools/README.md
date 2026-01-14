@@ -1,22 +1,16 @@
-# Production Tools
+# Tools
 
-This directory contains production-ready, actively maintained tools with comprehensive features, testing, and documentation.
+This directory contains actively maintained tools for working with Amazon DynamoDB.
 
-## Tools
+## Available Tools
 
-Currently, production tools remain in the root directory. They will be moved here in future updates:
-- bulk_executor - Serverless Glue-based solution for bulk DynamoDB operations
-- dax_calculator - DAX cluster sizing and cost estimation
-- metrics-collector - Comprehensive capacity and cost optimization tool
+- **[bulk_executor](bulk_executor/)** - Serverless Glue-based solution for bulk DynamoDB operations
+- **[dax_calculator](dax_calculator/)** - DAX cluster sizing and cost estimation
+- **[metrics-collector](metrics-collector/)** - Comprehensive capacity and cost optimization tool
 
-## Tool Criteria
+## Disclaimer
 
-Tools in this directory meet the following criteria:
-- **Production-ready**: Tested and stable for production use
-- **Actively maintained**: Regular updates and bug fixes
-- **Comprehensive documentation**: Complete usage guides and examples
-- **Well-tested**: Includes test coverage
-- **Community support**: Responsive to issues and feature requests
+While we make efforts to test and verify the functionality of these tools, you are encouraged to read and understand the code, and use them at your own risk. Each tool has been developed independently - please review the documentation and requirements for each one.
 
 ## Need Help?
 

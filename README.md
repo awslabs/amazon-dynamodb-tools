@@ -11,10 +11,17 @@ A collection of tools and utilities for working with Amazon DynamoDB.
 
 ## Available Tools
 
+### Main Tools
+
+- [Bulk Executor](tools/bulk_executor/README.md) - Serverless Glue-based solution for bulk DynamoDB operations
+- [DAX Calculator](tools/dax_calculator/README.md) - DAX cluster sizing and cost estimation
+- [Metrics Collector](tools/metrics-collector/README.md) - Captures Amazon DynamoDB table metrics in your account for all regions
+
+### Other Tools
+
 - [Table Class Optimizer](#table-class-optimizer) - Provides manual and automated solutions to optimize your DynamoDB table classes
 - [Table Capacity Mode Evaluator](#table-capacity-mode-evaluator) - Generate capacity mode recommendations by analyzing DynamoDB table usage
 - [DynamoDB Cost Tool](#ddb-cost-tool) - Captures table metadata and metrics to generate cost savings recommendations
-- [Metrics Collector](metrics-collector/README.md) - Captures Amazon DynamoDB table metrics in your account for all regions
 - [Item Size Calculator](#item-size-calculator) - NPM package for calculating DynamoDB item sizes
 
 While we make efforts to test and verify the functionality of these tools, you are encouraged to read and understand the code, and use them at your own risk.
