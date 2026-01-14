@@ -1,8 +1,13 @@
-> [!NOTE]  
-> We are actively working on improving the cost tool and the web portal suggestions, the links to upload the files and the web portal have been removed. Please use the [metrics-collector](../metrics-collector/README.md) to capture the information and generate recommendations. We are working on someting good! 
+> [!CAUTION]
+> **This tool has been archived as of January 2026.**
+> 
+> **Reason:** Tool is not functional due to a closed, deprecated webservice that was required for report generation and analysis.
+>
+> **Alternative:** Please use the [metrics-collector](../../tools/metrics-collector/README.md) tool to capture table information and generate cost optimization recommendations.
 
+---
 
-# DynamoDB Cost tool metrics and metadata retrieval
+# DynamoDB Cost tool metrics and metadata retrieval (ARCHIVED)
 
 This script will help you obtain the table metadata and metrics for the tables in your current account.
 

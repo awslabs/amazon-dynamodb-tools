@@ -21,7 +21,6 @@ A collection of tools and utilities for working with Amazon DynamoDB.
 
 - [Table Class Optimizer](#table-class-optimizer) - Provides manual and automated solutions to optimize your DynamoDB table classes
 - [Table Capacity Mode Evaluator](#table-capacity-mode-evaluator) - Generate capacity mode recommendations by analyzing DynamoDB table usage
-- [DynamoDB Cost Tool](#ddb-cost-tool) - Captures table metadata and metrics to generate cost savings recommendations
 - [Item Size Calculator](#item-size-calculator) - NPM package for calculating DynamoDB item sizes
 
 While we make efforts to test and verify the functionality of these tools, you are encouraged to read and understand the code, and use them at your own risk.
@@ -45,11 +44,9 @@ NPM package for calculating DynamoDB item sizes. See the [README](snippets/item_
 
 See the separate [README](capacity-mode-evaluator/README.md)
 
-## DDB Cost Tool
-
-See the separate [README](ddb_cost_tool/README.MD)
-
 ## Archived Tools
+
+The [DDB Cost Tool](archived/ddb_cost_tool/README.MD) and other deprecated tools have been moved to the [archived/](archived/) directory.
 
 
 For more details, migration guides, and alternatives, see the README files in each archived tool's directory.

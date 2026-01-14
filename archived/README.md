@@ -23,6 +23,7 @@ While these archived resources are preserved for reference, we encourage you to 
 
 - October 2024: [Python script to help choose the right DynamoDB table class](./table_class_evaluator/README.md)
 - January 2026: [Archive ddbtools, reco, and table_tagger.py](https://github.com/awslabs/amazon-dynamodb-tools/issues/114)
+- January 2026: [DynamoDB Cost Tool](./ddb_cost_tool/README.MD) - Tool is not functional due to closed, deprecated webservice
 
 ## Migrated Tools
 
