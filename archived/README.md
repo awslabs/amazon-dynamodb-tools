@@ -22,3 +22,4 @@ While these archived resources are preserved for reference, we encourage you to 
 ## Archived resources.
 
 - October 2024: [Python script to help choose the right DynamoDB table class](./table_class_evaluator/README.md)
+- January 2026: [Archive ddbtools, reco, and table_tagger.py](https://github.com/awslabs/amazon-dynamodb-tools/issues/114)

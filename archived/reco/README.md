@@ -1,6 +1,17 @@
+# DynamoDB reserved capacity recommendations - ARCHIVED
 
+> **⚠️ DEPRECATED AND ARCHIVED**  
+> **Status:** Deprecated and Archived  
+> **Date Archived:** January 2026  
+> **Reason:** AWS Cost Explorer now provides native reserved capacity recommendations in the console
+> 
+> **Alternative:** Navigate to AWS Console → Cost Explorer → Reservations → Recommendations, and filter for DynamoDB to view AWS-provided recommendations with projected savings.
+> 
+> **Related Issues:** [#12](https://github.com/awslabs/amazon-dynamodb-tools/issues/12) (feature request), [#65](https://github.com/awslabs/amazon-dynamodb-tools/issues/65) (missing region pricing), [#114](https://github.com/awslabs/amazon-dynamodb-tools/issues/114) (archival)
 
-# DynamoDB reserved capacity recommendations
+---
+
+# Original Documentation
 
 [DynamoDB reserved capacity](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadWriteCapacityMode.html#HowItWorks.ProvisionedThroughput.ReservedCapacity) can save you up to 77% with a three year reservation purchase. This tool helps you to find the right amount of reserved capacity to own to lower your total cost of provisioned read and write capacity.
 
