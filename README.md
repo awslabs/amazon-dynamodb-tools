@@ -98,7 +98,7 @@ The following tools have been deprecated and moved to the `archived/` directory:
 
 - **[ddbtools](archived/ddbtools/)** - Python utility library
   - **Deprecated:** January 2026
-  - **Reason:** Only used by archived tools
+  - **Reason:** Only used by archived tools. The MySQL to S3 copy script is easy to recreate with a LLM.
   - **Alternative:** Use boto3 (AWS SDK for Python) directly
 
 For more details, migration guides, and alternatives, see the README files in each archived tool's directory.
