@@ -4,8 +4,8 @@ These tools are intended to make using Amazon DynamoDB effectively and easier. T
 
 - [Cost Template](#cost-template) - Model read, write, and storage costs for a DynamoDB table in Excel
 - [Table Class Optimizer](#table-class-optimizer) [2025] - Provides manual and automated solutions to optimize your DynamoDB table classes
-- [Table Capacity Mode Evaluator](capacity-mode-evaluator) - Generate capacity mode recommendations by analyzing DynamoDB table usage
-- [DynamoDB cost optimization tool](#cost-optimization-tool) - Captures table metadata and metrics to generate cost savings recommendations
+- [Table Capacity Mode Evaluator](#table-capacity-mode-evaluator) - Generate capacity mode recommendations by analyzing DynamoDB table usage
+- [DynamoDB Cost Tool](#ddb-cost-tool) - Captures table metadata and metrics to generate cost savings recommendations
 - [Metrics Collector](metrics-collector/README.md) - Captures Amazon DynamoDB table metrics in your account for all regions. Use this to identify over-provisioned tables
 - [Item Size Calculator](#item-size-calculator-nodejs) - Utility to calculate DynamoDB item sizes
 
@@ -78,13 +78,13 @@ Please see the [README](item_size_calculator/README.md).
 
 See the separate [README](capacity-mode-evaluator/README.md)
 
-## Cost optimization tool
+## DDB Cost Tool
 
 See the separate [README](ddb_cost_tool/README.MD)
 
 ## Archived Tools
 
-The following tools have been deprecated and moved to the `archived/` directory. This is not an exclusive list. :
+The following tools have been deprecated and moved to the `archived/` directory:
 
 - **[reco](archived/reco/)** - DynamoDB reserved capacity recommendations
   - **Deprecated:** January 2026
