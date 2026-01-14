@@ -23,3 +23,7 @@ While these archived resources are preserved for reference, we encourage you to 
 
 - October 2024: [Python script to help choose the right DynamoDB table class](./table_class_evaluator/README.md)
 - January 2026: [Archive ddbtools, reco, and table_tagger.py](https://github.com/awslabs/amazon-dynamodb-tools/issues/114)
+
+## Migrated Tools
+
+**Note:** Some tools have been migrated to [aws-dynamodb-examples](https://github.com/aws-samples/aws-dynamodb-examples) including the Excel cost template, tester framework, and ddb-migration. See [issue 207 in the aws-samples repo for more information](https://github.com/aws-samples/aws-dynamodb-examples/issues/207).
