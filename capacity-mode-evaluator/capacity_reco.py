@@ -35,6 +35,7 @@ def get_params(args):
     params['number_of_days_look_back'] = args.number_of_days_look_back
     params['max_concurrent_tasks'] = args.max_concurrent_tasks
     params['show_dashboard'] = args.show_dashboard
+    params['regex'] = args.regex
 
     now = datetime.utcnow()
     midnight = datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=pytz.UTC)
@@ -117,6 +118,7 @@ if __name__ == '__main__':
     parser.add_argument('--max-concurrent-tasks', type=int,
                         default=5, help='Maximum number of tasks to run concurrently')
     parser.add_argument('--show-dashboard', action='store_true', help='Display results in a GUI for simple visualization')
+    parser.add_argument('--regex', action='store_true', help='Enable regex pattern matching for DynamoDB table names')
     args = parser.parse_args()
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -127,7 +129,7 @@ if __name__ == '__main__':
     logger.info(f"Parameters: {params}")
     DDBinfo = DDBScalingInfo()
     dynamo_tables_result = DDBinfo.get_all_dynamodb_autoscaling_settings_with_indexes(
-        params['dynamodb_tablename'], params['max_concurrent_tasks'])
+        params['dynamodb_tablename'], params['max_concurrent_tasks'], regex=params['regex'])
 
     dynamo_tables_result.to_csv(
         os.path.join(output_path, 'dynamodb_table_info.csv'), index=False)

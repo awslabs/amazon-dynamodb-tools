@@ -71,6 +71,7 @@ For more information on when to select on-demand or provisioned capacity modes i
    The following parameters are required to run the script:
 
    - `--dynamodb-tablename`: DynamoDB table name (optional; if not provided, the script will process all tables in the specified region)
+   - `--regex`: Enable regex pattern matching for DynamoDB table names (default: False)
    - `--dynamodb-read-utilization`: DynamoDB read utilization percentage (default: 70)
    - `--dynamodb-write-utilization`: DynamoDB write utilization percentage (default: 70)
    - `--dynamodb-minimum-write-unit`: DynamoDB minimum write unit (default: 1)
@@ -80,6 +81,7 @@ For more information on when to select on-demand or provisioned capacity modes i
    - `--number-of-days-look-back`: Number(1-14) of days to look back for CloudWatch metrics (default: 14)
    - `--max-concurrent-tasks`: Maximum number of tasks to run concurrently (default: 5)
    - `--show-dashboard`: Display results in a GUI for simple visualization (default: True when specified)
+   
 
 - with default values:
 
