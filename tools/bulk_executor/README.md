@@ -123,7 +123,7 @@ aws dynamodb create-table \
     --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=sk,AttributeType=S \
     --key-schema AttributeName=pk,KeyType=HASH AttributeName=sk,KeyType=RANGE \
     --billing-mode PAY_PER_REQUEST \
-    `--warm-throughput WriteUnitsPerSecond=40000`
+    --warm-throughput WriteUnitsPerSecond=40000
 ```
 
 6. Enable PITR on the table. Bulk Executor will NOT let you make mutations on a table unless PITR is enabled. You can’t do this call too quickly after the table create or you’ll get an error.
