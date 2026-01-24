@@ -1,0 +1,192 @@
+"""
+Collection command for CloudWatch metrics from DynamoDB tables.
+
+Wires the CloudWatchCollector backend into a user-friendly CLI command.
+"""
+
+import asyncio
+from datetime import datetime, timedelta
+from typing import Optional
+
+import click
+
+from ..aws.collector import CloudWatchCollector
+from ..config import get_settings
+from ..logging import get_logger
+
+logger = get_logger(__name__)
+
+
+@click.command(name="collect")
+@click.option(
+    "--regions",
+    help="Comma-separated list of AWS regions (leave empty to use discovered tables)",
+)
+@click.option(
+    "--tables",
+    help="Comma-separated list of table names (leave empty for all discovered)",
+)
+@click.option(
+    "--days",
+    default=14,
+    type=int,
+    help="Number of days of metrics to collect (default: 14)",
+)
+@click.option(
+    "--profile",
+    help="AWS profile name to use",
+)
+@click.option(
+    "--resume",
+    is_flag=True,
+    help="Resume from last checkpoint",
+)
+@click.option(
+    "--operation-id",
+    help="Operation ID for resuming or tracking",
+)
+@click.option(
+    "--comprehensive",
+    is_flag=True,
+    help="Collect comprehensive metrics (more detailed, slower)",
+)
+@click.pass_context
+def collect(
+    ctx: click.Context,
+    regions: Optional[str],
+    tables: Optional[str],
+    days: int,
+    profile: Optional[str],
+    resume: bool,
+    operation_id: Optional[str],
+    comprehensive: bool,
+) -> None:
+    """Collect CloudWatch metrics for DynamoDB tables.
+    
+    This command retrieves CloudWatch metrics for discovered DynamoDB tables
+    and stores them in the local database for analysis. By default, it collects
+    14 days of metrics with 5-minute granularity.
+    
+    Examples:
+        # Collect 14 days of metrics for all discovered tables
+        metrics-collector collect
+        
+        # Collect 30 days of metrics for specific tables
+        metrics-collector collect --days 30 --tables table1,table2
+        
+        # Resume interrupted collection
+        metrics-collector collect --resume --operation-id <id>
+        
+        # Collect comprehensive metrics (includes all operations)
+        metrics-collector collect --comprehensive
+    """
+    settings = get_settings()
+    
+    # Parse regions and tables
+    region_list = [r.strip() for r in regions.split(",")] if regions else None
+    table_list = [t.strip() for t in tables.split(",")] if tables else None
+    
+    # Configure AWS profile if specified
+    if profile:
+        import os
+        os.environ["AWS_PROFILE"] = profile
+        click.echo(f"Using AWS profile: {profile}")
+        click.echo()
+    
+    # Calculate time range
+    end_time = datetime.now()
+    start_time = end_time - timedelta(days=days)
+    
+    # Store operation_id for interrupt handling
+    actual_operation_id = operation_id
+    
+    try:
+        # Initialize collector
+        collector = CloudWatchCollector()
+        
+        # Get metric configurations
+        metric_configs = collector.get_metric_configurations(
+            service="dynamodb",
+            comprehensive=comprehensive
+        )
+        
+        # Display collection plan
+        if not resume:
+            click.echo(f"📊 CloudWatch Metrics Collection")
+            click.echo(f"   Time range: {start_time.date()} to {end_time.date()} ({days} days)")
+            click.echo(f"   Regions: {region_list if region_list else 'All discovered'}")
+            click.echo(f"   Tables: {table_list if table_list else 'All discovered'}")
+            click.echo(f"   Metrics: {'Comprehensive' if comprehensive else 'Standard'} ({len(metric_configs)} configurations)")
+            click.echo()
+        else:
+            click.echo(f"🔄 Resuming collection (operation: {operation_id})")
+            click.echo()
+        
+        # Run collection
+        result = asyncio.run(
+            collector.collect_metrics(
+                start_time=start_time,
+                end_time=end_time,
+                regions=region_list,
+                table_names=table_list,
+                metric_configs=metric_configs,
+                operation_id=operation_id,
+                resume_from_checkpoint=resume,
+                show_progress=True,
+            )
+        )
+        
+        # Capture the actual operation_id from the result
+        actual_operation_id = result.operation_id
+        
+        # Display results
+        click.echo()
+        click.echo("✅ Collection completed successfully!")
+        click.echo()
+        click.echo(f"📊 Collection Summary:")
+        click.echo(f"   Total metrics collected: {result.total_metrics_collected:,}")
+        click.echo(f"   Resources processed: {result.resources_processed}")
+        click.echo(f"   Successful collections: {result.successful_collections}")
+        click.echo(f"   Failed collections: {result.failed_collections}")
+        click.echo(f"   Regions processed: {len(result.regions_processed)}")
+        click.echo(f"   Duration: {result.collection_duration}")
+        
+        if result.error_summary:
+            click.echo()
+            click.echo("   Errors encountered:")
+            for error_type, count in result.error_summary.items():
+                click.echo(f"      {error_type}: {count}")
+        
+        # Get database summary
+        click.echo()
+        summary = collector.list_collected_metrics_summary()
+        
+        if "error" not in summary:
+            click.echo("💾 Database Summary:")
+            click.echo(f"   Total metrics in database: {summary['total_metrics']:,}")
+            click.echo(f"   Total resources: {summary['total_resources']}")
+            click.echo(f"   Total regions: {summary['total_regions']}")
+        
+        click.echo()
+        click.echo("💡 Next steps:")
+        click.echo("   1. Run 'metrics-collector analyze-capacity' to optimize capacity modes")
+        click.echo("   2. Run 'metrics-collector analyze-utilization' to check usage patterns")
+        
+    except KeyboardInterrupt:
+        click.echo()
+        click.echo("⚠️  Collection interrupted by user")
+        if actual_operation_id:
+            click.echo(f"   Run with --resume --operation-id {actual_operation_id} to continue")
+        else:
+            click.echo("   Run with --resume --operation-id <id> to continue")
+        raise click.Abort()
+    
+    except Exception as e:
+        logger.error(f"Collection failed: {e}")
+        click.echo(f"❌ Collection failed: {e}", err=True)
+        click.echo()
+        click.echo("💡 Troubleshooting:")
+        click.echo("   1. Ensure you have run 'metrics-collector discover' first")
+        click.echo("   2. Check AWS credentials are valid")
+        click.echo("   3. Verify DynamoDB tables exist in specified regions")
+        raise click.Abort()
