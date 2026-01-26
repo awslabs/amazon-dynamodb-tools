@@ -4,7 +4,7 @@ A collection of tools and utilities for working with Amazon DynamoDB.
 
 ## Repository Structure
 
-- **[/tools](tools/)** - Production-ready tools
+- **[/tools](tools/)** - Our main tools
 - **[/beta](beta/)** - Experimental tools and tutorials  
 - **[/snippets](snippets/)** - Simple utilities
 - **[/archived](archived/)** - Deprecated tools
@@ -15,12 +15,18 @@ A collection of tools and utilities for working with Amazon DynamoDB.
 
 - [Bulk Executor](tools/bulk_executor/README.md) - Serverless Glue-based solution for bulk DynamoDB operations
 - [DAX Calculator](tools/dax_calculator/README.md) - DAX cluster sizing and cost estimation
-- [Metrics Collector](tools/metrics-collector/README.md) - Captures Amazon DynamoDB table metrics in your account for all regions
+- **[DynamoDB Optima](tools/dynamodb-optima/README.md)** - **[NEW]** Unified cost optimization and analysis platform
+  - Multi-account discovery via AWS Organizations
+  - CloudWatch metrics collection with incremental updates
+  - CUR-based cost analysis  
+  - Capacity mode optimization (On-Demand vs Provisioned) with autoscaling simulation
+  - Table class optimization (Standard vs Standard-IA)
+  - Utilization analysis
+  - Integrated Streamlit GUI for visualization
+  - CLI: `dynamodb-optima`
 
 ### Other Tools
 
-- [Table Class Optimizer](#table-class-optimizer) - Provides manual and automated solutions to optimize your DynamoDB table classes
-- [Table Capacity Mode Evaluator](#table-capacity-mode-evaluator) - Generate capacity mode recommendations by analyzing DynamoDB table usage
 - [Item Size Calculator](#item-size-calculator) - NPM package for calculating DynamoDB item sizes
 
 While we make efforts to test and verify the functionality of these tools, you are encouraged to read and understand the code, and use them at your own risk.
@@ -28,28 +34,18 @@ While we make efforts to test and verify the functionality of these tools, you a
 Each tool has been developed independent from one another, please make sure to read the installation requirements for each one of them.
 
 
-## Table Class Optimizer
-### There are two solutions available for Table Class Optimization:
-1. [Manual Query Tool](table_class_optimizer/README.md) - [2024] - An Athena CUR query that allows you to manually analyze and optimize your DynamoDB table classes.
-2. [Automated Optimization System](table_class_optimizer/AUTOMATED_SOLUTION.md) - [2025] - A fully automated, serverless solution that continuously monitors and optimizes your DynamoDB table classes across all accounts and regions in your AWS organization.
-
-The above solution replaces the deprecated Python table class evaluator. 
-
-
 ## Item Size Calculator
 
 NPM package for calculating DynamoDB item sizes. See the [README](snippets/item_size_calculator/README.md).
 
-## Table Capacity Mode Evaluator
-
-See the separate [README](capacity-mode-evaluator/README.md)
-
 ## Archived Tools
 
-The [DDB Cost Tool](archived/ddb_cost_tool/README.MD) and other deprecated tools have been moved to the [archived/](archived/) directory.
+**Three tools were consolidated** into the new [DynamoDB Optima](tools/dynamodb-optima/) platform in January 2026:
+- metrics-collector → Now: `dynamodb-optima` CLI
+- capacity-mode-evaluator → Now: `dynamodb-optima analyze-capacity`
+- table_class_optimizer → Now: `dynamodb-optima analyze-table-class`
 
-
-For more details, migration guides, and alternatives, see the README files in each archived tool's directory.
+The [DDB Cost Tool](archived/ddb_cost_tool/README.MD) and other deprecated tools have been moved to the [archived/](archived/) directory. For more details, migration guides, and alternatives, see the README files in each archived tool's directory.
 
 ## Security
 

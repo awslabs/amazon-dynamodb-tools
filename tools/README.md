@@ -6,7 +6,7 @@ This directory contains actively maintained tools for working with Amazon Dynamo
 
 - **[bulk_executor](bulk_executor/)** - Serverless Glue-based solution for bulk DynamoDB operations
 - **[dax_calculator](dax_calculator/)** - DAX cluster sizing and cost estimation
-- **[metrics-collector](metrics-collector/)** - Comprehensive capacity and cost optimization tool
+- **[dynamodb-optimum](dynamodb-optimum/)** - Comprehensive capacity and cost optimization tool
 
 ## Disclaimer
 
