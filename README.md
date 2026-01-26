@@ -4,7 +4,7 @@ A collection of tools and utilities for working with Amazon DynamoDB.
 
 ## Repository Structure
 
-- **[/tools](tools/)** - Production-ready tools
+- **[/tools](tools/)** - Our main tools
 - **[/beta](beta/)** - Experimental tools and tutorials  
 - **[/snippets](snippets/)** - Simple utilities
 - **[/archived](archived/)** - Deprecated tools
