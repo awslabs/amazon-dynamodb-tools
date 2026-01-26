@@ -21,6 +21,7 @@ def calculate_stable_time_window(days: int) -> tuple[datetime, datetime]:
     """
     Calculate stable time windows aligned to hour boundaries in UTC.
     
+    Uses end_time = now - 1 hour to avoid incomplete CloudWatch data.
     This ensures that multiple runs within the same hour use IDENTICAL
     time boundaries, preventing timestamp drift and enabling efficient
     database upserts.
@@ -32,27 +33,29 @@ def calculate_stable_time_window(days: int) -> tuple[datetime, datetime]:
         (start_time, end_time) tuple with hour-aligned UTC boundaries
         
     Examples:
-        Run at 3:10 PM UTC: (Jan 24 15:00, Jan 26 15:00)
-        Run at 3:45 PM UTC: (Jan 24 15:00, Jan 26 15:00) <- SAME!
-        Run at 4:10 PM UTC: (Jan 24 16:00, Jan 26 16:00) <- Advances
+        Run at 3:10 PM UTC: (Jan 24 14:00, Jan 26 14:00)
+        Run at 3:45 PM UTC: (Jan 24 14:00, Jan 26 14:00) <- SAME!
+        Run at 4:10 PM UTC: (Jan 24 15:00, Jan 26 15:00) <- Advances
     """
     # Get current time in UTC
     now_utc = datetime.now(timezone.utc)
     
-    # Round DOWN to previous hour (stable within each hour)
-    end_time = now_utc.replace(minute=0, second=0, microsecond=0)
+    # Round DOWN to previous hour, then subtract 1 hour for safety buffer
+    # This avoids collecting incomplete CloudWatch data
+    end_time = now_utc.replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
     
     # Calculate start time (N days before end_time)
     start_time = end_time - timedelta(days=days)
     
     logger.debug(
-        "Calculated stable time window with hour alignment",
+        "Calculated stable time window with hour alignment and safety buffer",
         now_utc=now_utc.isoformat(),
         start_time=start_time.isoformat(),
         end_time=end_time.isoformat(),
         days_requested=days,
         actual_hours=(end_time - start_time).total_seconds() / 3600,
-        alignment_strategy="Round down to previous hour for stable boundaries"
+        safety_buffer_hours=1,
+        alignment_strategy="Round down to previous hour minus 1 hour buffer"
     )
     
     return start_time, end_time

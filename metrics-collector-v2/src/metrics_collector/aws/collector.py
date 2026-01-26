@@ -1196,6 +1196,58 @@ class CloudWatchCollector(StateManagerMixin):
         logger.info(f"Batch API collected {len(all_metrics)} metrics for {len(resources)} empty resource(s)")
         return all_metrics
 
+    def _get_latest_timestamps_for_resource(
+        self,
+        account_id: str,
+        resource_name: str,
+        region: str,
+    ) -> Dict[str, datetime]:
+        """
+        Get latest timestamp for each metric configuration for a resource.
+        
+        Returns dictionary mapping "metric:stat:period" to latest timestamp.
+        Used to determine where to start incremental collection.
+        
+        Args:
+            account_id: AWS account ID
+            resource_name: Resource identifier
+            region: AWS region
+            
+        Returns:
+            Dict mapping metric key to latest timestamp, or empty dict if no data
+        """
+        query = """
+            SELECT 
+                metric_name,
+                statistic,
+                period_seconds,
+                MAX(timestamp) as latest_timestamp
+            FROM metrics
+            WHERE account_id = ?
+              AND resource_name = ?
+              AND region = ?
+            GROUP BY metric_name, statistic, period_seconds
+        """
+        
+        try:
+            results = self.db_manager.execute_query(
+                query, [account_id, resource_name, region]
+            )
+            
+            coverage = {}
+            for row in results:
+                key = f"{row['metric_name']}:{row['statistic']}:{row['period_seconds']}"
+                coverage[key] = row['latest_timestamp']
+            
+            return coverage
+            
+        except Exception as e:
+            logger.warning(
+                f"Failed to get latest timestamps for {resource_name}: {e}, "
+                "will collect full window"
+            )
+            return {}  # Empty dict means collect full window
+
     async def _collect_metrics_batch_optimized(
         self,
         cloudwatch,
@@ -1206,21 +1258,89 @@ class CloudWatchCollector(StateManagerMixin):
         region: str,
     ) -> List[MetricDataPoint]:
         """
-        SIMPLIFIED: Always collect full window using batch API.
+        Incremental collection using batch API with conservative gap detection.
         
-        No gap detection, no mode detection, no chunking.
-        Let database upsert handle any duplicates.
+        For each resource, finds the EARLIEST latest timestamp across all its metrics,
+        then collects from that point forward. This enables efficient batch API usage
+        while minimizing duplicate data collection.
         """
         logger.info(
-            f"Collecting full window for {len(resources)} resources in {region}"
+            f"Starting incremental collection for {len(resources)} resources in {region}"
         )
         
-        # Just call batch API for ALL resources - that's it!
+        # Separate resources into those needing collection vs up-to-date
+        resources_to_collect = []
+        resources_skipped = 0
+        
+        for resource in resources:
+            # Get latest timestamps for this resource
+            coverage = self._get_latest_timestamps_for_resource(
+                resource['account_id'],
+                resource['resource_name'],
+                region
+            )
+            
+            if not coverage:
+                # No existing data - collect full window
+                resource['collection_start'] = start_time
+                resources_to_collect.append(resource)
+                logger.debug(
+                    f"{resource['resource_name']}: No existing data, "
+                    f"collecting full window"
+                )
+            else:
+                # Find minimum latest timestamp (conservative approach)
+                # This is the earliest point where ANY metric needs new data
+                min_latest = min(coverage.values())
+                
+                # Calculate gap start (add largest period for safety)
+                # Use largest period from all metrics to ensure we don't miss data
+                max_period = max(
+                    max(config.periods) for config in metric_configs if config.periods
+                )
+                gap_start = min_latest + timedelta(seconds=max_period)
+                
+                # Skip if already up-to-date
+                if gap_start >= end_time:
+                    resources_skipped += 1
+                    logger.debug(
+                        f"{resource['resource_name']}: Up-to-date "
+                        f"(latest: {min_latest.isoformat()}, end: {end_time.isoformat()})"
+                    )
+                    continue
+                
+                # Collect gap from earliest needed point
+                resource['collection_start'] = gap_start
+                resources_to_collect.append(resource)
+                logger.debug(
+                    f"{resource['resource_name']}: Gap detected, "
+                    f"collecting from {gap_start.isoformat()} to {end_time.isoformat()}"
+                )
+        
+        logger.info(
+            f"Gap analysis complete: {len(resources_to_collect)} need collection, "
+            f"{resources_skipped} up-to-date"
+        )
+        
+        # Skip API calls if all resources are up-to-date
+        if not resources_to_collect:
+            logger.info("All resources up-to-date, skipping CloudWatch API calls")
+            return []
+        
+        # Collect metrics using batch API for resources that need data
+        # Use the minimum gap_start across all resources for batch efficiency
+        batch_start = min(r['collection_start'] for r in resources_to_collect)
+        
+        logger.info(
+            f"Batch collecting {len(resources_to_collect)} resources "
+            f"from {batch_start.isoformat()} to {end_time.isoformat()}"
+        )
+        
         return await self._collect_with_batch_api(
             cloudwatch,
-            resources,
+            resources_to_collect,
             metric_configs,
-            start_time,
+            batch_start,  # Use earliest gap start for batch
             end_time,
             region
         )
