@@ -6,7 +6,7 @@ import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from metrics_collector.aws.organizations import OrganizationsManager, AWSAccount
+from dynamodb_optima.aws.organizations import OrganizationsManager, AWSAccount
 
 
 @pytest.mark.unit

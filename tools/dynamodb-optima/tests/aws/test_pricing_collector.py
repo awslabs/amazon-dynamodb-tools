@@ -7,7 +7,7 @@ from decimal import Decimal
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
-from metrics_collector.aws.pricing_collector import PricingCollector, AMERICAN_REGIONS
+from dynamodb_optima.aws.pricing_collector import PricingCollector, AMERICAN_REGIONS
 
 
 @pytest.mark.unit

@@ -1,5 +1,5 @@
 """
-Pytest configuration and fixtures for Metrics Collector tests.
+Pytest configuration and fixtures for DynamoDB Optima tests.
 
 Provides common fixtures for database connections, AWS mocking,
 and test data generation.
@@ -29,7 +29,7 @@ def db_connection(temp_db_path):
     conn = duckdb.connect(temp_db_path)
     
     # Initialize schema
-    from metrics_collector.database.schema import initialize_database
+    from dynamodb_optima.database.schema import initialize_database
     initialize_database(conn)
     
     yield conn
