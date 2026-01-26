@@ -397,6 +397,7 @@ class CURCollector:
             logger.info("Falling back to line_item_unblended_cost for net_unblended_cost (column not in CUR)")
         
         # SQL query for DynamoDB CUR data - raw line items (no aggregation)
+        # Uses ON CONFLICT to handle duplicates gracefully (upsert)
         query = f"""
         INSERT INTO cur_data (
             identity_line_item_id,
@@ -435,6 +436,11 @@ class CURCollector:
             line_item_line_item_description as line_item_description
         FROM read_parquet([{file_list}], hive_partitioning=true, union_by_name=true)
         {where_clause}
+        ON CONFLICT (identity_line_item_id, identity_time_interval) DO UPDATE SET
+            usage_amount = EXCLUDED.usage_amount,
+            unblended_cost = EXCLUDED.unblended_cost,
+            net_unblended_cost = EXCLUDED.net_unblended_cost,
+            blended_cost = EXCLUDED.blended_cost
         """
         
         logger.info("Executing CUR data load query")
