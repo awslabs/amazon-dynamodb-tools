@@ -1,4 +1,22 @@
-# DynamoDB Table Class Optimizer
+# DynamoDB Table Class Optimizer (DEPRECATED)
+
+> **⚠️ DEPRECATED (January 2026)**: This tool has been replaced by metrics-collector-v2.
+> 
+> The new unified platform at [`/metrics-collector-v2/`](../metrics-collector-v2/) includes all table class analysis features plus:
+> - ✅ Table class optimization with CUR integration
+> - ✅ Multi-account AWS Organizations support
+> - ✅ Capacity mode analysis
+> - ✅ Modern async architecture
+> - ✅ Streamlit GUI
+> - ✅ No need for Athena - uses DuckDB directly on S3 Parquet files
+> 
+> **Migration:** Use `metrics-collector analyze-table-class` instead of the Athena query
+> 
+> See the [migration guide](../refactor/migration-guide.md) for detailed migration steps.
+
+---
+
+## Original Documentation (Historical Reference)
 
 ## Table of Contents
 - [Overview](#overview)

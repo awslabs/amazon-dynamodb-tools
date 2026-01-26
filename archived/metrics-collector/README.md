@@ -1,4 +1,22 @@
-# DynamoDB Metrics Collector
+# Metrics Collector (DEPRECATED)
+
+> **⚠️ DEPRECATED (January 2026)**: This tool has been replaced by DynamoDB Optimum.
+> 
+> The new unified DynamoDB optimization platform is located at [`/tools/dynamodb-optima/`](../tools/dynamodb-optima/) and provides:
+> - ✅ Multi-account AWS Organizations support
+> - ✅ Capacity mode analysis with autoscaling simulation
+> - ✅ Table class optimization with CUR integration
+> - ✅ Utilization analysis
+> - ✅ Integrated Streamlit GUI
+> - ✅ Incremental metrics collection with gap detection
+> - ✅ Production-ready with comprehensive testing
+> 
+> **Migration:** The new tool uses compatible database schemas and commands. Simply use `dynamodb-optima` commands instead of the old `metrics-collector` commands.
+> 
+
+---
+
+## Original Documentation (Historical Reference)
 
 ## 📊 Uncover Hidden Insights in Your DynamoDB Tables
 
