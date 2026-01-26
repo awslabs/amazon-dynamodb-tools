@@ -1,4 +1,22 @@
-# Table Capacity Mode Optimization Tool
+# Table Capacity Mode Optimization Tool (DEPRECATED)
+
+> **⚠️ DEPRECATED (January 2026)**: This tool has been replaced by metrics-collector-v2.
+> 
+> The new unified platform at [`/metrics-collector-v2/`](../metrics-collector-v2/) includes all capacity mode analysis features plus:
+> - ✅ Autoscaling simulation (same logic, improved implementation)
+> - ✅ Multi-account AWS Organizations support
+> - ✅ Table class optimization
+> - ✅ CUR cost analysis integration
+> - ✅ Modern async architecture
+> - ✅ Streamlit GUI with enhanced visualizations
+> 
+> **Migration:** Use `metrics-collector analyze-capacity` instead of `capacity_reco.py`
+> 
+> See the [migration guide](../refactor/migration-guide.md) for detailed migration steps.
+
+---
+
+## Original Documentation (Historical Reference)
 
 The Table Capacity Mode Optimization Tool analyzes DynamoDB table usage (metrics), simulate autoscaling behavior based on the specified parameters and generate analysis summary for optimizing capacity mode and provisioning.
 

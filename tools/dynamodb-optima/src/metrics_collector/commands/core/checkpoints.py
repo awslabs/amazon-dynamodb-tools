@@ -68,9 +68,9 @@ def checkpoints(ctx: click.Context, cleanup: bool, max_age: int) -> None:
 
         # Show usage hints
         click.echo("  Commands:")
-        click.echo("   dmetrics resume --latest          # Resume latest checkpoint")
-        click.echo("   dmetrics resume <operation_id>    # Resume specific checkpoint")
-        click.echo("   dmetrics checkpoints --cleanup    # Clean up old checkpoints")
+        click.echo("   metrics-collector resume --latest          # Resume latest checkpoint")
+        click.echo("   metrics-collector resume <operation_id>    # Resume specific checkpoint")
+        click.echo("   metrics-collector checkpoints --cleanup    # Clean up old checkpoints")
 
     except Exception as e:
         logger.error("Failed to manage checkpoints", error=str(e))

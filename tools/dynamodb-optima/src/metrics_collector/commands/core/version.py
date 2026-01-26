@@ -1,5 +1,5 @@
 """
-Version command for DMetrics CLI.
+Version command for Metrics Collector CLI.
 """
 
 import click
@@ -12,4 +12,4 @@ def version(ctx: click.Context) -> None:
     # Lazy import to avoid circular dependency with package initialization
     from ... import __version__
 
-    click.echo(f"DMetrics version {__version__}")
+    click.echo(f"Metrics Collector version {__version__}")

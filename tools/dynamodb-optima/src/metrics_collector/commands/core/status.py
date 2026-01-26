@@ -168,7 +168,6 @@ def status(
             click.echo("\n  Commands:")
             click.echo("   metrics-collector status <operation_id>     # Detailed status")
             click.echo("   metrics-collector resume --latest           # Resume latest operation")
-            click.echo("   metrics-collector monitor --watch           # Real-time monitoring")
 
     except Exception as e:
         logger.error("Failed to get status", error=str(e))
