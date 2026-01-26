@@ -65,8 +65,28 @@ class Settings(BaseSettings):
         description="Use AWS Organizations to discover accounts"
     )
     organizations_role_name: str = Field(
-        default="MetricsCollectorRole",
-        description="IAM role name to assume in member accounts"
+        default="OrganizationAccountAccessRole",
+        description="IAM role name to assume in member accounts (AWS Organizations default)"
+    )
+    organizations_role_session_name: str = Field(
+        default="metrics-collector",
+        description="Role session name for STS AssumeRole (will be renamed before release)"
+    )
+    organizations_max_credential_cache_size: int = Field(
+        default=10000,
+        description="Maximum number of credentials to cache (prevents OOM with large orgs)"
+    )
+    organizations_assume_role_max_attempts: int = Field(
+        default=10,
+        description="Maximum retry attempts for AssumeRole calls when throttled"
+    )
+    organizations_assume_role_max_backoff_seconds: int = Field(
+        default=5,
+        description="Maximum backoff time in seconds between AssumeRole retries"
+    )
+    organizations_assume_role_throttle_warning_threshold: int = Field(
+        default=3,
+        description="Log warning if throttled more than this many times"
     )
     organizations_management_account_id: Optional[str] = Field(
         default=None,

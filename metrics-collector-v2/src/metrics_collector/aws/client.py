@@ -58,8 +58,20 @@ class AWSClientManager:
     and comprehensive validation across all regions.
     """
 
-    def __init__(self):
-        """Initialize AWS client manager with enhanced configuration."""
+    def __init__(
+        self,
+        aws_access_key_id: Optional[str] = None,
+        aws_secret_access_key: Optional[str] = None,
+        aws_session_token: Optional[str] = None
+    ):
+        """
+        Initialize AWS client manager with enhanced configuration.
+        
+        Args:
+            aws_access_key_id: Optional AWS access key ID (for cross-account credentials)
+            aws_secret_access_key: Optional AWS secret access key (for cross-account credentials)
+            aws_session_token: Optional AWS session token (for cross-account credentials)
+        """
         self.settings = get_settings()
         self._session_cache: Dict[str, boto3.Session] = {}
         self._async_session_cache: Dict[str, aioboto3.Session] = {}
@@ -68,6 +80,15 @@ class AWSClientManager:
         self._validation_cache_duration = timedelta(
             hours=1
         )  # Cache validation for 1 hour
+        
+        # Store override credentials for cross-account access
+        self._override_credentials: Optional[Dict[str, str]] = None
+        if aws_access_key_id and aws_secret_access_key:
+            self._override_credentials = {
+                'aws_access_key_id': aws_access_key_id,
+                'aws_secret_access_key': aws_secret_access_key,
+                'aws_session_token': aws_session_token
+            }
 
         # Enhanced boto3 configuration with retry logic and connection pooling
         self._boto_config = Config(
@@ -87,9 +108,14 @@ class AWSClientManager:
         target_region = region or self.settings.aws_region
         kwargs["region_name"] = target_region
 
-        # Priority: explicit credentials > profile > environment/IAM
-        if self.settings.aws_access_key_id and self.settings.aws_secret_access_key:
-            # Use explicit credentials
+        # Priority: override credentials > explicit credentials > profile > environment/IAM
+        if self._override_credentials:
+            # Use override credentials (for cross-account access)
+            kwargs.update(self._override_credentials)
+            logger.info("Using override credentials (cross-account)", region=target_region)
+
+        elif self.settings.aws_access_key_id and self.settings.aws_secret_access_key:
+            # Use explicit credentials from settings
             kwargs.update(
                 {
                     "aws_access_key_id": self.settings.aws_access_key_id,

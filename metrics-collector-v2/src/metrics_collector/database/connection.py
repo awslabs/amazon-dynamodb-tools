@@ -602,7 +602,7 @@ class DatabaseManager:
     def _validate_schema(self, connection: duckdb.DuckDBPyConnection) -> None:
         """Validate database schema integrity."""
         try:
-            # Check required tables exist (new comprehensive schema)
+            # Check required tables exist (comprehensive schema from schema.py)
             required_tables = [
                 "table_metadata",
                 "gsi_metadata",
@@ -616,12 +616,6 @@ class DatabaseManager:
                 "checkpoints",
                 "cur_metadata",
                 "cur_data",
-                # Legacy tables from dmetrics
-                "metrics",
-                "table_metadata",
-                "gsi_metadata",
-                "cost_analyses",
-                "operation_states",
                 "schema_version",
             ]
 
@@ -683,7 +677,7 @@ class DatabaseManager:
                 """
                 ).fetchone()
                 
-                # Test pricing_data table structure (new comprehensive schema)
+                # Test pricing_data table structure (use 'region_code' which is the PRIMARY column)
                 connection.execute(
                     """
                     SELECT region_code, price_per_unit, product_family
@@ -719,126 +713,10 @@ class DatabaseManager:
     def _create_schema(self, connection: duckdb.DuckDBPyConnection) -> None:
         """Create database schema with tables, indexes, and views."""
         
-        # Import and initialize extended schema (dynamodb_tables, cloudwatch_metrics, etc.)
+        # Import and initialize extended schema - SINGLE SOURCE OF TRUTH
+        # This creates all tables and indexes
         from .schema import initialize_database
         initialize_database(connection)
-
-        # Create main metrics table with operation-specific columns
-        metrics_table_sql = """
-        CREATE TABLE IF NOT EXISTS metrics (
-            table_name VARCHAR NOT NULL,
-            resource_name VARCHAR NOT NULL,
-            resource_type VARCHAR NOT NULL CHECK (resource_type IN ('TABLE', 'GSI')),
-            metric_name VARCHAR NOT NULL,
-            operation VARCHAR,
-            operation_type VARCHAR,
-            statistic VARCHAR NOT NULL,
-            period_seconds INTEGER NOT NULL,
-            timestamp TIMESTAMP NOT NULL,
-            value DOUBLE NOT NULL,
-            unit VARCHAR NOT NULL,
-            region VARCHAR NOT NULL,
-            dimensions JSON,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(table_name, resource_name, metric_name, statistic,
-                   period_seconds, timestamp, region)
-        )
-        """
-        connection.execute(metrics_table_sql)
-
-        # Create optimized indexes for analytical queries
-        indexes = [
-            "CREATE INDEX IF NOT EXISTS idx_metrics_resource_time "
-            "ON metrics(resource_name, timestamp)",
-            "CREATE INDEX IF NOT EXISTS idx_metrics_table_time "
-            "ON metrics(table_name, timestamp)",
-            "CREATE INDEX IF NOT EXISTS idx_metrics_type_time "
-            "ON metrics(resource_type, timestamp)",
-            "CREATE INDEX IF NOT EXISTS idx_metrics_composite "
-            "ON metrics(metric_name, statistic, period_seconds, timestamp)",
-            "CREATE INDEX IF NOT EXISTS idx_metrics_operation "
-            "ON metrics(metric_name, operation, timestamp)",
-            "CREATE INDEX IF NOT EXISTS idx_metrics_full "
-            "ON metrics(resource_name, metric_name, statistic, "
-            "period_seconds, operation, timestamp)",
-        ]
-
-        for index_sql in indexes:
-            connection.execute(index_sql)
-
-        # Create table metadata table
-        table_metadata_sql = """
-        CREATE TABLE IF NOT EXISTS table_metadata (
-            table_name VARCHAR NOT NULL,
-            region VARCHAR NOT NULL,
-            billing_mode VARCHAR NOT NULL,
-            provisioned_read_capacity BIGINT,
-            provisioned_write_capacity BIGINT,
-            last_updated TIMESTAMP NOT NULL,
-            configuration JSON,
-            PRIMARY KEY (table_name, region)
-        )
-        """
-        connection.execute(table_metadata_sql)
-
-        # Create GSI metadata table
-        gsi_metadata_sql = """
-        CREATE TABLE IF NOT EXISTS gsi_metadata (
-            table_name VARCHAR NOT NULL,
-            gsi_name VARCHAR NOT NULL,
-            resource_name VARCHAR NOT NULL,
-            region VARCHAR NOT NULL,
-            provisioned_read_capacity BIGINT,
-            provisioned_write_capacity BIGINT,
-            projection_type VARCHAR NOT NULL,
-            last_updated TIMESTAMP NOT NULL,
-            PRIMARY KEY (table_name, gsi_name, region)
-        )
-        """
-        connection.execute(gsi_metadata_sql)
-
-        # Create cost analyses table for pre-computed results
-        cost_analyses_sql = """
-        CREATE TABLE IF NOT EXISTS cost_analyses (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            resource_name VARCHAR NOT NULL,
-            resource_type VARCHAR NOT NULL CHECK (resource_type IN ('TABLE', 'GSI')),
-            analysis_type VARCHAR NOT NULL,
-            analysis_date TIMESTAMP NOT NULL,
-            analysis_period_days INTEGER NOT NULL,
-            current_cost DOUBLE,
-            recommended_cost DOUBLE,
-            savings_potential DOUBLE,
-            confidence_score DOUBLE,
-            recommendations JSON,
-            raw_data_summary JSON
-        )
-        """
-        connection.execute(cost_analyses_sql)
-
-        # Create operation states table for resumable operations
-        operation_states_sql = """
-        CREATE TABLE IF NOT EXISTS operation_states (
-            operation_id VARCHAR PRIMARY KEY,
-            operation_type VARCHAR NOT NULL CHECK (
-                operation_type IN ('DISCOVERY', 'COLLECTION', 'ANALYSIS')
-            ),
-            status VARCHAR NOT NULL CHECK (
-                status IN ('RUNNING', 'PAUSED', 'COMPLETED', 'FAILED')
-            ),
-            start_time TIMESTAMP NOT NULL,
-            last_checkpoint_time TIMESTAMP NOT NULL,
-            completion_percentage DOUBLE NOT NULL CHECK (
-                completion_percentage >= 0 AND completion_percentage <= 100
-            ),
-            estimated_completion TIMESTAMP,
-            state_data BLOB,
-            error_message VARCHAR,
-            created_by VARCHAR NOT NULL,
-            region VARCHAR
-        )
-        """
-        connection.execute(operation_states_sql)
 
         # Create normalized metrics view for utilization calculations
         normalized_metrics_view_sql = """
@@ -1262,6 +1140,7 @@ class DatabaseManager:
                         f"""
                         CREATE TEMPORARY TABLE {staging_table_name} AS
                         SELECT
+                            account_id,
                             table_name,
                             resource_name,
                             resource_type,
@@ -1286,7 +1165,7 @@ class DatabaseManager:
                         f"""
                         INSERT INTO metrics
                         SELECT * FROM {staging_table_name}
-                        ON CONFLICT (resource_name, metric_name, timestamp, statistic, period_seconds)
+                        ON CONFLICT (account_id, resource_name, metric_name, timestamp, statistic, period_seconds)
                         DO UPDATE SET
                             value = EXCLUDED.value,
                             unit = EXCLUDED.unit,

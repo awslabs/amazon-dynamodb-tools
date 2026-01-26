@@ -12,7 +12,7 @@ Includes tables for:
 # DynamoDB tables schema (table_metadata is the actual table name used by collector)
 DYNAMODB_TABLES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS table_metadata (
-    account_id VARCHAR,
+    account_id VARCHAR NOT NULL,
     region VARCHAR,
     table_name VARCHAR,
     table_arn VARCHAR,
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS table_metadata (
     discovered_at TIMESTAMP,
     last_updated TIMESTAMP,
     configuration JSON,
-    PRIMARY KEY (table_name, region)
+    PRIMARY KEY (account_id, table_name, region)
 );
 """
 
@@ -130,6 +130,7 @@ CREATE INDEX IF NOT EXISTS idx_pricing_collected ON pricing_data(collected_at);
 # CloudWatch metrics schema (metrics is the actual table name used by collector)
 CLOUDWATCH_METRICS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS metrics (
+    account_id VARCHAR NOT NULL,
     table_name VARCHAR,
     resource_name VARCHAR,
     resource_type VARCHAR,
@@ -144,8 +145,15 @@ CREATE TABLE IF NOT EXISTS metrics (
     region VARCHAR,
     dimensions JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (resource_name, metric_name, timestamp, statistic, period_seconds)
+    PRIMARY KEY (account_id, resource_name, metric_name, timestamp, statistic, period_seconds)
 );
+
+-- Optimized indexes for analytical queries
+-- Note: Primary key (account_id, resource_name, metric_name, timestamp, statistic, period_seconds)
+-- already provides efficient gap detection queries via MAX(timestamp)
+CREATE INDEX IF NOT EXISTS idx_metrics_account_table_time ON metrics(account_id, table_name, timestamp);
+CREATE INDEX IF NOT EXISTS idx_metrics_type_time ON metrics(resource_type, timestamp);
+CREATE INDEX IF NOT EXISTS idx_metrics_operation ON metrics(metric_name, operation, timestamp);
 """
 
 # Capacity mode recommendations schema

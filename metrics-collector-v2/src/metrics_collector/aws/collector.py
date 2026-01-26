@@ -10,7 +10,7 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..core.state import (
     CollectionState,
@@ -51,6 +51,7 @@ class CollectionResult:
 class MetricDataPoint:
     """Individual metric data point for database storage."""
 
+    account_id: str  # AWS account ID
     table_name: str
     resource_name: str  # table_name or table_name#gsi_name
     resource_type: str  # 'TABLE' or 'GSI'
@@ -185,43 +186,8 @@ class CloudWatchCollector(StateManagerMixin):
         target_regions = regions or await self._get_available_regions()
         target_metrics = metric_configs or self.default_metrics
 
-        # Apply timestamp alignment for optimal CloudWatch performance
-        # We need to align based on the periods we'll be collecting
-        # Use the most restrictive period (smallest) for alignment
-        min_period = (
-            min(min(config.periods) for config in target_metrics if config.periods)
-            if target_metrics
-            else 300
-        )  # Default to 5-minute alignment
-
-        original_start = start_time
-        original_end = end_time
-
-        # Align timestamps for optimal CloudWatch API performance
-        aligned_start, aligned_end = align_collection_timestamps(
-            start_time, end_time, min_period
-        )
-
-        # Log alignment decisions and performance impact
-        start_adjustment = (original_start - aligned_start).total_seconds()
-        end_adjustment = (aligned_end - original_end).total_seconds()
-
-        logger.debug(
-            "Applied timestamp alignment for CloudWatch optimization",
-            original_start=original_start.isoformat(),
-            original_end=original_end.isoformat(),
-            aligned_start=aligned_start.isoformat(),
-            aligned_end=aligned_end.isoformat(),
-            alignment_period_seconds=min_period,
-            start_adjustment_seconds=start_adjustment,
-            end_adjustment_seconds=end_adjustment,
-            performance_benefit="Aligned boundaries improve API efficiency and data consistency",
-        )
-
-        # Use aligned timestamps for collection
-        start_time = aligned_start
-        end_time = aligned_end
-
+        # Timestamps are already hour-aligned from collect.py command
+        # No additional alignment needed - this prevents timestamp drift between runs
         logger.debug(
             f"Starting metrics collection operation {state.operation_id}",
             start_time=start_time,
@@ -448,7 +414,7 @@ class CloudWatchCollector(StateManagerMixin):
             try:
                 # Get tables and GSIs from database (populated by discovery)
                 tables_query = """
-                    SELECT table_name, billing_mode,
+                    SELECT account_id, table_name, billing_mode,
                            provisioned_read_capacity, provisioned_write_capacity
                     FROM table_metadata
                     WHERE region = ?
@@ -456,7 +422,7 @@ class CloudWatchCollector(StateManagerMixin):
                 tables = self.db_manager.execute_query(tables_query, [region])
 
                 gsis_query = """
-                    SELECT table_name, gsi_name, resource_name,
+                    SELECT account_id, table_name, gsi_name, resource_name,
                            provisioned_read_capacity, provisioned_write_capacity
                     FROM gsi_metadata
                     WHERE region = ?
@@ -470,6 +436,7 @@ class CloudWatchCollector(StateManagerMixin):
                 for table in tables:
                     region_resources.append(
                         {
+                            "account_id": table["account_id"],
                             "resource_name": table["table_name"],
                             "resource_type": "TABLE",
                             "table_name": table["table_name"],
@@ -482,6 +449,7 @@ class CloudWatchCollector(StateManagerMixin):
                 for gsi in gsis:
                     region_resources.append(
                         {
+                            "account_id": gsi["account_id"],
                             "resource_name": gsi[
                                 "resource_name"
                             ],  # table_name#gsi_name
@@ -902,93 +870,6 @@ class CloudWatchCollector(StateManagerMixin):
                 region,
             )
 
-    async def _collect_single_metric(
-        self,
-        cloudwatch,
-        resource: Dict[str, Any],
-        config: MetricConfiguration,
-        statistic: str,
-        period: int,
-        start_time: datetime,
-        end_time: datetime,
-        region: str,
-    ) -> List[MetricDataPoint]:
-        """Collect a single metric configuration."""
-        try:
-            logger.debug(
-                f"Collecting {config.metric_name}:{statistic}:{period} "
-                f"for {resource['resource_name']}"
-            )
-            # Build CloudWatch dimensions
-            dimensions = [{"Name": "TableName", "Value": resource["table_name"]}]
-
-            # Add GSI dimension if this is a GSI resource
-            if resource["resource_type"] == "GSI":
-                gsi_name = resource["resource_name"].split("#")[1]
-                dimensions.append(
-                    {
-                        "Name": "GlobalSecondaryIndexName",
-                        "Value": gsi_name,
-                    }
-                )
-
-            # Add operation dimension if specified
-            if config.operation:
-                dimensions.append({"Name": "Operation", "Value": config.operation})
-
-            # Add operation type dimension if specified
-            if config.operation_type:
-                dimensions.append(
-                    {
-                        "Name": "OperationType",
-                        "Value": config.operation_type,
-                    }
-                )
-
-            # Get metric statistics with timeout
-            response = await asyncio.wait_for(
-                cloudwatch.get_metric_statistics(
-                    Namespace="AWS/DynamoDB",
-                    MetricName=config.metric_name,
-                    Dimensions=dimensions,
-                    StartTime=start_time,
-                    EndTime=end_time,
-                    Period=period,
-                    Statistics=[statistic],
-                ),
-                timeout=5.0,  # 5 second timeout per API call
-            )
-
-            # Process datapoints
-            metrics = []
-            for datapoint in response.get("Datapoints", []):
-                metric_data = MetricDataPoint(
-                    table_name=resource["table_name"],
-                    resource_name=resource["resource_name"],
-                    resource_type=resource["resource_type"],
-                    metric_name=config.metric_name,
-                    operation=config.operation,
-                    operation_type=config.operation_type,
-                    statistic=statistic,
-                    period_seconds=period,
-                    timestamp=datapoint["Timestamp"],
-                    value=datapoint[statistic],
-                    unit=datapoint["Unit"],
-                    region=region,
-                    dimensions={d["Name"]: d["Value"] for d in dimensions},
-                )
-                metrics.append(metric_data)
-
-            return metrics
-
-        except Exception as e:
-            logger.warning(
-                f"Failed to collect "
-                f"{config.metric_name}:{statistic}:{period} "
-                f"for {resource['resource_name']}: {e}"
-            )
-            return []  # Return empty list on error
-
     async def _flush_metric_batch(self) -> None:
         """Flush accumulated metrics to database optimized for DuckDB OLAP."""
         if not self._metric_batch:
@@ -1005,6 +886,7 @@ class CloudWatchCollector(StateManagerMixin):
                 for metric in self._metric_batch:
                     batch_data.append(
                         {
+                            "account_id": metric.account_id,
                             "table_name": metric.table_name,
                             "resource_name": metric.resource_name,
                             "resource_type": metric.resource_type,
@@ -1044,28 +926,16 @@ class CloudWatchCollector(StateManagerMixin):
         """Direct batch insert optimized for DuckDB OLAP performance."""
         try:
             # DuckDB performs best with large batch inserts
-            # Use upsert for data consistency, fallback to insert if needed
-            try:
-                self.db_manager.execute_batch_upsert_metrics(batch_data)
-                logger.debug(
-                    f"Successfully inserted {len(batch_data)} metrics to DuckDB "
-                    "using upsert"
-                )
-            except Exception as upsert_error:
-                logger.warning(
-                    f"DuckDB batch upsert failed, trying simple insert: {upsert_error}"
-                )
-                # Fallback to simple batch insert for DuckDB
-                self.db_manager.execute_batch_insert("metrics", batch_data)
-                logger.debug(
-                    f"Successfully inserted {len(batch_data)} metrics to DuckDB "
-                    "using simple insert"
-                )
-
+            # Use upsert for data consistency
+            self.db_manager.execute_batch_upsert_metrics(batch_data)
+            logger.debug(
+                f"Successfully inserted {len(batch_data)} metrics to DuckDB "
+                "using upsert"
+            )
         except Exception as e:
-            logger.error(f"Failed to perform DuckDB batch insert: {e}")
-            # Re-raise to surface the actual error instead of silently failing
-            raise
+            logger.error(f"FATAL: Failed to insert {len(batch_data)} metrics to database: {e}")
+            # RE-RAISE so errors are visible to user!
+            raise RuntimeError(f"Database insert failed for {len(batch_data)} metrics: {e}")
 
     def get_collection_status(self, operation_id: str) -> Optional[Dict]:
         """Get current status of a collection operation."""
@@ -1188,93 +1058,57 @@ class CloudWatchCollector(StateManagerMixin):
     # OPTIMIZED CLOUDWATCH API BATCHING METHODS (Task 5.1)
     # ========================================================================
 
-    async def _collect_metrics_batch_optimized(
+    async def _collect_with_batch_api(
         self,
         cloudwatch,
         resources: List[Dict[str, Any]],
         metric_configs: List[MetricConfiguration],
         start_time: datetime,
         end_time: datetime,
-        region: str,
+        region: str
     ) -> List[MetricDataPoint]:
         """
-        Optimized CloudWatch metrics collection using GetMetricData API.
-
-        Maximizes the 100,400 objects per call limit by intelligently batching
-        multiple metrics, statistics, and periods into single API calls.
+        Collect metrics using GetMetricData batch API for empty resources.
+        
+        This is much faster than individual GetMetricStatistics calls.
+        Used when resources have no existing data (first-time collection).
+        
+        Args:
+            cloudwatch: CloudWatch client
+            resources: List of resources (should all be empty)
+            metric_configs: Metrics to collect
+            start_time: Collection start time
+            end_time: Collection end time
+            region: AWS region
+            
+        Returns:
+            List of MetricDataPoint objects
         """
-        # Validate timestamp alignment for all periods we'll be collecting
-        periods_to_validate = set()
-        for config in metric_configs:
-            periods_to_validate.update(config.periods)
-
-        alignment_warnings = []
-        for period in periods_to_validate:
-            if not validate_cloudwatch_timestamps(start_time, end_time, period):
-                alignment_warnings.append(
-                    f"timestamps not aligned for {period}s period"
-                )
-
-        if alignment_warnings:
-            logger.warning(
-                "Timestamp alignment issues detected - may impact CloudWatch performance",
-                region=region,
-                start_time=start_time.isoformat(),
-                end_time=end_time.isoformat(),
-                alignment_issues=alignment_warnings,
-                recommendation="Use TimestampAligner.calculate_optimal_time_window() for better performance",
-            )
-        else:
-            logger.debug(
-                "Timestamp alignment validation passed for all periods",
-                region=region,
-                periods=sorted(periods_to_validate),
-                start_time=start_time.isoformat(),
-                end_time=end_time.isoformat(),
-            )
         # Build all metric queries for batching
         metric_queries = []
-        query_metadata = {}  # Maps query ID to metadata for result processing
-
+        query_metadata = {}
         query_id_counter = 0
-
+        
         for resource in resources:
             for config in metric_configs:
                 for statistic in config.statistics:
                     for period in config.periods:
                         query_id = f"m{query_id_counter}"
                         query_id_counter += 1
-
-                        # Build CloudWatch dimensions
-                        dimensions = [
-                            {"Name": "TableName", "Value": resource["table_name"]}
-                        ]
-
-                        # Add GSI dimension if this is a GSI resource
-                        if (
-                            resource["resource_type"] == "GSI"
-                            and "#" in resource["resource_name"]
-                        ):
+                        
+                        # Build dimensions
+                        dimensions = [{"Name": "TableName", "Value": resource["table_name"]}]
+                        
+                        if resource["resource_type"] == "GSI" and "#" in resource["resource_name"]:
                             gsi_name = resource["resource_name"].split("#", 1)[1]
-                            dimensions.append(
-                                {"Name": "GlobalSecondaryIndexName", "Value": gsi_name}
-                            )
-
-                        # Add operation dimension if specified
+                            dimensions.append({"Name": "GlobalSecondaryIndexName", "Value": gsi_name})
+                        
                         if config.operation:
-                            dimensions.append(
-                                {"Name": "Operation", "Value": config.operation}
-                            )
-
-                        # Add operation type dimension for batch operations
+                            dimensions.append({"Name": "Operation", "Value": config.operation})
+                        
                         if config.operation_type:
-                            dimensions.append(
-                                {
-                                    "Name": "OperationType",
-                                    "Value": config.operation_type,
-                                }
-                            )
-
+                            dimensions.append({"Name": "OperationType", "Value": config.operation_type})
+                        
                         # Create metric query
                         metric_query = {
                             "Id": query_id,
@@ -1289,10 +1123,8 @@ class CloudWatchCollector(StateManagerMixin):
                             },
                             "ReturnData": True,
                         }
-
+                        
                         metric_queries.append(metric_query)
-
-                        # Store metadata for result processing
                         query_metadata[query_id] = {
                             "resource": resource,
                             "config": config,
@@ -1300,107 +1132,98 @@ class CloudWatchCollector(StateManagerMixin):
                             "period": period,
                             "region": region,
                         }
-
-        logger.debug(
-            f"Prepared {len(metric_queries)} metric queries for batch collection"
-        )
-
-        # Group queries by period for optimal time window alignment
-        queries_by_period = {}
-        for query in metric_queries:
-            period = query["MetricStat"]["Period"]
-            if period not in queries_by_period:
-                queries_by_period[period] = []
-            queries_by_period[period].append(query)
-
-        # Process each period group with optimized time windows
+        
+        logger.debug(f"Built {len(metric_queries)} queries for batch collection")
+        
+        # Process in batches with pagination
         all_metrics = []
-
-        for period_seconds, period_queries in queries_by_period.items():
-            # Calculate optimal time window for this specific period
-            period_start, period_end = TimestampAligner.calculate_optimal_time_window(
-                start_time, end_time, period_seconds
-            )
-
-            logger.debug(
-                "Processing period-specific batch with optimized time window",
-                period_seconds=period_seconds,
-                queries_count=len(period_queries),
-                optimized_start=period_start.isoformat(),
-                optimized_end=period_end.isoformat(),
-                time_window_hours=(period_end - period_start).total_seconds() / 3600,
-            )
-
-            # Process this period's queries in batches
-            batch_size = self._calculate_optimal_batch_size(len(period_queries))
-
-            for i in range(0, len(period_queries), batch_size):
-                batch_queries = period_queries[i : i + batch_size]
-
-                logger.debug(
-                    f"Processing period {period_seconds}s batch {i//batch_size + 1}: "
-                    f"{len(batch_queries)} queries (objects: {len(batch_queries)})"
-                )
-
-                try:
-                    # Make batched API call with period-optimized time window
-                    logger.debug(
-                        f"Making CloudWatch API call: {len(batch_queries)} queries "
-                        f"from {period_start} to {period_end} (period: {period_seconds}s)"
-                    )
-
+        batch_size = self._calculate_optimal_batch_size(len(metric_queries))
+        
+        for i in range(0, len(metric_queries), batch_size):
+            batch_queries = metric_queries[i:i + batch_size]
+            
+            try:
+                # Paginate through all results using NextToken
+                next_token = None
+                page = 1
+                batch_total = 0
+                
+                while True:
+                    params = {
+                        "MetricDataQueries": batch_queries,
+                        "StartTime": start_time,
+                        "EndTime": end_time,
+                        "MaxDatapoints": 100800,
+                    }
+                    
+                    if next_token:
+                        params["NextToken"] = next_token
+                    
                     response = await asyncio.wait_for(
-                        cloudwatch.get_metric_data(
-                            MetricDataQueries=batch_queries,
-                            StartTime=period_start,
-                            EndTime=period_end,
-                            MaxDatapoints=100800,  # CloudWatch limit
-                        ),
-                        timeout=30.0,  # 30 second timeout per batch
+                        cloudwatch.get_metric_data(**params),
+                        timeout=30.0,
                     )
-
-                    # Log response details for debugging
-                    results_count = len(response.get("MetricDataResults", []))
-                    logger.debug(f"CloudWatch response: {results_count} metric results")
-
-                    # Process batch results
-                    batch_metrics = self._process_batch_response(
-                        response, query_metadata
-                    )
-                    all_metrics.extend(batch_metrics)
-
+                    
+                    # Process this page
+                    page_metrics = self._process_batch_response(response, query_metadata)
+                    all_metrics.extend(page_metrics)
+                    batch_total += len(page_metrics)
+                    
                     logger.debug(
-                        f"Period {period_seconds}s batch {i//batch_size + 1} completed: "
-                        f"{len(batch_metrics)} metrics collected"
+                        f"Batch {i//batch_size + 1} page {page}: "
+                        f"{len(page_metrics)} metrics collected"
                     )
-
-                    # Add small delay between batches to respect rate limits
-                    if i + batch_size < len(period_queries):
-                        await asyncio.sleep(0.1)  # 100ms delay between batches
-
-                except Exception as e:
-                    logger.error(
-                        f"Period {period_seconds}s batch {i//batch_size + 1} failed: {e}"
-                    )
-                    # Continue with next batch rather than failing completely
-                    continue
-
-        # Calculate total batches processed across all periods
-        total_batches = sum(
-            (len(queries) + self._calculate_optimal_batch_size(len(queries)) - 1)
-            // self._calculate_optimal_batch_size(len(queries))
-            for queries in queries_by_period.values()
-        )
-
-        logger.debug(
-            f"Period-optimized batch collection completed: "
-            f"{len(all_metrics)} metrics from {len(metric_queries)} queries "
-            f"across {len(queries_by_period)} periods in {total_batches} total batches",
-            periods_processed=sorted(queries_by_period.keys()),
-            performance_optimization="Period-specific time windows improve CloudWatch API efficiency",
-        )
-
+                    
+                    # Check for more pages
+                    next_token = response.get("NextToken")
+                    if not next_token:
+                        break  # No more data!
+                    
+                    page += 1
+                
+                logger.info(
+                    f"Batch {i//batch_size + 1} complete: "
+                    f"{batch_total} metrics across {page} page(s)"
+                )
+                
+                # Small delay between batches
+                if i + batch_size < len(metric_queries):
+                    await asyncio.sleep(0.1)
+                    
+            except Exception as e:
+                logger.error(f"Batch API call failed: {e}")
+        
+        logger.info(f"Batch API collected {len(all_metrics)} metrics for {len(resources)} empty resource(s)")
         return all_metrics
+
+    async def _collect_metrics_batch_optimized(
+        self,
+        cloudwatch,
+        resources: List[Dict[str, Any]],
+        metric_configs: List[MetricConfiguration],
+        start_time: datetime,
+        end_time: datetime,
+        region: str,
+    ) -> List[MetricDataPoint]:
+        """
+        SIMPLIFIED: Always collect full window using batch API.
+        
+        No gap detection, no mode detection, no chunking.
+        Let database upsert handle any duplicates.
+        """
+        logger.info(
+            f"Collecting full window for {len(resources)} resources in {region}"
+        )
+        
+        # Just call batch API for ALL resources - that's it!
+        return await self._collect_with_batch_api(
+            cloudwatch,
+            resources,
+            metric_configs,
+            start_time,
+            end_time,
+            region
+        )
 
     def get_time_period_optimization_recommendations(
         self, metric_configs: List[MetricConfiguration]
@@ -1568,6 +1391,7 @@ class CloudWatchCollector(StateManagerMixin):
 
                 # Create metric data point
                 metric_data = MetricDataPoint(
+                    account_id=resource["account_id"],
                     table_name=resource["table_name"],
                     resource_name=resource["resource_name"],
                     resource_type=resource["resource_type"],

@@ -29,7 +29,15 @@ logger = get_logger(__name__)
 @click.option(
     "--use-org",
     is_flag=True,
-    help="Use AWS Organizations to discover accounts (not yet implemented)",
+    help="Use AWS Organizations to discover accounts across entire organization",
+)
+@click.option(
+    "--org-role",
+    help="IAM role name to assume in member accounts (default: OrganizationAccountAccessRole)",
+)
+@click.option(
+    "--skip-accounts",
+    help="Comma-separated list of account IDs to skip during discovery",
 )
 @click.option(
     "--resume",
@@ -50,6 +58,8 @@ def discover(
     regions: Optional[str],
     profile: Optional[str],
     use_org: bool,
+    org_role: Optional[str],
+    skip_accounts: Optional[str],
     resume: bool,
     operation_id: Optional[str],
     cur_override: Optional[str],
@@ -89,12 +99,6 @@ def discover(
         ]
         click.echo(f"No regions specified, using: {', '.join(region_list)}")
     
-    # Organizations support not yet implemented
-    if use_org:
-        click.echo("⚠️  AWS Organizations support coming in future phase")
-        click.echo("   Proceeding with specified regions only")
-        click.echo()
-    
     # Configure AWS profile if specified
     if profile:
         import os
@@ -102,27 +106,141 @@ def discover(
         click.echo(f"Using AWS profile: {profile}")
         click.echo()
     
+    # Parse skip accounts list
+    skip_account_list = []
+    if skip_accounts:
+        skip_account_list = [a.strip() for a in skip_accounts.split(",")]
+    
     try:
-        # Initialize discovery manager
-        discovery_manager = DiscoveryManager()
-        
-        # Run discovery
-        click.echo(f"🔍 Starting discovery across {len(region_list)} regions...")
-        click.echo()
-        
-        # Run async discovery
-        state = asyncio.run(
-            discovery_manager.discover_all_resources(
-                regions=region_list,
-                operation_id=operation_id,
-                resume_from_checkpoint=resume,
+        # Multi-account Organizations discovery
+        if use_org:
+            click.echo("🏢 AWS Organizations Multi-Account Discovery")
+            click.echo("=" * 80)
+            
+            # Get role name (use provided or default from config)
+            role_name = org_role or settings.organizations_role_name
+            click.echo(f"   Role to assume: {role_name}")
+            click.echo(f"   Regions: {', '.join(region_list)}")
+            if skip_account_list:
+                click.echo(f"   Skipping accounts: {', '.join(skip_account_list)}")
+            click.echo()
+            
+            # Initialize Organizations manager
+            org_manager = OrganizationsManager()
+            conn = get_connection()
+            
+            # Discover and store accounts from Organizations
+            click.echo("📋 Discovering accounts in organization...")
+            accounts = asyncio.run(org_manager.discover_and_store_accounts(conn))
+            
+            # Filter out skipped accounts
+            if skip_account_list:
+                accounts = [a for a in accounts if a.account_id not in skip_account_list]
+            
+            click.echo(f"✅ Found {len(accounts)} accounts to process")
+            click.echo()
+            
+            # Track results per account
+            account_results = []
+            total_tables = 0
+            total_gsis = 0
+            failed_accounts = []
+            
+            # Initialize discovery manager for multi-account orchestration
+            discovery_manager = DiscoveryManager()
+            
+            # Process each account
+            for idx, account in enumerate(accounts, 1):
+                click.echo(f"[{idx}/{len(accounts)}] Processing account: {account.account_name} ({account.account_id})")
+                
+                try:
+                    # Skip role assumption for management account
+                    credentials = None
+                    if not account.is_management_account:
+                        click.echo(f"   Assuming role: {role_name}")
+                        credentials = asyncio.run(
+                            org_manager.get_account_credentials(
+                                account.account_id,
+                                role_name
+                            )
+                        )
+                    else:
+                        click.echo("   Using management account credentials (no role assumption)")
+                    
+                    # Discover resources in this account
+                    result = asyncio.run(
+                        discovery_manager.discover_account_resources(
+                            account_id=account.account_id,
+                            account_name=account.account_name,
+                            regions=region_list,
+                            credentials=credentials
+                        )
+                    )
+                    
+                    account_results.append(result)
+                    
+                    if result["status"] == "success":
+                        total_tables += result["tables_discovered"]
+                        total_gsis += result["gsis_discovered"]
+                        click.echo(f"   ✅ Success: {result['tables_discovered']} tables, "
+                                 f"{result['gsis_discovered']} GSIs")
+                    else:
+                        failed_accounts.append(account.account_name)
+                        click.echo(f"   ❌ Failed: {result.get('error', 'Unknown error')}")
+                    
+                except Exception as e:
+                    failed_accounts.append(account.account_name)
+                    click.echo(f"   ❌ Failed: {e}")
+                    logger.error(f"Failed to discover account {account.account_id}: {e}")
+                    account_results.append({
+                        "account_id": account.account_id,
+                        "account_name": account.account_name,
+                        "status": "failed",
+                        "error": str(e)
+                    })
+                
+                click.echo()
+            
+            # Display multi-account summary
+            click.echo("=" * 80)
+            click.echo("🎉 Multi-Account Discovery Complete!")
+            click.echo("=" * 80)
+            click.echo(f"   Total accounts processed: {len(accounts)}")
+            click.echo(f"   Successful: {len(accounts) - len(failed_accounts)}")
+            click.echo(f"   Failed: {len(failed_accounts)}")
+            click.echo(f"   Total tables discovered: {total_tables}")
+            click.echo(f"   Total GSIs discovered: {total_gsis}")
+            
+            if failed_accounts:
+                click.echo()
+                click.echo("   Failed accounts:")
+                for account_name in failed_accounts:
+                    click.echo(f"      - {account_name}")
+            
+            click.echo()
+            
+        else:
+            # Single account discovery (original behavior)
+            # Initialize discovery manager
+            discovery_manager = DiscoveryManager()
+            
+            # Run discovery
+            click.echo(f"🔍 Starting discovery across {len(region_list)} regions...")
+            click.echo()
+            
+            # Run async discovery
+            state = asyncio.run(
+                discovery_manager.discover_all_resources(
+                    regions=region_list,
+                    operation_id=operation_id,
+                    resume_from_checkpoint=resume,
+                )
             )
-        )
-        
-        # Display results
-        click.echo()
-        click.echo("✅ Discovery completed successfully!")
-        click.echo()
+            
+            # Display results
+            click.echo()
+            click.echo("✅ Discovery completed successfully!")
+            click.echo()
         
         # Collect comprehensive pricing data for all discovered regions
         click.echo("💰 Collecting DynamoDB pricing data...")

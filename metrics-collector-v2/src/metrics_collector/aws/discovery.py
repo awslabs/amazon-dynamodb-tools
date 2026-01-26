@@ -46,6 +46,8 @@ class DiscoveryManager(StateManagerMixin):
         aws_client_manager: Optional[AWSClientManager] = None,
         state_manager: Optional[StateManager] = None,
         checkpoint_interval: Optional[int] = None,
+        credentials: Optional[Dict[str, str]] = None,
+        account_id: Optional[str] = None,
     ):
         """
         Initialize discovery manager.
@@ -54,6 +56,8 @@ class DiscoveryManager(StateManagerMixin):
             aws_client_manager: AWS client manager instance
             state_manager: State manager for checkpoints
             checkpoint_interval: Save checkpoint every N tables discovered
+            credentials: AWS credentials for cross-account access
+            account_id: AWS account ID for multi-account discovery
         """
         # Initialize StateManagerMixin first
         super().__init__(state_manager=state_manager)
@@ -62,11 +66,22 @@ class DiscoveryManager(StateManagerMixin):
         from ..config import get_settings
 
         settings = get_settings()
-        self.aws_client_manager = aws_client_manager or AWSClientManager()
+        
+        # Create AWS client manager with credentials if provided
+        if credentials:
+            self.aws_client_manager = AWSClientManager(
+                aws_access_key_id=credentials.get("aws_access_key_id"),
+                aws_secret_access_key=credentials.get("aws_secret_access_key"),
+                aws_session_token=credentials.get("aws_session_token")
+            )
+        else:
+            self.aws_client_manager = aws_client_manager or AWSClientManager()
+        
         self.checkpoint_interval = checkpoint_interval or (
             settings.checkpoint_save_interval * 2
         )  # Discovery uses 2x interval
         self.db_manager = get_database_manager()
+        self.account_id = account_id  # Store for multi-account discovery
 
     @ensure_state_manager_consistency
     async def discover_all_resources(
@@ -110,16 +125,19 @@ class DiscoveryManager(StateManagerMixin):
         if not state.collection_state.regions_to_discover:
             state.collection_state.regions_to_discover = regions.copy()
 
-        # Get AWS account ID from STS
-        import boto3
-        try:
-            sts_client = boto3.client('sts')
-            account_info = sts_client.get_caller_identity()
-            self.account_id = account_info['Account']
-            logger.info(f"Discovering resources for AWS account: {self.account_id}")
-        except Exception as e:
-            logger.warning(f"Failed to get account ID from STS: {e}")
-            self.account_id = "unknown"
+        # Get AWS account ID from STS only if not already set (for multi-account support)
+        if not self.account_id:
+            import boto3
+            try:
+                sts_client = boto3.client('sts')
+                account_info = sts_client.get_caller_identity()
+                self.account_id = account_info['Account']
+                logger.info(f"Discovering resources for AWS account: {self.account_id}")
+            except Exception as e:
+                logger.warning(f"Failed to get account ID from STS: {e}")
+                self.account_id = "unknown"
+        else:
+            logger.info(f"Using pre-configured account ID for discovery: {self.account_id}")
 
         logger.info(
             f"Starting discovery operation {state.operation_id}",
@@ -605,12 +623,13 @@ class DiscoveryManager(StateManagerMixin):
                         conn.execute(
                             """
                             INSERT INTO table_metadata
-                            (table_name, region, billing_mode,
+                            (account_id, table_name, region, billing_mode,
                              provisioned_read_capacity,
                              provisioned_write_capacity, last_updated, configuration)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                            ON CONFLICT (table_name, region)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT (account_id, table_name, region)
                             DO UPDATE SET
+                                account_id = EXCLUDED.account_id,
                                 billing_mode = EXCLUDED.billing_mode,
                                 provisioned_read_capacity = (
                                     EXCLUDED.provisioned_read_capacity
@@ -622,6 +641,7 @@ class DiscoveryManager(StateManagerMixin):
                                 configuration = EXCLUDED.configuration
                         """,
                             [
+                                self.account_id,
                                 record["table_name"],
                                 record["region"],
                                 record["billing_mode"],
@@ -726,6 +746,93 @@ class DiscoveryManager(StateManagerMixin):
         return await self.discover_all_resources(
             remaining_regions, operation_id=operation_id, resume_from_checkpoint=True
         )
+
+    async def discover_account_resources(
+        self,
+        account_id: str,
+        account_name: str,
+        regions: List[str],
+        credentials: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, any]:
+        """
+        Discover DynamoDB resources in a specific AWS account.
+        
+        This method is designed for multi-account discovery where each account
+        is processed independently with its own credentials.
+        
+        Args:
+            account_id: AWS account ID
+            account_name: AWS account name (for logging)
+            regions: List of AWS regions to discover
+            credentials: AWS credentials for cross-account access
+        
+        Returns:
+            Dictionary with discovery results including counts and errors
+        """
+        logger.info(
+            f"Starting discovery for account {account_name} ({account_id})",
+            regions=len(regions)
+        )
+        
+        try:
+            # Create discovery manager instance with account-specific credentials
+            account_discovery = DiscoveryManager(
+                credentials=credentials,
+                account_id=account_id,
+                state_manager=self.state_manager,
+                checkpoint_interval=self.checkpoint_interval
+            )
+            
+            # Run discovery for this account
+            operation_id = f"discovery-{account_id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            state = await account_discovery.discover_all_resources(
+                regions=regions,
+                operation_id=operation_id,
+                resume_from_checkpoint=False
+            )
+            
+            # Calculate totals
+            total_tables = sum(
+                len(tables)
+                for tables in state.collection_state.tables_discovered.values()
+            )
+            total_gsis = sum(
+                len(gsis)
+                for gsis in state.collection_state.gsis_discovered.values()
+            )
+            
+            logger.info(
+                f"Completed discovery for account {account_name} ({account_id})",
+                total_tables=total_tables,
+                total_gsis=total_gsis,
+                regions_completed=len(state.collection_state.regions_completed)
+            )
+            
+            return {
+                "account_id": account_id,
+                "account_name": account_name,
+                "status": "success",
+                "tables_discovered": total_tables,
+                "gsis_discovered": total_gsis,
+                "regions_completed": len(state.collection_state.regions_completed),
+                "regions_failed": len(state.collection_state.failed_collections),
+                "operation_id": operation_id
+            }
+            
+        except Exception as e:
+            logger.error(
+                f"Failed to discover resources in account {account_name} ({account_id}): {e}"
+            )
+            return {
+                "account_id": account_id,
+                "account_name": account_name,
+                "status": "failed",
+                "tables_discovered": 0,
+                "gsis_discovered": 0,
+                "regions_completed": 0,
+                "regions_failed": len(regions),
+                "error": str(e)
+            }
 
     def list_discovered_resources(self) -> Dict[str, any]:
         """List all discovered resources from the database."""

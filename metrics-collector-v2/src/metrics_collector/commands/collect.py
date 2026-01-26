@@ -5,7 +5,7 @@ Wires the CloudWatchCollector backend into a user-friendly CLI command.
 """
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import click
@@ -15,6 +15,47 @@ from ..config import get_settings
 from ..logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def calculate_stable_time_window(days: int) -> tuple[datetime, datetime]:
+    """
+    Calculate stable time windows aligned to hour boundaries in UTC.
+    
+    This ensures that multiple runs within the same hour use IDENTICAL
+    time boundaries, preventing timestamp drift and enabling efficient
+    database upserts.
+    
+    Args:
+        days: Number of days to collect
+        
+    Returns:
+        (start_time, end_time) tuple with hour-aligned UTC boundaries
+        
+    Examples:
+        Run at 3:10 PM UTC: (Jan 24 15:00, Jan 26 15:00)
+        Run at 3:45 PM UTC: (Jan 24 15:00, Jan 26 15:00) <- SAME!
+        Run at 4:10 PM UTC: (Jan 24 16:00, Jan 26 16:00) <- Advances
+    """
+    # Get current time in UTC
+    now_utc = datetime.now(timezone.utc)
+    
+    # Round DOWN to previous hour (stable within each hour)
+    end_time = now_utc.replace(minute=0, second=0, microsecond=0)
+    
+    # Calculate start time (N days before end_time)
+    start_time = end_time - timedelta(days=days)
+    
+    logger.debug(
+        "Calculated stable time window with hour alignment",
+        now_utc=now_utc.isoformat(),
+        start_time=start_time.isoformat(),
+        end_time=end_time.isoformat(),
+        days_requested=days,
+        actual_hours=(end_time - start_time).total_seconds() / 3600,
+        alignment_strategy="Round down to previous hour for stable boundaries"
+    )
+    
+    return start_time, end_time
 
 
 @click.command(name="collect")
@@ -50,6 +91,11 @@ logger = get_logger(__name__)
     is_flag=True,
     help="Collect comprehensive metrics (more detailed, slower)",
 )
+@click.option(
+    "--truncate",
+    is_flag=True,
+    help="Truncate metrics table before collection (forces full re-collection)",
+)
 @click.pass_context
 def collect(
     ctx: click.Context,
@@ -60,6 +106,7 @@ def collect(
     resume: bool,
     operation_id: Optional[str],
     comprehensive: bool,
+    truncate: bool,
 ) -> None:
     """Collect CloudWatch metrics for DynamoDB tables.
     
@@ -93,9 +140,8 @@ def collect(
         click.echo(f"Using AWS profile: {profile}")
         click.echo()
     
-    # Calculate time range
-    end_time = datetime.now()
-    start_time = end_time - timedelta(days=days)
+    # Calculate stable time range aligned to hour boundaries
+    start_time, end_time = calculate_stable_time_window(days)
     
     # Store operation_id for interrupt handling
     actual_operation_id = operation_id
@@ -110,13 +156,65 @@ def collect(
             comprehensive=comprehensive
         )
         
+        # Handle truncate flag
+        metrics_before = 0
+        if truncate:
+            click.echo("⚠️  Truncating metrics table...")
+            from ..database.connection import get_database_manager
+            db_manager = get_database_manager()
+            with db_manager.get_connection_context() as conn:
+                conn.execute("DELETE FROM metrics")
+            click.echo("✅ Metrics table truncated")
+            click.echo()
+        else:
+            # Get metrics count before collection
+            from ..database.connection import get_database_manager
+            db_manager = get_database_manager()
+            try:
+                result_before = db_manager.execute_query("SELECT COUNT(*) as count FROM metrics")
+                metrics_before = result_before[0]['count'] if result_before else 0
+            except:
+                metrics_before = 0
+        
+        # Get unique accounts from table_metadata (per user's suggestion)
+        from ..database.connection import get_database_manager
+        db_manager = get_database_manager()
+        try:
+            accounts_result = db_manager.execute_query(
+                "SELECT COUNT(DISTINCT account_id) as count FROM table_metadata"
+            )
+            accounts_count = accounts_result[0]['count'] if accounts_result else 0
+        except:
+            accounts_count = 0
+        
+        # Get unique regions count
+        try:
+            regions_result = db_manager.execute_query(
+                "SELECT COUNT(DISTINCT region) as count FROM table_metadata"
+            )
+            regions_count = regions_result[0]['count'] if regions_result else 0
+        except:
+            regions_count = 0
+        
+        # Get unique tables count
+        try:
+            tables_result = db_manager.execute_query(
+                "SELECT COUNT(DISTINCT table_name) as count FROM table_metadata"
+            )
+            tables_count = tables_result[0]['count'] if tables_result else 0
+        except:
+            tables_count = 0
+        
         # Display collection plan
         if not resume:
             click.echo(f"📊 CloudWatch Metrics Collection")
             click.echo(f"   Time range: {start_time.date()} to {end_time.date()} ({days} days)")
-            click.echo(f"   Regions: {region_list if region_list else 'All discovered'}")
-            click.echo(f"   Tables: {table_list if table_list else 'All discovered'}")
+            click.echo(f"   Regions: {region_list if region_list else f'{regions_count} discovered'}")
+            click.echo(f"   Tables: {table_list if table_list else f'{tables_count} discovered'}")
+            click.echo(f"   Accounts: {accounts_count}")
             click.echo(f"   Metrics: {'Comprehensive' if comprehensive else 'Standard'} ({len(metric_configs)} configurations)")
+            if truncate:
+                click.echo(f"   Mode: Full re-collection (truncate enabled)")
             click.echo()
         else:
             click.echo(f"🔄 Resuming collection (operation: {operation_id})")
@@ -139,12 +237,26 @@ def collect(
         # Capture the actual operation_id from the result
         actual_operation_id = result.operation_id
         
+        # Get metrics count after collection
+        from ..database.connection import get_database_manager
+        db_manager = get_database_manager()
+        try:
+            result_after = db_manager.execute_query("SELECT COUNT(*) as count FROM metrics")
+            metrics_after = result_after[0]['count'] if result_after else 0
+        except:
+            metrics_after = 0
+        
+        new_metrics = metrics_after - metrics_before
+        
         # Display results
         click.echo()
         click.echo("✅ Collection completed successfully!")
         click.echo()
         click.echo(f"📊 Collection Summary:")
+        click.echo(f"   Accounts accessed: {accounts_count}")
         click.echo(f"   Total metrics collected: {result.total_metrics_collected:,}")
+        if not truncate and metrics_before > 0:
+            click.echo(f"   New metrics added: {new_metrics:,} (existing: {metrics_before:,})")
         click.echo(f"   Resources processed: {result.resources_processed}")
         click.echo(f"   Successful collections: {result.successful_collections}")
         click.echo(f"   Failed collections: {result.failed_collections}")
