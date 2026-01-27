@@ -4,6 +4,7 @@ import numpy as np
 from tqdm import tqdm
 import boto3
 import logging
+import re
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -94,14 +95,15 @@ class DDBScalingInfo:
             logger.error(f"Error processing table {name}: {e}")
             return pd.DataFrame(columns=columns)
 
-    def get_all_dynamodb_autoscaling_settings_with_indexes(self, table_name: str, max_concurrent_tasks: int) -> pd.DataFrame:
+    def get_all_dynamodb_autoscaling_settings_with_indexes(self, table_name: str, max_concurrent_tasks: int, regex: bool = False) -> pd.DataFrame:
 
         dynamodb_client = self.dynamodb_client
 
         # Get a list of all DynamoDB tables
         table_names = []
         last_evaluated_table_name = None
-        if not table_name:
+        
+        if not table_name or regex:
             while last_evaluated_table_name != '':
                 params = {}
                 if last_evaluated_table_name:
@@ -110,9 +112,14 @@ class DDBScalingInfo:
                 table_names += response['TableNames']
                 last_evaluated_table_name = response.get(
                     'LastEvaluatedTableName', '')
-
         else:
             table_names = [table_name]
+            
+        if regex and table_name:
+            compiled_pattern = re.compile(table_name)
+            table_names = [name for name in table_names if compiled_pattern.search(name)]
+            logger.info(f"Found {len(table_names)} tables matching pattern '{table_name}'")
+
 
         settings_list = []
         if len(table_names) != 0:
