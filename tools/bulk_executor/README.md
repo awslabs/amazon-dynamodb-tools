@@ -103,6 +103,9 @@ Here are some example use cases:
 # Run Spark SQL (similar to Athena), with an optional limit
 # See https://spark.apache.org/docs/latest/api/sql/index.html
 ./bulk sql --table target --query "select ..." --limit 100
+
+# Import a DynamoDB export into an existing DynamoDB table
+./bulk import --table target --s3-source-bucket exported-data --s3-source-bucket-export-id 01716790307109-5f9d6aaa --import-type full-only|incremental-only|full-incremental [--s3-source-bucket-prefix prod] [--filter example] [--filterfunctionname filter_item]
 ```
 
 ## Quick start
@@ -469,6 +472,17 @@ If you ever want to stop execution early, you can hit Control-C. The interrupt w
 * Optional `limit` parameter to limit the number of output items
 * Only `SELECT` queries are supported
 
+**`import`**
+
+* Leverage glue to do a full import of a DynamoDB table which was exported to S3 (i.e. in DDB-JSON format)
+* Requires `table`, `s3-source-bucket`, `s3-source-bucket-export-id` and `import-type` parameters
+* Optional `s3-source-bucket-prefix` parameter
+* Validates manifest files to ensure integrity of the exported files
+* Supports importing into an empty table
+* Best used with:
+  * `--XMaxWriteRate N` where _N_ is the max aggregate WCU to consume on the destination table
+  * `--filter` and `--filterfunctionname` where you specify the python function used to filter for items to import
+
 ## Glue execution parameters
 
 A few parameters, each starting with `X` to differentiate them from regular script parameters, can be used to influence the Glue execution behavior:
@@ -479,9 +493,10 @@ A few parameters, each starting with `X` to differentiate them from regular scri
     * FLEX run: `Job duration: 0:11:34.849592 (7.57 DPU hours)`
 * `XNumberOfWorkers`: Controls how many Glue workers to use, default 220. Small tables or jobs could set this lower.
 * `XWorkerType`: Controls the worker type. Can be `G.1X` (default), `G.2X`, `G.4X`, `G.8X`, `G.12X`, `G.16X`, `R.1X`, `R.2X`, `R.4X`, or `R.8X`. Using a larger type provides more compute, memory, and storage for jobs that require a single worker to gather data locally, for example an `orderby` applied to a large set of matching items.
-* `XRetries`: Controls the max number of Glue Job retries. Defaults to zero to fail a misconfigured Glue Job quickly. It's unlikely you'll need to need to change this.
+* `XRetries`: Controls the max number of Glue Job retries. Defaults to zero to fail a misconfigured Glue Job quickly. It's unlikely you'll need to change this.
 * `XTimeout`: Controls the Glue Job timeout (in minutes). Default is 60 minutes.
 * `XWaitForDPU`: If present, causes the execution to wait 40 seconds at the end of execution in order for the DPU metrics to arrive so they can be reported. Default is off.
+* `XContinuousLogging`: If present, default Glue logging is used rather than Log4J
 
 Here is a sample `delete` action that adjusts some default Glue execution parameters:
 

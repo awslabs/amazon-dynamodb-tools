@@ -195,6 +195,8 @@ class BootstrapInfrastructure:
 
         log4j2_properties_file_location = f's3://{glue_job_bucket}/{LOG4J_PROPERTIES_FILE}'
 
+        enable_continuous_cloudwatch_log = bool(args.get('XContinuousLogging'))
+
         default_arguments = {}
 
         # Add XEnvironmentArguments to be used by the Glue Job
@@ -207,15 +209,20 @@ class BootstrapInfrastructure:
             '--enable-auto-scaling': 'true',
             '--enable-metrics': 'true',
             '--enable-observability-metrics': 'true',
-            '--enable-continuous-cloudwatch-log': 'false', # Disabled due to custom log4j2.properties.
+            '--enable-continuous-cloudwatch-log': str(enable_continuous_cloudwatch_log).lower(),
             '--glue-job-role-name': glue_job_role_name,
             '--s3-bucket-name': glue_job_bucket,
             '--s3-script-location': s3_script_location,
-            '--extra-files': f'{log4j2_properties_file_location}',
             '--extra-py-files': s3_python_module_location,
             '--additional-python-modules': THIRD_PARTY_PYTHON_MODULES,
             '--bulk-dynamodb-version': VERSION
         })
+
+        # Custom log4j2 properties override continuous CloudWatch logging
+        # Reference: https://repost.aws/knowledge-center/glue-reduce-cloudwatch-logs
+        # "If you apply a custom log4j.properties or log4j2.properties config file, then AWS Glue turns off continuous logging"
+        if not enable_continuous_cloudwatch_log:
+            default_arguments['--extra-files'] = log4j2_properties_file_location
 
         log.debug(f"default_arguments: {default_arguments}")
 

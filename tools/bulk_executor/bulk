@@ -79,6 +79,10 @@ if(action_input.XAction is None):
 
 action = vars(action_input)["XAction"] # XAction is always a required input.
 
+# Handle Python keyword conflicts - map "import" to "ddb_import"
+if action == 'import':
+    action = 'ddb_import'
+
 action_script_function = _get_action_script_function(action)
 if(action_script_function is None):
     exit(1) # No verb to take additional action on.

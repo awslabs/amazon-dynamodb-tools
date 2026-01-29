@@ -100,10 +100,12 @@ def glue_job_arguments():
     parser.add_argument("--XNumberOfWorkers", type=int, default=argparse.SUPPRESS, help="The number of Glue workers (default 220).")
     parser.add_argument("--XWorkerType", type=str, default=argparse.SUPPRESS, help="The Glue worker type. ex. G.1X", choices=SUPPORTED_WORKER_TYPES)
     parser.add_argument("--XWaitForDPU", action='store_true', default=argparse.SUPPRESS, help="Causes execution to wait 40 seconds at the end of execution for DPU metrics to be available.")
+    parser.add_argument("--XContinuousLogging", action='store_true', default=argparse.SUPPRESS, help="Enables continuous logging to leverage default Glue logging over Log4J.")
 
     # DynamoDB Read/Write Overrides
     parser.add_argument("--XMaxWriteRate", type=int, default=argparse.SUPPRESS, help="Maximum amount of write units to consume per second.")
     parser.add_argument("--XMaxReadRate", type=int, default=argparse.SUPPRESS, help="Maximum amount of read units to consume per second.")
+
     return parser
 
 def environment_arguments():

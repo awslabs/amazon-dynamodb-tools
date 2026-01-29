@@ -1,13 +1,11 @@
 import math
-import sys
 
 import boto3
 import botocore.exceptions
 
 # Custom Library Imports
-sys.path.append('/server/src')
-from python_modules.shared.logger import log
-from python_modules.shared.pricing import PricingUtility
+from .logger import log
+from .pricing import PricingUtility
 
 dynamodb = boto3.client('dynamodb')
 service_quotas = boto3.client('service-quotas')
