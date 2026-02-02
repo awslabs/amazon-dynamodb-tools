@@ -138,13 +138,16 @@ class StateManager:
 
     def __init__(
         self,
-        checkpoint_dir: str = "checkpoints",
         enable_compression: bool = True,
         auto_cleanup_enabled: bool = True,
         max_checkpoint_age_days: int = 7,
     ):
         """Initialize state manager with checkpoint directory."""
-        self.checkpoint_dir = Path(checkpoint_dir)
+        # Import here to avoid circular dependency
+        from ..paths import get_checkpoints_dir
+        
+        # Always use centralized path management (respects --project-root)
+        self.checkpoint_dir = get_checkpoints_dir()
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()  # Reentrant lock for nested operations
         self.enable_compression = enable_compression

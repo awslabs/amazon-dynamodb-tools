@@ -20,9 +20,6 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", description="Logging level")
 
     # Database settings
-    database_url: str = Field(
-        default="duckdb://./data/metrics_collector.db", description="DuckDB database URL"
-    )
     database_pool_size: int = Field(
         default=10, description="Database connection pool size"
     )
@@ -227,6 +224,20 @@ class Settings(BaseSettings):
         "env_file_encoding": "utf-8",
         "case_sensitive": False,
     }
+
+    @property
+    def database_url(self) -> str:
+        """
+        Get database URL with project-root-aware path.
+        
+        Always uses the centralized path management system which respects
+        the --project-root CLI option.
+        
+        Returns:
+            Resolved database URL string (duckdb://<project_root>/data/metrics_collector.db)
+        """
+        from .paths import get_database_path
+        return f"duckdb://{get_database_path()}"
 
 
 # Global settings instance

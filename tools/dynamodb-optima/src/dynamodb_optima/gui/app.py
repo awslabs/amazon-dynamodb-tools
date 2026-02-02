@@ -135,11 +135,11 @@ def render_sidebar(connection):
         except Exception:
             account_filter = None
 
-        # Table filter
+        # Table filter (regex support)
         table_filter = st.text_input(
-            "Table Name (contains)",
-            placeholder="Filter by table name...",
-            help="Search for tables containing this text",
+            "Table Name (regex)",
+            placeholder="e.g., ^prod- or test",
+            help="Filter tables using regex patterns (RE2 syntax). Examples: '^prod-' (starts with prod-), 'test' (contains test), '^(dev|staging)-' (starts with dev- or staging-), '(?i)PROD' (case-insensitive)",
         )
         if not table_filter:
             table_filter = None

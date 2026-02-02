@@ -180,10 +180,27 @@ def create_recommendations_bar_chart(stats):
 
 def render_top_recommendations(connection, filters: RecommendationFilter):
     """Render table of top recommendations across all types."""
-    # Get all recommendations
-    capacity_recs = get_capacity_recommendations(connection, filters)
-    table_class_recs = get_table_class_recommendations(connection, filters)
-    utilization_recs = get_utilization_recommendations(connection, filters)
+    try:
+        # Get all recommendations
+        capacity_recs = get_capacity_recommendations(connection, filters)
+        table_class_recs = get_table_class_recommendations(connection, filters)
+        utilization_recs = get_utilization_recommendations(connection, filters)
+    except ValueError as e:
+        # Handle invalid regex pattern
+        st.error(f"❌ {str(e)}")
+        st.info(
+            "**Regex Pattern Examples (RE2 syntax):**\n\n"
+            "- `^prod-` - Tables starting with 'prod-'\n"
+            "- `test` - Tables containing 'test'\n"
+            "- `^(dev|staging)-` - Tables starting with 'dev-' or 'staging-'\n"
+            "- `^myapp-[0-9]+$` - Exact match like 'myapp-1', 'myapp-123'\n"
+            "- `(?i)PROD` - Case-insensitive match for 'prod'\n\n"
+            "See [RE2 syntax](https://github.com/google/re2/wiki/Syntax) for more patterns."
+        )
+        return
+    except Exception as e:
+        st.error(f"Error loading recommendations: {e}")
+        return
 
     # Combine into single list with type
     all_recommendations = []

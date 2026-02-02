@@ -117,6 +117,7 @@ class DatabaseManager:
     ):
         """Initialize database manager with enhanced connection pooling and monitoring."""
         self.settings = get_settings()
+        # Use resolved URL that respects --project-root CLI option
         self.database_url = database_url or self.settings.database_url
         self.max_connections = max_connections or self.settings.database_pool_size
 

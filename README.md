@@ -15,7 +15,7 @@ A collection of tools and utilities for working with Amazon DynamoDB.
 
 - [Bulk Executor](tools/bulk_executor/README.md) - Serverless Glue-based solution for bulk DynamoDB operations
 - [DAX Calculator](tools/dax_calculator/README.md) - DAX cluster sizing and cost estimation
-- **[DynamoDB Optima](tools/dynamodb-optima/README.md)** - **[NEW]** Unified cost optimization and analysis platform
+- **[DynamoDB Optima](beta/dynamodb-optima/README.md)** - **[NEW]** Unified cost optimization and analysis platform
   - Multi-account discovery via AWS Organizations
   - CloudWatch metrics collection with incremental updates
   - CUR-based cost analysis  

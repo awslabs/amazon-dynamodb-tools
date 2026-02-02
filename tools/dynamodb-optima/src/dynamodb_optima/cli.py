@@ -27,18 +27,30 @@ from .logging import configure_logging, get_logger
 @click.group()
 @click.option("--debug", is_flag=True, help="Enable debug mode")
 @click.option("--log-level", default="INFO", help="Set logging level")
+@click.option(
+    "--project-root",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory for data and logs (useful for multi-organization setups)"
+)
 @click.pass_context
-def main(ctx: click.Context, debug: bool, log_level: str) -> None:
+def main(ctx: click.Context, debug: bool, log_level: str, project_root: Optional[str]) -> None:
     """DynamoDB Optima - Unified cost optimization and analysis platform for Amazon DynamoDB."""
     # Ensure context object exists
     ctx.ensure_object(dict)
+
+    # Set project root FIRST (before any other initialization)
+    # This must happen before configure_logging() so logs go to correct directory
+    if project_root:
+        from .paths import set_project_root
+        set_project_root(project_root)
+        ctx.obj["project_root"] = project_root
 
     # Update settings
     settings = get_settings()
     settings.debug = debug
     settings.log_level = log_level
 
-    # Configure logging
+    # Configure logging (will use project root set above)
     configure_logging()
     logger = get_logger(__name__)
 

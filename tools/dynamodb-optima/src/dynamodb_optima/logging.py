@@ -53,11 +53,13 @@ class DualOutputLogger:
 
 def configure_logging() -> None:
     """Configure file-only structured logging with clean CLI output."""
+    from .paths import get_logs_dir
+    
     settings = get_settings()
 
-    # Ensure logs directory exists
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
+    # Ensure logs directory exists (respects --project-root if set)
+    log_dir = get_logs_dir()
+    log_dir.mkdir(parents=True, exist_ok=True)
 
     # Suppress verbose AWS SDK logging completely
     logging.getLogger("boto3").setLevel(logging.CRITICAL)

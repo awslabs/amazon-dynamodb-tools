@@ -54,8 +54,8 @@ def get_capacity_recommendations(
         params.append(filters.region_filter)
 
     if filters.table_filter:
-        query += " AND table_name LIKE ?"
-        params.append(f"%{filters.table_filter}%")
+        query += " AND regexp_matches(table_name, ?)"
+        params.append(filters.table_filter)
 
     if filters.status_filter:
         query += " AND status = ?"
@@ -67,7 +67,13 @@ def get_capacity_recommendations(
 
     query += " ORDER BY monthly_savings_usd DESC"
 
-    results = connection.execute(query, params).fetchall()
+    try:
+        results = connection.execute(query, params).fetchall()
+    except Exception as e:
+        # Handle invalid regex pattern
+        if filters.table_filter and ("regex" in str(e).lower() or "invalid" in str(e).lower()):
+            raise ValueError(f"Invalid regex pattern '{filters.table_filter}': {str(e)}")
+        raise
 
     recommendations = []
     for row in results:
@@ -141,8 +147,8 @@ def get_table_class_recommendations(
         params.append(filters.region_filter)
 
     if filters.table_filter:
-        query += " AND table_name LIKE ?"
-        params.append(f"%{filters.table_filter}%")
+        query += " AND regexp_matches(table_name, ?)"
+        params.append(filters.table_filter)
 
     if filters.status_filter:
         query += " AND status = ?"
@@ -154,7 +160,13 @@ def get_table_class_recommendations(
 
     query += " ORDER BY monthly_savings_usd DESC"
 
-    results = connection.execute(query, params).fetchall()
+    try:
+        results = connection.execute(query, params).fetchall()
+    except Exception as e:
+        # Handle invalid regex pattern
+        if filters.table_filter and ("regex" in str(e).lower() or "invalid" in str(e).lower()):
+            raise ValueError(f"Invalid regex pattern '{filters.table_filter}': {str(e)}")
+        raise
 
     recommendations = []
     for row in results:
@@ -232,8 +244,8 @@ def get_utilization_recommendations(
         params.append(filters.region_filter)
 
     if filters.table_filter:
-        query += " AND table_name LIKE ?"
-        params.append(f"%{filters.table_filter}%")
+        query += " AND regexp_matches(table_name, ?)"
+        params.append(filters.table_filter)
 
     if filters.status_filter:
         query += " AND status = ?"
@@ -245,7 +257,13 @@ def get_utilization_recommendations(
 
     query += " ORDER BY monthly_savings_usd DESC"
 
-    results = connection.execute(query, params).fetchall()
+    try:
+        results = connection.execute(query, params).fetchall()
+    except Exception as e:
+        # Handle invalid regex pattern
+        if filters.table_filter and ("regex" in str(e).lower() or "invalid" in str(e).lower()):
+            raise ValueError(f"Invalid regex pattern '{filters.table_filter}': {str(e)}")
+        raise
 
     recommendations = []
     for row in results:

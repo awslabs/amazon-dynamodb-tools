@@ -25,7 +25,7 @@ DynamoDB Optima provides three types of cost optimization analysis for DynamoDB:
 - 🔄 **Resumable Operations** - Checkpoint/resume for multi-day collections
 - 💾 **OLAP Performance** - DuckDB backend for fast analytical queries
 - 💰 **Real Pricing** - AWS Pricing API with free tier support
-- 🎨 **Interactive GUI** - Streamlit dashboard for visualizations
+- 🎨 **Interactive GUI** - Streamlit dashboard for visualizations, support for RE2-format regex searches on tablename
 - 🔐 **IAM Ready** - Minimal permissions, cross-account role support
 
 ## 📋 Prerequisites
@@ -88,7 +88,7 @@ DynamoDB Optima provides three types of cost optimization analysis for DynamoDB:
 ## 🚀 Installation
 
 ```bash
-cd tools/dynamodb-optima
+cd beta/dynamodb-optima
 
 # Install with development dependencies
 pip install -e ".[dev]"
@@ -204,6 +204,10 @@ dynamodb-optima gui
 ## 📚 Command Reference
 
 ### Core Commands
+
+#### Multi-organization with isolated data (use --project-root for all commands)
+dynamodb-optima --project-root /data/org-a COMMANDHERE
+
 
 #### `discover`
 Discover DynamoDB tables across AWS accounts and regions.
