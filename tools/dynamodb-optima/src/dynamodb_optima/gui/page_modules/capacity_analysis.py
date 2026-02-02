@@ -131,8 +131,6 @@ def render_capacity_analysis(connection, filters: RecommendationFilter):
                         f"**Monthly Savings:** ${rec.monthly_savings_usd:,.2f} ({rec.savings_percentage:.1f}%)"
                     )
                     st.write(f"**Annual Savings:** ${rec.annual_savings_usd:,.2f}")
-                    st.write(f"**Confidence:** {rec.confidence_score:.0f}%")
-                    st.write(f"**Risk Level:** {rec.risk_level.upper()}")
 
                 st.markdown("---")
                 st.markdown("**💡 Recommendation Reason:**")
@@ -247,8 +245,6 @@ def create_recommendations_dataframe(recommendations):
                 "Monthly Savings": rec.monthly_savings_usd,
                 "Annual Savings": rec.annual_savings_usd,
                 "Savings %": rec.savings_percentage,
-                "Confidence Score": rec.confidence_score,
-                "Risk Level": rec.risk_level,
                 "Analysis Days": rec.analysis_days,
                 "Avg RCU": rec.avg_provisioned_rcu,
                 "Avg WCU": rec.avg_provisioned_wcu,

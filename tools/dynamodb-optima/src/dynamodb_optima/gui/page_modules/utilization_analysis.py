@@ -156,8 +156,6 @@ def render_utilization_analysis(connection, filters: RecommendationFilter):
                         st.write(
                             f"**Monthly Savings:** ${rec.monthly_savings_usd:,.2f} ({rec.savings_percentage:.1f}%)"
                         )
-                        st.write(f"**Confidence:** {rec.confidence_score:.0f}%")
-                        st.write(f"**Risk Level:** {rec.risk_level.upper()}")
 
                     # Utilization visualization
                     fig = create_utilization_comparison_chart(rec)
@@ -327,8 +325,6 @@ def create_recommendations_dataframe(recommendations):
                 "Avg Write Utilization %": rec.avg_write_utilization,
                 "Max Read Utilization %": rec.max_read_utilization,
                 "Max Write Utilization %": rec.max_write_utilization,
-                "Confidence Score": rec.confidence_score,
-                "Risk Level": rec.risk_level,
                 "Analysis Days": rec.analysis_days,
                 "Recommendation Reason": rec.recommendation_reason,
                 "Created At": rec.created_at,
