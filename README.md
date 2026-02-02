@@ -1,54 +1,122 @@
 # Amazon DynamoDB Tools
 
-A collection of tools and utilities for working with Amazon DynamoDB.
+An open-source collection of tools and utilities for Amazon DynamoDB. This repository contains tools that help with cost-optimization, capacity planning, bulk data operations, and performance tuning.
+
+## What's New ✨
+
+Introducing **DynamoDB Optima**—a unified cost optimization and capacity analysis platform that consolidates three previously separate tools into one comprehensive solution. With multi-account discovery, CloudWatch metrics collection, capacity mode optimization, and an integrated Streamlit dashboard, Optima provides enterprise-grade insights for your DynamoDB infrastructure.
+
+[Get started with DynamoDB Optima](tools/dynamodb-optima/README.md)
 
 ## Repository Structure
 
-- **[/tools](tools/)** - Our main tools
-- **[/beta](beta/)** - Experimental tools and tutorials  
-- **[/snippets](snippets/)** - Simple utilities
-- **[/archived](archived/)** - Deprecated tools
+This repository is organized into four main sections to help you quickly find the right tool:
 
-## Available Tools
+| Directory | Purpose |
+|-----------|----------|
+| [tools/](tools/) | Tools for DynamoDB operations |
+| [snippets/](snippets/) | Lightweight, single-purpose utilities |
+| [beta/](beta/) | Experimental tools and educational content |
+| [archived/](archived/) | Deprecated tools kept for reference |
 
-### Main Tools
+## Tools 🛠️
 
-- [Bulk Executor](tools/bulk_executor/README.md) - Serverless Glue-based solution for bulk DynamoDB operations
-- [DAX Calculator](tools/dax_calculator/README.md) - DAX cluster sizing and cost estimation
-- **[DynamoDB Optima](tools/dynamodb-optima/README.md)** - **[NEW]** Unified cost optimization and analysis platform
-  - Multi-account discovery via AWS Organizations
-  - CloudWatch metrics collection with incremental updates
-  - CUR-based cost analysis  
-  - Capacity mode optimization (On-Demand vs Provisioned) with autoscaling simulation
-  - Table class optimization (Standard vs Standard-IA)
-  - Utilization analysis
-  - Integrated Streamlit GUI for visualization
-  - CLI: `dynamodb-optima`
+### DynamoDB Optima
 
-### Other Tools
+[View Documentation](tools/dynamodb-optima/README.md)
 
-- [Item Size Calculator](snippets/item_size_calculator/README.md) - NPM package for calculating DynamoDB item sizes
+A cost optimization and capacity analysis platform for multi-account AWS environments.
 
-While we make efforts to test and verify the functionality of these tools, you are encouraged to read and understand the code, and use them at your own risk.
+**Capabilities:**
+- Multi-account discovery via AWS Organizations
+- CloudWatch metrics collection with incremental updates
+- Cost and Usage Report (CUR) analysis
+- Capacity mode optimization (On-Demand vs Provisioned)
+- Table class optimization (Standard vs Standard-IA)
+- Autoscaling simulation and recommendations
+- Interactive Streamlit dashboard for visualization
 
-Each tool has been developed independent from one another, please make sure to read the installation requirements for each one of them.
+### Bulk Executor
+
+[View Documentation](tools/bulk_executor/README.md)
+
+A serverless solution for executing bulk operations on DynamoDB tables using AWS Glue.
+
+**Use Cases:**
+- Data migrations between tables or accounts
+- Batch updates and transformations
+- Parallel processing with automatic retry logic
+- Schema evolution and data backfills
+
+### DAX Calculator
+
+[View Documentation](tools/dax_calculator/README.md)
+
+Calculate DAX cluster sizing and estimate costs based on your workload requirements.
+
+**Features:**
+- Cluster size recommendations based on throughput
+- Cost estimation and TCO comparison
+- Performance impact analysis
+- Right-sizing guidance
+
+### Item Size Calculator
+
+[View Documentation](snippets/item_size_calculator/README.md)
+
+An NPM package for calculating DynamoDB item sizes in bytes.
+
+**Features:**
+- Calculate RCU/WCU consumption
+- Validate items against the 400KB limit
+- Support for both DDB-JSON and native JSON formats
+- TypeScript support
 
 
-#### Archived Tools
+## Migration Guide 📦
 
-The [DDB Cost Tool](archived/ddb_cost_tool/README.MD) and other deprecated tools have been moved to the [archived/](archived/) directory. For more details, migration guides, and alternatives, see the README files in each archived tool's directory.
+If you're currently using one of our archived tools, we've consolidated functionality into DynamoDB Optima for a better experience:
 
+| Legacy Tool | New Command | Archive Date |
+|-------------|-------------|-------------|
+| metrics-collector | `dynamodb-optima collect` | February 2026 |
+| capacity-mode-evaluator | `dynamodb-optima analyze-capacity` | February 2026 |
+| table_class_optimizer | `dynamodb-optima analyze-table-class` | February 2026 |
 
-**Three tools were consolidated** into the new [DynamoDB Optima](tools/dynamodb-optima/) platform in February 2026:
-- metrics-collector → Now: `dynamodb-optima collect` CLI
-- capacity-mode-evaluator → Now: `dynamodb-optima analyze-capacity`
-- table_class_optimizer → Now: `dynamodb-optima analyze-table-class`
+[View complete migration guide](archived/README.md)
 
+## Contributing 🤝
 
-## Security
+We welcome and encourage contributions from the community. Whether you're fixing bugs, improving documentation, or proposing new features, your input helps make these tools better for everyone.
 
-See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+**Ways to contribute:**
+- Report bugs and request features via [GitHub Issues](https://github.com/awslabs/amazon-dynamodb-tools/issues)
+- Submit pull requests with improvements
+- Improve documentation and examples
+- Share your use cases and success stories
 
-## License
+Please read our [Contributing Guide](CONTRIBUTING.md) for details on our code of conduct, development process, and how to submit pull requests.
 
-This project is licensed under the Apache-2.0 License.
+## Community and Support 💬
+
+- **Issues**: Report bugs or request features via [GitHub Issues](https://github.com/awslabs/amazon-dynamodb-tools/issues)
+- **Discussions**: Join conversations about DynamoDB best practices
+- **Documentation**: Each tool includes comprehensive documentation and examples
+
+For AWS support inquiries, please use official AWS support channels.
+
+## Security 🔒
+
+See [CONTRIBUTING](CONTRIBUTING.md) for more information.
+
+## License 📄
+
+This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
+
+## Disclaimer
+
+These tools are provided as-is for use at your own discretion and risk. While we test and verify functionality, we recommend reviewing the code and testing thoroughly in non-production environments before deploying to production. Each tool has been developed independently—please review individual requirements and documentation carefully.
+
+---
+
+Built with ❤️ by the AWS community. Star this repository if you find it useful!

@@ -4,7 +4,7 @@
 
 A comprehensive CLI and GUI tool that analyzes DynamoDB usage patterns across AWS Organizations to identify cost optimization opportunities. Utilizes AWS CUR and Amazon CloudWatch data across accounts to create recommendations.
 
-[![Beta](https://img.shields.io/badge/status-beta%20(actively%20developed)-blue.svg)](https://github.com/awslabs/amazon-dynamodb-tools)
+[![Active Development](https://img.shields.io/badge/status-active%20development-green.svg)](https://github.com/awslabs/amazon-dynamodb-tools)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![AWS](https://img.shields.io/badge/AWS-DynamoDB-orange.svg)](https://aws.amazon.com/dynamodb/)
