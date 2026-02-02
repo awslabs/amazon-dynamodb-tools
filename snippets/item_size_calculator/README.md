@@ -1,6 +1,6 @@
 # DynamoDB-ItemSizeCalculator
 
-> Utility tool to calculate the size of DynamoDB items.
+ **Utility tool to calculate the size of DynamoDB items.**
 
 [![NPM Version][npm-image]][npm-url]
 [![Downloads Stats][npm-downloads]][npm-url]
@@ -13,7 +13,6 @@ DynamoDB SDKs cater for both DDB-JSON and Native JSON. This package can be used 
 CalculateSize(item, true)
 ```
 
-![DynamoDB Icon](https://www.cdata.com/blog/articles/20191018-dynamodb-performance-0.png)
 
 ## Installation
 
