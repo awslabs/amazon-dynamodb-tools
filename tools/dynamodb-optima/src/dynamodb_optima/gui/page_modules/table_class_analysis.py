@@ -180,10 +180,13 @@ def render_table_class_analysis(connection, filters: RecommendationFilter):
 
                 st.markdown("---")
                 st.markdown("**📊 Breakeven Analysis:**")
-                st.write(
-                    f"Storage-to-Throughput Ratio: {rec.storage_to_throughput_ratio:.2f}"
-                )
-                st.write(f"Breakeven Ratio: {rec.breakeven_ratio:.2f}")
+                # Display N/A for infinite ratios (tables with zero throughput)
+                if rec.storage_to_throughput_ratio is None or rec.storage_to_throughput_ratio >= 999.0:
+                    st.write("**Storage-to-Throughput Ratio:** N/A")
+                    st.caption("ℹ️ Ratio cannot be calculated due to negligible throughput costs (idle table).")
+                else:
+                    st.write(f"**Storage-to-Throughput Ratio:** {rec.storage_to_throughput_ratio:.2f}")
+                st.write(f"**Breakeven Ratio:** {rec.breakeven_ratio:.2f}")
                 st.write(
                     f"Above Breakeven: {'✅ Yes' if rec.is_above_breakeven else '❌ No'}"
                 )
@@ -312,7 +315,7 @@ def create_recommendations_dataframe(recommendations):
                 "Annual Savings": rec.annual_savings_usd,
                 "Savings %": rec.savings_percentage,
                 "Avg Table Size (GB)": rec.avg_table_size_gb,
-                "Storage-to-Throughput Ratio": rec.storage_to_throughput_ratio,
+                "Storage-to-Throughput Ratio": "N/A" if rec.storage_to_throughput_ratio is None or rec.storage_to_throughput_ratio >= 999.0 else rec.storage_to_throughput_ratio,
                 "Breakeven Ratio": rec.breakeven_ratio,
                 "Is Above Breakeven": rec.is_above_breakeven,
                 "Analysis Months": rec.analysis_months,

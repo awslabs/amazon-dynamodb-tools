@@ -285,7 +285,7 @@ class TableClassAnalyzer:
             else:
                 # For tables with negligible/zero throughput (On-Demand tables)
                 # IA is almost always better due to 60% storage savings
-                ratio = Decimal('999.99')  # Infinite ratio
+                ratio = None  # Infinite ratio - throughput is negligible
                 should_recommend_ia = std_storage > Decimal('1.0')  # Only if storage cost > $1/month
                 reason_suffix = "Table has storage costs but negligible throughput (On-Demand). IA provides 60% storage savings"
             
@@ -437,9 +437,9 @@ class TableClassAnalyzer:
                 float(rec.potential_monthly_savings),
                 float(rec.potential_annual_savings),
                 float((rec.potential_monthly_savings / rec.current_monthly_total_cost * 100) if rec.current_monthly_total_cost > 0 else 0),
-                float(rec.storage_to_throughput_ratio),
+                float(rec.storage_to_throughput_ratio) if rec.storage_to_throughput_ratio is not None else None,
                 float(rec.breakeven_ratio),
-                rec.storage_to_throughput_ratio > rec.breakeven_ratio if rec.current_class == 'STANDARD' else rec.storage_to_throughput_ratio < rec.breakeven_ratio,
+                (rec.storage_to_throughput_ratio > rec.breakeven_ratio if rec.current_class == 'STANDARD' else rec.storage_to_throughput_ratio < rec.breakeven_ratio) if rec.storage_to_throughput_ratio is not None else True,
                 rec.uses_reserved_capacity,
                 rec.recommendation_reason
             ))

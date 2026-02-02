@@ -27,7 +27,7 @@ A collection of tools and utilities for working with Amazon DynamoDB.
 
 ### Other Tools
 
-- [Item Size Calculator](#item-size-calculator) - NPM package for calculating DynamoDB item sizes
+- [Item Size Calculator](snippets/item_size_calculator/README.md) - NPM package for calculating DynamoDB item sizes
 
 While we make efforts to test and verify the functionality of these tools, you are encouraged to read and understand the code, and use them at your own risk.
 
