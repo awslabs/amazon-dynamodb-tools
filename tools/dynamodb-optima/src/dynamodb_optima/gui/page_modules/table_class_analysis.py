@@ -194,7 +194,6 @@ def render_table_class_analysis(connection, filters: RecommendationFilter):
                 st.markdown("**📅 Analysis Details:**")
                 st.write(f"Analysis Period: {rec.analysis_months} months")
                 st.write(f"Account: {rec.account_id}")
-                st.write(f"Confidence: {rec.confidence_score:.0f}%")
                 st.write(f"Generated: {rec.created_at.strftime('%Y-%m-%d %H:%M')}")
 
         st.markdown("---")
@@ -316,7 +315,6 @@ def create_recommendations_dataframe(recommendations):
                 "Storage-to-Throughput Ratio": rec.storage_to_throughput_ratio,
                 "Breakeven Ratio": rec.breakeven_ratio,
                 "Is Above Breakeven": rec.is_above_breakeven,
-                "Confidence Score": rec.confidence_score,
                 "Analysis Months": rec.analysis_months,
                 "Recommendation Reason": rec.recommendation_reason,
                 "Created At": rec.created_at,
