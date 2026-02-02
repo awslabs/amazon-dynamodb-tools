@@ -3,6 +3,11 @@ Configuration management for DynamoDB Optima platform.
 
 Handles environment variables, AWS credentials, and application settings
 using Pydantic Settings for type safety and validation.
+
+IMPORTANT: When adding, removing, or modifying any settings in this file,
+please update the documentation at docs/configuration.md to keep it in sync.
+The documentation should reflect all available environment variables and their
+default values, types, and descriptions.
 """
 
 from typing import List, Optional

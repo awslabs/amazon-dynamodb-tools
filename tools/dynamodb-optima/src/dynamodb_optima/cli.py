@@ -78,26 +78,27 @@ main.add_command(analyze_table_class_cmd, name="analyze-table-class")
 main.add_command(analyze_utilization_cmd, name="analyze-utilization")
 
 
-@main.command(name="list-recommendations")
-@click.option("--type", help="Filter by recommendation type (capacity, table-class, utilization)")
-@click.option("--table", help="Filter by table name")
-@click.option("--min-savings", type=float, help="Minimum monthly savings in USD")
-@click.option("--format", default="table", type=click.Choice(["table", "json", "csv"]))
-@click.pass_context
-def list_recommendations(
-    ctx: click.Context,
-    type: Optional[str],
-    table: Optional[str],
-    min_savings: Optional[float],
-    format: str,
-) -> None:
-    """List all cost optimization recommendations."""
-    click.echo("� Recommendations list command")
-    click.echo(f"  Type filter: {type or 'all'}")
-    click.echo(f"  Table filter: {table or 'all'}")
-    click.echo(f"  Min savings: ${min_savings or 0}")
-    click.echo(f"  Format: {format}")
-    click.echo("\n⚠️  Implementation pending (Phase 5)")
+# TODO: Implement list-recommendations command https://github.com/awslabs/amazon-dynamodb-tools/issues/120
+# @main.command(name="list-recommendations")
+# @click.option("--type", help="Filter by recommendation type (capacity, table-class, utilization)")
+# @click.option("--table", help="Filter by table name")
+# @click.option("--min-savings", type=float, help="Minimum monthly savings in USD")
+# @click.option("--format", default="table", type=click.Choice(["table", "json", "csv"]))
+# @click.pass_context
+# def list_recommendations(
+#     ctx: click.Context,
+#     type: Optional[str],
+#     table: Optional[str],
+#     min_savings: Optional[float],
+#     format: str,
+# ) -> None:
+#     """List all cost optimization recommendations."""
+#     click.echo("📋 Recommendations list command")
+#     click.echo(f"  Type filter: {type or 'all'}")
+#     click.echo(f"  Table filter: {table or 'all'}")
+#     click.echo(f"  Min savings: ${min_savings or 0}")
+#     click.echo(f"  Format: {format}")
+#     click.echo("\n⚠️  Implementation pending (Phase 5)")
 
 
 @main.command(name="gui")
