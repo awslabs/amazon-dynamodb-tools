@@ -266,12 +266,12 @@ class DatabaseManager:
 
             # Optimize for batch operations
             connection.execute("SET checkpoint_threshold='1GB'")
-            connection.execute("SET wal_autocheckpoint=10000")
+            connection.execute("SET wal_autocheckpoint='100MB'")
 
             logger.debug(
-                f"Connection configured for optimal performance",
-                memory_limit=memory_limit,
-                threads=thread_count,
+                f"DuckDB connection configured: memory_limit={memory_limit}, threads={thread_count}, "
+                f"checkpoint_threshold=1GB, wal_autocheckpoint=100MB, enable_progress_bar=false, "
+                f"enable_object_cache=true, enable_http_metadata_cache=true, preserve_insertion_order=false"
             )
 
         except Exception as e:

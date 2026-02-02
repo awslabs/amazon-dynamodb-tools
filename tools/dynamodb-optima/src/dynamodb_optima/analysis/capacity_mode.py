@@ -168,9 +168,9 @@ class CapacityModeAnalyzer:
                 account_id, table_name, billing_mode,
                 provisioned_read_capacity, provisioned_write_capacity
             FROM table_metadata
-            WHERE region = ? AND table_name = ?
+            WHERE account_id = ? AND region = ? AND table_name = ?
             """,
-            (region, table_name)
+            (account_id, region, table_name)
         ).fetchone()
         
         if not result:
@@ -253,13 +253,13 @@ class CapacityModeAnalyzer:
             """
             SELECT timestamp, value
             FROM metrics
-            WHERE region = ? AND resource_name = ?
+            WHERE account_id = ? AND region = ? AND resource_name = ?
                 AND metric_name = 'ConsumedReadCapacityUnits'
                 AND statistic = 'Sum'
                 AND timestamp >= ?
             ORDER BY timestamp ASC
             """,
-            (region, table_name, cutoff_date)
+            (account_id, region, table_name, cutoff_date)
         ).fetchall()
         
         # Get write metrics
@@ -267,13 +267,13 @@ class CapacityModeAnalyzer:
             """
             SELECT timestamp, value
             FROM metrics
-            WHERE region = ? AND resource_name = ?
+            WHERE account_id = ? AND region = ? AND resource_name = ?
                 AND metric_name = 'ConsumedWriteCapacityUnits'
                 AND statistic = 'Sum'
                 AND timestamp >= ?
             ORDER BY timestamp ASC
             """,
-            (region, table_name, cutoff_date)
+            (account_id, region, table_name, cutoff_date)
         ).fetchall()
         
         read_metrics = [

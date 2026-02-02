@@ -172,19 +172,19 @@ class DiscoveryManager(StateManagerMixin):
                 )
                 state.collection_state.regions_to_discover = valid_regions
 
-            # Perform discovery
+            # Perform discovery (state remains RUNNING)
             await self._discover_regions(state)
 
-            # Mark operation as completed
+            # Store discovered metadata in database (transaction commit happens here)
+            await self._store_discovered_metadata(state)
+
+            # Mark operation as completed AFTER successful commit
             state.status = "COMPLETED"
             state.completion_percentage = 100.0
             state.estimated_completion = datetime.now()
 
             # Save final state
             self.state_manager.save_checkpoint(state)
-
-            # Store discovered metadata in database
-            await self._store_discovered_metadata(state)
 
             logger.info(
                 f"Discovery operation {state.operation_id} completed successfully",
@@ -567,8 +567,21 @@ class DiscoveryManager(StateManagerMixin):
 
         return gsis
 
-    async def _store_discovered_metadata(self, state: OperationState) -> None:
-        """Store discovered table and GSI metadata in the database."""
+    async def _store_discovered_metadata(
+        self, 
+        state: OperationState,
+        accounts: Optional[List] = None
+    ) -> None:
+        """
+        Store discovered metadata in database using atomic transaction.
+        
+        This method handles both single-account and multi-account (--use-org) modes
+        by storing all discovered data in a single atomic transaction with truncate/insert.
+        
+        Args:
+            state: Operation state containing discovered tables and GSIs
+            accounts: Optional list of AWS accounts (for --use-org mode)
+        """
         collection_state = state.collection_state
 
         try:
@@ -615,81 +628,143 @@ class DiscoveryManager(StateManagerMixin):
                         }
                     )
 
-            # Batch insert table metadata
-            if table_records:
-                # Use INSERT with ON CONFLICT to handle duplicates
-                with self.db_manager.get_connection_context() as conn:
-                    for record in table_records:
-                        conn.execute(
-                            """
-                            INSERT INTO table_metadata
-                            (account_id, table_name, region, billing_mode,
-                             provisioned_read_capacity,
-                             provisioned_write_capacity, last_updated, configuration)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            ON CONFLICT (account_id, table_name, region)
-                            DO UPDATE SET
-                                account_id = EXCLUDED.account_id,
-                                billing_mode = EXCLUDED.billing_mode,
-                                provisioned_read_capacity = (
-                                    EXCLUDED.provisioned_read_capacity
-                                ),
-                                provisioned_write_capacity = (
-                                    EXCLUDED.provisioned_write_capacity
-                                ),
-                                last_updated = EXCLUDED.last_updated,
-                                configuration = EXCLUDED.configuration
-                        """,
-                            [
-                                self.account_id,
-                                record["table_name"],
-                                record["region"],
-                                record["billing_mode"],
-                                record["provisioned_read_capacity"],
-                                record["provisioned_write_capacity"],
-                                record["last_updated"],
-                                record["configuration"],
-                            ],
+            # Single atomic transaction for all data
+            with self.db_manager.get_connection_context() as conn:
+                try:
+                    conn.execute("BEGIN TRANSACTION")
+                    logger.info(
+                        "Starting atomic transaction to store discovered metadata",
+                        account_id=self.account_id,
+                        tables=len(table_records),
+                        gsis=len(gsi_records),
+                        accounts=len(accounts) if accounts else 0
+                    )
+                    
+                    # Phase 1: DELETE old data for this account
+                    logger.info(f"Truncating old data for account {self.account_id}")
+                    
+                    deleted_tables = conn.execute(
+                        "DELETE FROM table_metadata WHERE account_id = ?",
+                        [self.account_id]
+                    ).rowcount
+                    
+                    deleted_gsis = conn.execute(
+                        "DELETE FROM gsi_metadata WHERE account_id = ?",
+                        [self.account_id]
+                    ).rowcount
+                    
+                    logger.info(
+                        f"Deleted old data: {deleted_tables} tables, {deleted_gsis} GSIs"
+                    )
+                    
+                    # Phase 2: If accounts provided (--use-org mode), handle them
+                    if accounts:
+                        # Find management account to get management_account_id
+                        mgmt_account = next(
+                            (a for a in accounts if a.is_management_account), 
+                            None
                         )
-
-                logger.info(f"Stored {len(table_records)} table metadata records")
-
-            # Batch insert GSI metadata
-            if gsi_records:
-                with self.db_manager.get_connection_context() as conn:
-                    for record in gsi_records:
-                        conn.execute(
-                            """
-                            INSERT INTO gsi_metadata
-                            (account_id, region, table_name, gsi_name, resource_name,
-                             provisioned_read_capacity, provisioned_write_capacity,
-                             projection_type, discovered_at, last_updated)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
-                            ON CONFLICT (account_id, region, table_name, gsi_name) DO UPDATE SET
-                                resource_name = EXCLUDED.resource_name,
-                                provisioned_read_capacity = (
-                                    EXCLUDED.provisioned_read_capacity
-                                ),
-                                provisioned_write_capacity = (
-                                    EXCLUDED.provisioned_write_capacity
-                                ),
-                                projection_type = EXCLUDED.projection_type,
-                                last_updated = EXCLUDED.last_updated
-                        """,
-                            [
-                                self.account_id,
-                                record["region"],
-                                record["table_name"],
-                                record["gsi_name"],
-                                record["resource_name"],
-                                record["provisioned_read_capacity"],
-                                record["provisioned_write_capacity"],
-                                record["projection_type"],
-                                record["last_updated"],
-                            ],
-                        )
-
-                logger.info(f"Stored {len(gsi_records)} GSI metadata records")
+                        
+                        if mgmt_account:
+                            deleted_accounts = conn.execute(
+                                "DELETE FROM aws_accounts WHERE management_account_id = ?",
+                                [mgmt_account.account_id]
+                            ).rowcount
+                            
+                            logger.info(
+                                f"Deleted {deleted_accounts} old accounts for "
+                                f"organization {mgmt_account.account_id}"
+                            )
+                            
+                            # Insert new accounts
+                            for account in accounts:
+                                conn.execute(
+                                    """
+                                    INSERT INTO aws_accounts
+                                    (account_id, account_name, account_email, account_status,
+                                     joined_method, joined_timestamp, management_account_id,
+                                     is_management_account, discovered_at)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                                    """,
+                                    [
+                                        account.account_id,
+                                        account.account_name,
+                                        account.account_email,
+                                        account.account_status,
+                                        account.joined_method,
+                                        account.joined_timestamp,
+                                        mgmt_account.account_id,
+                                        account.is_management_account,
+                                    ]
+                                )
+                            
+                            logger.info(f"Inserted {len(accounts)} new accounts")
+                    
+                    # Phase 3: Insert new table metadata
+                    if table_records:
+                        for record in table_records:
+                            conn.execute(
+                                """
+                                INSERT INTO table_metadata
+                                (account_id, table_name, region, billing_mode,
+                                 provisioned_read_capacity,
+                                 provisioned_write_capacity, last_updated, configuration)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                [
+                                    self.account_id,
+                                    record["table_name"],
+                                    record["region"],
+                                    record["billing_mode"],
+                                    record["provisioned_read_capacity"],
+                                    record["provisioned_write_capacity"],
+                                    record["last_updated"],
+                                    record["configuration"],
+                                ],
+                            )
+                        
+                        logger.info(f"Inserted {len(table_records)} new table records")
+                    
+                    # Phase 4: Insert new GSI metadata
+                    if gsi_records:
+                        for record in gsi_records:
+                            conn.execute(
+                                """
+                                INSERT INTO gsi_metadata
+                                (account_id, region, table_name, gsi_name, resource_name,
+                                 provisioned_read_capacity, provisioned_write_capacity,
+                                 projection_type, discovered_at, last_updated)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+                                """,
+                                [
+                                    self.account_id,
+                                    record["region"],
+                                    record["table_name"],
+                                    record["gsi_name"],
+                                    record["resource_name"],
+                                    record["provisioned_read_capacity"],
+                                    record["provisioned_write_capacity"],
+                                    record["projection_type"],
+                                    record["last_updated"],
+                                ],
+                            )
+                        
+                        logger.info(f"Inserted {len(gsi_records)} new GSI records")
+                    
+                    # Commit the transaction
+                    conn.execute("COMMIT")
+                    logger.info(
+                        "✅ Transaction committed successfully - all discovery data stored atomically"
+                    )
+                    
+                except Exception as e:
+                    # Rollback on any error
+                    conn.execute("ROLLBACK")
+                    logger.error(
+                        f"❌ Transaction rolled back due to error: {e}",
+                        exc_info=True
+                    )
+                    raise
 
         except Exception as e:
             logger.error(f"Failed to store discovered metadata: {e}")

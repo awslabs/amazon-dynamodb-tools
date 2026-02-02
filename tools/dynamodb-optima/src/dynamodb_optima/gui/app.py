@@ -16,7 +16,7 @@ def main():
     """Main Streamlit application entry point."""
     # Configure page
     st.set_page_config(
-        page_title="DynamoDB Cost Optimizer",
+        page_title="DynamoDB Optima",
         page_icon="💰",
         layout="wide",
         initial_sidebar_state="expanded",
@@ -81,7 +81,7 @@ def main():
 def render_sidebar(connection):
     """Render navigation sidebar and return selected page and filters."""
     with st.sidebar:
-        st.title("💰 DynamoDB Cost Optimizer")
+        st.title("💰 DynamoDB Optima")
         st.markdown("---")
 
         # Navigation

@@ -130,6 +130,7 @@ class UtilizationAnalyzer:
     
     def analyze_table(
         self,
+        account_id: str,
         region: str,
         table_name: str,
         days: int = 14,
@@ -140,6 +141,7 @@ class UtilizationAnalyzer:
         Analyze utilization for a specific table.
         
         Args:
+            account_id: AWS account ID
             region: AWS region
             table_name: DynamoDB table name
             days: Number of days to analyze
@@ -152,11 +154,12 @@ class UtilizationAnalyzer:
         logger.info(
             "Analyzing utilization for table",
             table=table_name,
-            region=region
+            region=region,
+            account_id=account_id
         )
         
         # Get table and GSI info
-        resources = self._get_table_resources(region, table_name)
+        resources = self._get_table_resources(account_id, region, table_name)
         
         recommendations = []
         
@@ -245,7 +248,7 @@ class UtilizationAnalyzer:
         return resources
     
     def _get_table_resources(
-        self, region: str, table_name: str
+        self, account_id: str, region: str, table_name: str
     ) -> List[dict]:
         """Get table and GSI resources for a specific table."""
         # Get table
@@ -260,10 +263,10 @@ class UtilizationAnalyzer:
                 provisioned_read_capacity,
                 provisioned_write_capacity
             FROM table_metadata
-            WHERE region = ? AND table_name = ?
+            WHERE account_id = ? AND region = ? AND table_name = ?
                 AND billing_mode = 'PROVISIONED'
             """,
-            (region, table_name)
+            (account_id, region, table_name)
         ).fetchone()
         
         # Get GSIs for this table
@@ -278,10 +281,10 @@ class UtilizationAnalyzer:
                 provisioned_read_capacity,
                 provisioned_write_capacity
             FROM gsi_metadata
-            WHERE region = ? AND table_name = ?
+            WHERE account_id = ? AND region = ? AND table_name = ?
                 AND provisioned_read_capacity > 0
             """,
-            (region, table_name)
+            (account_id, region, table_name)
         ).fetchall()
         
         resources = []
@@ -372,6 +375,7 @@ class UtilizationAnalyzer:
         """Analyze a single resource for utilization."""
         # Get consumed capacity metrics
         read_consumed, write_consumed = self._get_consumed_metrics(
+            resource['account_id'],
             resource['region'],
             resource['resource_name'],
             resource['resource_type'],
@@ -458,6 +462,7 @@ class UtilizationAnalyzer:
     
     def _get_consumed_metrics(
         self,
+        account_id: str,
         region: str,
         resource_name: str,
         resource_type: str,
@@ -471,14 +476,15 @@ class UtilizationAnalyzer:
             """
             SELECT value
             FROM metrics
-            WHERE region = ?
+            WHERE account_id = ?
+                AND region = ?
                 AND resource_name = ?
                 AND metric_name = 'ConsumedReadCapacityUnits'
                 AND statistic = 'Sum'
                 AND timestamp >= ?
             ORDER BY timestamp
             """,
-            (region, resource_name, cutoff)
+            (account_id, region, resource_name, cutoff)
         ).fetchall()
         
         # Get write consumed capacity
@@ -486,14 +492,15 @@ class UtilizationAnalyzer:
             """
             SELECT value
             FROM metrics
-            WHERE region = ?
+            WHERE account_id = ?
+                AND region = ?
                 AND resource_name = ?
                 AND metric_name = 'ConsumedWriteCapacityUnits'
                 AND statistic = 'Sum'
                 AND timestamp >= ?
             ORDER BY timestamp
             """,
-            (region, resource_name, cutoff)
+            (account_id, region, resource_name, cutoff)
         ).fetchall()
         
         # Convert Sum to per-second by dividing by 60 (1-minute period)

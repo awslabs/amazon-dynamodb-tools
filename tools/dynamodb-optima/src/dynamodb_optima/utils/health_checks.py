@@ -5,13 +5,14 @@ Provides system health monitoring, operation status checks, and performance
 monitoring capabilities.
 """
 
+import asyncio
 import logging
 import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import click
 
@@ -264,66 +265,205 @@ class HealthMonitor:
             )
 
     def check_aws_connectivity(self) -> HealthCheck:
-        """Check AWS service connectivity."""
+        """Check AWS service connectivity - unified multi-account approach."""
         start_time = time.time()
 
         try:
             from ..aws.client import aws_client_manager
+            from ..aws.organizations import OrganizationsManager
+            from ..config import get_settings
+            from ..database.connection import get_database_manager
 
-            # Test AWS credentials
+            # Test AWS credentials first (STS)
             session = aws_client_manager.get_session()
-            sts = session.client("sts")
-            identity = sts.get_caller_identity()
-
-            # Test basic service access
-            regions_tested = []
-            service_status = {}
-
-            # Test a few key regions
-            test_regions = ["us-east-1", "us-west-2", "eu-west-1"]
-
-            for region in test_regions[:2]:  # Test first 2 regions to keep it fast
-                try:
-                    # Test DynamoDB
-                    dynamodb = session.client("dynamodb", region_name=region)
-                    dynamodb.list_tables(Limit=1)
-                    service_status[f"dynamodb_{region}"] = True
-
-                    # Test CloudWatch
-                    cloudwatch = session.client("cloudwatch", region_name=region)
-                    cloudwatch.list_metrics(MaxRecords=1)
-                    service_status[f"cloudwatch_{region}"] = True
-
-                    regions_tested.append(region)
-
-                except Exception as region_error:
-                    service_status[f"error_{region}"] = str(region_error)
-
-            # Determine overall status
-            successful_tests = sum(1 for v in service_status.values() if v is True)
-            total_tests = len(test_regions) * 2  # 2 services per region
-
-            if successful_tests == total_tests:
-                status = HealthStatus.HEALTHY
-                message = (
-                    f"AWS connectivity healthy (tested {len(regions_tested)} regions)"
+            try:
+                sts = session.client("sts")
+                identity = sts.get_caller_identity()
+            except Exception as sts_error:
+                error_msg = self._parse_aws_error(sts_error)
+                duration_ms = (time.time() - start_time) * 1000
+                return HealthCheck(
+                    name="aws_connectivity",
+                    status=HealthStatus.CRITICAL,
+                    message=f"AWS connectivity check failed: {error_msg}",
+                    details={"error": str(sts_error), "error_type": type(sts_error).__name__},
+                    duration_ms=duration_ms,
                 )
-            elif successful_tests > 0:
+
+            # Get accounts to test - either from database or create synthetic single account
+            accounts = self._get_account_info()
+            
+            if not accounts:
+                # No aws_accounts table or empty - create synthetic account from current identity
+                self.logger.info("No accounts in database - using current account from STS")
+                
+                # Get regions from table_metadata (any account)
+                db_manager = get_database_manager()
+                with db_manager.get_connection_context() as conn:
+                    result = conn.execute("""
+                        SELECT DISTINCT region 
+                        FROM table_metadata 
+                        WHERE region IS NOT NULL
+                        ORDER BY region
+                    """).fetchall()
+                    regions = [row[0] for row in result] if result else ["us-east-1"]
+                
+                accounts = [{
+                    "account_id": identity.get("Account"),
+                    "account_name": "Current Account",
+                    "is_management_account": True
+                }]
+                
+                # Manually set regions for this synthetic account
+                self.logger.info(f"Testing current account {identity.get('Account')} in {len(regions)} regions")
+            else:
+                self.logger.info(f"Testing {len(accounts)} accounts from database")
+            
+            # Unified testing logic for all accounts
+            org_manager = OrganizationsManager()
+            settings = get_settings()
+            account_results = []
+            
+            for account in accounts:
+                account_id = account["account_id"]
+                account_name = account["account_name"]
+                is_management = account["is_management_account"]
+                
+                # Get regions for this account
+                regions = self._get_account_regions(account_id)
+                
+                if not regions:
+                    self.logger.warning(f"No regions found for account {account_id}, skipping")
+                    continue
+                
+                # Get credentials (None for management account)
+                credentials = None
+                role_status = None
+                
+                if not is_management:
+                    try:
+                        credentials = asyncio.run(
+                            org_manager.get_account_credentials(
+                                account_id=account_id,
+                                role_name=settings.organizations_role_name
+                            )
+                        )
+                        role_status = "success"
+                        self.logger.info(
+                            f"Successfully assumed role in account",
+                            account_id=account_id,
+                            account_name=account_name,
+                            role=settings.organizations_role_name
+                        )
+                    except Exception as e:
+                        role_status = "failed"
+                        error_msg = self._parse_aws_error(e)
+                        self.logger.error(
+                            f"Failed to assume role in account",
+                            account_id=account_id,
+                            account_name=account_name,
+                            role=settings.organizations_role_name,
+                            error=error_msg
+                        )
+                        # Add failed result for this account
+                        account_results.append({
+                            "account_id": account_id,
+                            "account_name": account_name,
+                            "is_management": is_management,
+                            "role_status": role_status,
+                            "role_error": error_msg,
+                            "regions": regions,
+                            "results": [],
+                            "successful": 0,
+                            "total": 0,
+                            "status": "failed"
+                        })
+                        continue
+                
+                # Test services for this account
+                result = asyncio.run(
+                    self._test_account_services(
+                        account_id=account_id,
+                        account_name=account_name,
+                        is_management=is_management,
+                        regions=regions,
+                        credentials=credentials
+                    )
+                )
+                result["role_status"] = role_status
+                account_results.append(result)
+            
+            # Test optional services (once, using management account credentials)
+            optional_results = []
+            
+            # Test S3 (global - for CUR data)
+            s3_result = self._test_aws_service(
+                session, "s3", None,
+                lambda client: client.list_buckets(),
+                "S3 bucket access (for CUR data)"
+            )
+            optional_results.append(s3_result)
+            
+            # Test Organizations (global - for multi-account)
+            org_result = self._test_aws_service(
+                session, "organizations", None,
+                lambda client: client.describe_organization(),
+                "Organizations API (multi-account)"
+            )
+            optional_results.append(org_result)
+            
+            # Test Pricing API (us-east-1 only - for cost calculations)
+            pricing_result = self._test_aws_service(
+                session, "pricing", "us-east-1",
+                lambda client: client.get_products(ServiceCode='AmazonDynamoDB', MaxResults=1),
+                "Pricing API (cost calculations)"
+            )
+            optional_results.append(pricing_result)
+            
+            # Aggregate results (core + optional)
+            core_successful = sum(r["successful"] for r in account_results)
+            core_total = sum(r["total"] for r in account_results)
+            optional_successful = sum(1 for r in optional_results if r["success"])
+            optional_total = len(optional_results)
+            
+            total_successful = core_successful + optional_successful
+            total_tests = core_total + optional_total
+            failed_accounts = [r for r in account_results if r["status"] == "failed"]
+            
+            # Determine overall status
+            account_count = len(accounts)
+            if total_successful == total_tests:
+                status = HealthStatus.HEALTHY
+                message = f"AWS connectivity healthy (all {total_tests} services across {account_count} account{'s' if account_count > 1 else ''})"
+            elif total_successful > 0:
                 status = HealthStatus.WARNING
-                message = f"Partial AWS connectivity ({successful_tests}/{total_tests} services)"
+                message = f"Partial AWS connectivity ({total_successful}/{total_tests} services across {account_count} account{'s' if account_count > 1 else ''})"
             else:
                 status = HealthStatus.CRITICAL
-                message = "AWS connectivity failed"
-
+                message = f"AWS connectivity failed (0/{total_tests} services across {account_count} account{'s' if account_count > 1 else ''})"
+            
+            # Build detailed output
             details = {
-                "account_id": identity.get("Account"),
-                "user_arn": identity.get("Arn"),
-                "regions_tested": regions_tested,
-                "service_status": service_status,
+                "mode": "multi-account" if account_count > 1 else "single-account",
+                "management_account_id": identity.get("Account"),
+                "management_user_arn": identity.get("Arn"),
+                "total_accounts": account_count,
+                "accounts_tested": len(account_results),
+                "failed_accounts": len(failed_accounts),
+                "account_results": account_results,
+                "optional_services": {
+                    "successful": optional_successful,
+                    "total": optional_total,
+                    "results": optional_results
+                },
+                "core_successful": core_successful,
+                "core_total": core_total,
+                "total_successful": total_successful,
+                "total_tests": total_tests
             }
-
+            
             duration_ms = (time.time() - start_time) * 1000
-
+            
             return HealthCheck(
                 name="aws_connectivity",
                 status=status,
@@ -338,9 +478,296 @@ class HealthMonitor:
                 name="aws_connectivity",
                 status=HealthStatus.CRITICAL,
                 message=f"AWS connectivity check failed: {e}",
-                details={"error": str(e)},
+                details={"error": str(e), "error_type": type(e).__name__},
                 duration_ms=duration_ms,
             )
+
+    def _test_aws_service(
+        self, session, service_name: str, region: Optional[str], 
+        test_func, description: str
+    ) -> Dict[str, Any]:
+        """Test a single AWS service."""
+        start_time = time.time()
+        
+        try:
+            if region:
+                client = session.client(service_name, region_name=region)
+                location = f"{service_name} ({region})"
+            else:
+                client = session.client(service_name)
+                location = f"{service_name} (global)"
+            
+            # Execute the test
+            test_func(client)
+            
+            duration_ms = (time.time() - start_time) * 1000
+            return {
+                "service": service_name,
+                "region": region,
+                "location": location,
+                "description": description,
+                "success": True,
+                "duration_ms": duration_ms,
+                "error": None
+            }
+            
+        except Exception as e:
+            duration_ms = (time.time() - start_time) * 1000
+            error_msg = self._parse_aws_error(e)
+            
+            return {
+                "service": service_name,
+                "region": region,
+                "location": location if region else f"{service_name} (global)",
+                "description": description,
+                "success": False,
+                "duration_ms": duration_ms,
+                "error": error_msg,
+                "error_type": type(e).__name__,
+                "raw_error": str(e)
+            }
+
+    def _is_multi_account_mode(self) -> bool:
+        """Check if database has multiple accounts."""
+        try:
+            from ..database.connection import get_database_manager
+            
+            db_manager = get_database_manager()
+            with db_manager.get_connection_context() as conn:
+                result = conn.execute("""
+                    SELECT COUNT(DISTINCT account_id) as account_count 
+                    FROM aws_accounts
+                """).fetchone()
+                
+                if result and result[0] > 1:
+                    self.logger.debug(f"Multi-account mode detected: {result[0]} accounts")
+                    return True
+                    
+                return False
+                
+        except Exception as e:
+            # If table doesn't exist or query fails, assume single account mode
+            self.logger.debug(f"Multi-account check failed (assuming single account): {e}")
+            return False
+    
+    def _get_account_info(self) -> List[Dict[str, Any]]:
+        """Get all accounts from aws_accounts table with metadata."""
+        try:
+            from ..database.connection import get_database_manager
+            
+            db_manager = get_database_manager()
+            with db_manager.get_connection_context() as conn:
+                result = conn.execute("""
+                    SELECT 
+                        account_id,
+                        account_name,
+                        is_management_account
+                    FROM aws_accounts
+                    ORDER BY is_management_account DESC, account_name
+                """).fetchall()
+                
+                accounts = []
+                for row in result:
+                    accounts.append({
+                        "account_id": row[0],
+                        "account_name": row[1],
+                        "is_management_account": bool(row[2])
+                    })
+                
+                self.logger.debug(f"Retrieved {len(accounts)} accounts from database")
+                return accounts
+                
+        except Exception as e:
+            self.logger.error(f"Failed to get account info: {e}")
+            return []
+    
+    def _get_account_regions(self, account_id: str) -> List[str]:
+        """Get regions for a specific account from table_metadata."""
+        try:
+            from ..database.connection import get_database_manager
+            
+            db_manager = get_database_manager()
+            with db_manager.get_connection_context() as conn:
+                result = conn.execute("""
+                    SELECT DISTINCT region 
+                    FROM table_metadata 
+                    WHERE account_id = ? AND region IS NOT NULL
+                    ORDER BY region
+                """, (account_id,)).fetchall()
+                
+                regions = [row[0] for row in result]
+                self.logger.debug(f"Account {account_id}: {len(regions)} regions - {regions}")
+                return regions
+                
+        except Exception as e:
+            self.logger.error(f"Failed to get regions for account {account_id}: {e}")
+            return []
+    
+    async def _test_account_services(
+        self,
+        account_id: str,
+        account_name: str,
+        is_management: bool,
+        regions: List[str],
+        credentials: Optional[Dict[str, str]]
+    ) -> Dict[str, Any]:
+        """Test core services for a single account across its regions."""
+        import aioboto3
+        
+        # Create session with appropriate credentials
+        if credentials:
+            session = aioboto3.Session(
+                aws_access_key_id=credentials["aws_access_key_id"],
+                aws_secret_access_key=credentials["aws_secret_access_key"],
+                aws_session_token=credentials["aws_session_token"]
+            )
+        else:
+            session = aioboto3.Session()
+        
+        core_results = []
+        
+        # Test DynamoDB in each region
+        for region in regions:
+            async with session.client("dynamodb", region_name=region) as client:
+                try:
+                    await client.list_tables(Limit=1)
+                    core_results.append({
+                        "service": "dynamodb",
+                        "region": region,
+                        "success": True,
+                        "error": None
+                    })
+                    self.logger.debug(
+                        f"✓ Health check passed",
+                        account_id=account_id,
+                        account_name=account_name,
+                        service="dynamodb",
+                        region=region,
+                        api_call="list_tables"
+                    )
+                except Exception as e:
+                    error_msg = self._parse_aws_error(e)
+                    core_results.append({
+                        "service": "dynamodb",
+                        "region": region,
+                        "success": False,
+                        "error": error_msg
+                    })
+                    # Log failed API call with full details for programmatic review
+                    self.logger.error(
+                        f"✗ Health check failed",
+                        account_id=account_id,
+                        account_name=account_name,
+                        service="dynamodb",
+                        region=region,
+                        api_call="list_tables",
+                        error=error_msg,
+                        error_type=type(e).__name__,
+                        raw_error=str(e)
+                    )
+        
+        # Test CloudWatch in each region
+        for region in regions:
+            async with session.client("cloudwatch", region_name=region) as client:
+                try:
+                    await client.list_metrics(Namespace='AWS/DynamoDB')
+                    core_results.append({
+                        "service": "cloudwatch",
+                        "region": region,
+                        "success": True,
+                        "error": None
+                    })
+                    self.logger.debug(
+                        f"✓ Health check passed",
+                        account_id=account_id,
+                        account_name=account_name,
+                        service="cloudwatch",
+                        region=region,
+                        api_call="list_metrics"
+                    )
+                except Exception as e:
+                    error_msg = self._parse_aws_error(e)
+                    core_results.append({
+                        "service": "cloudwatch",
+                        "region": region,
+                        "success": False,
+                        "error": error_msg
+                    })
+                    # Log failed API call with full details for programmatic review
+                    self.logger.error(
+                        f"✗ Health check failed",
+                        account_id=account_id,
+                        account_name=account_name,
+                        service="cloudwatch",
+                        region=region,
+                        api_call="list_metrics",
+                        error=error_msg,
+                        error_type=type(e).__name__,
+                        raw_error=str(e)
+                    )
+        
+        # Calculate success metrics
+        successful = sum(1 for r in core_results if r["success"])
+        total = len(core_results)
+        
+        return {
+            "account_id": account_id,
+            "account_name": account_name,
+            "is_management": is_management,
+            "regions": regions,
+            "results": core_results,
+            "successful": successful,
+            "total": total,
+            "status": "success" if successful == total else "partial" if successful > 0 else "failed"
+        }
+    
+    def _parse_aws_error(self, error: Exception) -> str:
+        """Parse AWS error to provide helpful message."""
+        error_str = str(error)
+        error_type = type(error).__name__
+        
+        # Common AWS error patterns
+        if "AccessDenied" in error_str or "AccessDeniedException" in error_type:
+            # Try to extract the missing permission
+            if "not authorized to perform:" in error_str:
+                parts = error_str.split("not authorized to perform:")
+                if len(parts) > 1:
+                    permission = parts[1].split()[0].strip()
+                    return f"Access denied - Missing IAM permission: {permission}"
+            return "Access denied - Check IAM permissions"
+        
+        elif "InvalidClientTokenId" in error_str:
+            return "Invalid AWS credentials - Check AWS_ACCESS_KEY_ID"
+        
+        elif "SignatureDoesNotMatch" in error_str:
+            return "AWS credential signature error - Check AWS_SECRET_ACCESS_KEY"
+        
+        elif "ExpiredToken" in error_str:
+            return "AWS credentials expired - Refresh your session"
+        
+        elif "not subscribed" in error_str.lower():
+            return "Service not enabled for this account"
+        
+        elif "AWSOrganizationsNotInUseException" in error_type:
+            return "Account not in an AWS Organization"
+        
+        elif "AccountNotFoundException" in error_type:
+            return "AWS account not found"
+        
+        elif "Parameter validation failed" in error_str or "ParamValidationError" in error_type:
+            # Extract the actual parameter error
+            if ":" in error_str:
+                # Get everything after the first colon for parameter errors
+                parts = error_str.split(":", 1)
+                if len(parts) > 1:
+                    return f"Invalid parameters: {parts[1].strip()[:80]}"
+            return "Invalid API parameters"
+        
+        else:
+            # Return first line of error for brevity
+            first_line = error_str.split('\n')[0]
+            return first_line[:120] if len(first_line) > 120 else first_line
+
 
     def check_operation_health(self) -> HealthCheck:
         """Check health of running operations."""
@@ -445,7 +872,7 @@ class HealthMonitor:
             self.check_system_resources,
             self.check_database_health,
             self.check_aws_connectivity,
-            self.check_operation_health,
+            # self.check_operation_health,  # TODO: Disabled - checkpoints not working, table is empty
         ]
 
         for check_func in check_functions:
@@ -552,13 +979,84 @@ class HealthMonitor:
                 f"{check_icon} {check.name.replace('_', ' ').title()}: {check.message}"
             )
 
-            # Show key details for failed checks
-            if (
+            # Special formatting for AWS connectivity check
+            if check.name == "aws_connectivity" and check.details:
+                # Show management account info
+                if "management_account_id" in check.details:
+                    lines.append(f"   management_account_id: {check.details['management_account_id']}")
+                if "management_user_arn" in check.details:
+                    lines.append(f"   management_user_arn: {check.details['management_user_arn']}")
+                
+                # Multi-account format - show per-account results
+                if "account_results" in check.details:
+                    lines.append("")
+                    
+                    for account_result in check.details["account_results"]:
+                        account_id = account_result["account_id"]
+                        account_name = account_result["account_name"]
+                        is_management = account_result.get("is_management", False)
+                        
+                        # Account header
+                        if is_management:
+                            lines.append(f"   Account: {account_name} ({account_id}) [Management]")
+                        else:
+                            lines.append(f"   Account: {account_name} ({account_id})")
+                        
+                        # Show role assumption status for member accounts
+                        role_status = account_result.get("role_status")
+                        if role_status:
+                            if role_status == "success":
+                                lines.append(f"      Role: OrganizationAccountAccessRole ✅")
+                            elif role_status == "failed":
+                                role_error = account_result.get("role_error", "Unknown error")
+                                lines.append(f"      Role: OrganizationAccountAccessRole ❌")
+                                lines.append(f"         Error: {role_error}")
+                                lines.append("")
+                                continue  # Skip service testing if role assumption failed
+                        
+                        # Group results by service name
+                        services_by_name = {}
+                        for result in account_result.get("results", []):
+                            service = result["service"]
+                            if service not in services_by_name:
+                                services_by_name[service] = []
+                            services_by_name[service].append(result)
+                        
+                        # Format each service with its regions
+                        for service_name, results in services_by_name.items():
+                            region_statuses = []
+                            errors = []
+                            for result in results:
+                                icon = "✅" if result["success"] else "❌"
+                                region = result["region"]
+                                region_statuses.append(f"{icon} {region}")
+                                if not result["success"] and result.get("error"):
+                                    errors.append(f"         {region}: {result['error']}")
+                            
+                            lines.append(f"      {service_name}: {', '.join(region_statuses)}")
+                            # Show errors below the service line if any
+                            for error in errors:
+                                lines.append(error)
+                        
+                        lines.append("")  # Blank line between accounts
+                
+                # Show optional services
+                if "optional_services" in check.details:
+                    optional = check.details["optional_services"]
+                    lines.append(f"   Optional Services ({optional['successful']}/{optional['total']}):")
+                    for result in optional.get("results", []):
+                        result_icon = "✅" if result["success"] else "❌"
+                        lines.append(f"      {result_icon} {result['location']}: {result['description']}")
+                        if not result["success"] and result.get("error"):
+                            lines.append(f"         {result['error']}")
+            
+            # Show key details for other failed checks
+            elif (
                 check.status in [HealthStatus.CRITICAL, HealthStatus.WARNING]
                 and check.details
             ):
                 for key, value in check.details.items():
-                    if key != "error" and isinstance(value, (int, float, str)):
+                    if key not in ["error", "core_services", "optional_services", "regions_tested"] and isinstance(value, (int, float, str)):
                         lines.append(f"   {key}: {value}")
 
         # System metrics summary

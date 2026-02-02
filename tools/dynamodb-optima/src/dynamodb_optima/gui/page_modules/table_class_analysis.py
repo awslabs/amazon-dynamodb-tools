@@ -7,7 +7,12 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from dynamodb_optima.gui.models import RecommendationFilter
-from dynamodb_optima.gui.database import get_table_class_recommendations
+from dynamodb_optima.gui.database import (
+    get_capacity_recommendations,
+    get_table_class_recommendations,
+    get_utilization_recommendations,
+    deduplicate_recommendations,
+)
 
 
 def render_table_class_analysis(connection, filters: RecommendationFilter):
@@ -18,8 +23,18 @@ def render_table_class_analysis(connection, filters: RecommendationFilter):
     )
 
     try:
-        # Get recommendations
-        recommendations = get_table_class_recommendations(connection, filters)
+        # Get recommendations from all analyzers for deduplication
+        capacity_recs = get_capacity_recommendations(connection, filters)
+        table_class_recs = get_table_class_recommendations(connection, filters)
+        utilization_recs = get_utilization_recommendations(connection, filters)
+        
+        # Deduplicate: when same savings, prioritize Capacity > Utilization > Table Class
+        _, table_class_recs, _ = deduplicate_recommendations(
+            capacity_recs, table_class_recs, utilization_recs
+        )
+        
+        # Use only table class recommendations for this page
+        recommendations = table_class_recs
 
         if not recommendations:
             st.info(
@@ -74,12 +89,12 @@ def render_table_class_analysis(connection, filters: RecommendationFilter):
         with col1:
             st.subheader("Top 10 Tables by Savings")
             fig = create_top_tables_chart(recommendations)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         with col2:
             st.subheader("Cost Breakdown")
             fig = create_cost_breakdown_chart(recommendations)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         st.markdown("---")
 
@@ -119,7 +134,7 @@ def render_table_class_analysis(connection, filters: RecommendationFilter):
                     "Avg Table Size (GB)",
                 ]
             ],
-            use_container_width=True,
+            width='stretch',
             hide_index=True,
         )
 
@@ -129,7 +144,7 @@ def render_table_class_analysis(connection, filters: RecommendationFilter):
 
         for rec in recommendations:
             with st.expander(
-                f"**{rec.table_name}** ({rec.region}) - Save ${rec.monthly_savings_usd:,.2f}/month"
+                f"**{rec.table_name}** ({rec.region}) [Account: {rec.account_id}] - Save ${rec.monthly_savings_usd:,.2f}/month"
             ):
                 col1, col2 = st.columns(2)
 

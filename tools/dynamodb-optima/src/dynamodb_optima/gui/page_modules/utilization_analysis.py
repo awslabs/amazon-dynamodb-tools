@@ -7,7 +7,12 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from dynamodb_optima.gui.models import RecommendationFilter
-from dynamodb_optima.gui.database import get_utilization_recommendations
+from dynamodb_optima.gui.database import (
+    get_capacity_recommendations,
+    get_table_class_recommendations,
+    get_utilization_recommendations,
+    deduplicate_recommendations,
+)
 
 
 def render_utilization_analysis(connection, filters: RecommendationFilter):
@@ -18,8 +23,18 @@ def render_utilization_analysis(connection, filters: RecommendationFilter):
     )
 
     try:
-        # Get recommendations
-        recommendations = get_utilization_recommendations(connection, filters)
+        # Get recommendations from all analyzers for deduplication
+        capacity_recs = get_capacity_recommendations(connection, filters)
+        table_class_recs = get_table_class_recommendations(connection, filters)
+        utilization_recs = get_utilization_recommendations(connection, filters)
+        
+        # Deduplicate: when same savings, prioritize Capacity > Utilization > Table Class
+        _, _, utilization_recs = deduplicate_recommendations(
+            capacity_recs, table_class_recs, utilization_recs
+        )
+        
+        # Use only utilization recommendations for this page
+        recommendations = utilization_recs
 
         if not recommendations:
             st.info(
@@ -79,12 +94,12 @@ def render_utilization_analysis(connection, filters: RecommendationFilter):
         with col1:
             st.subheader("Top 10 Resources by Savings")
             fig = create_top_resources_chart(recommendations)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         with col2:
             st.subheader("Resource Type Distribution")
             fig = create_resource_type_chart(recommendations)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         st.markdown("---")
 
@@ -108,7 +123,7 @@ def render_utilization_analysis(connection, filters: RecommendationFilter):
             total_table_savings = sum(r.monthly_savings_usd for r in table_recs)
 
             with st.expander(
-                f"**{table_name}** - {len(table_recs)} recommendation(s) - Save ${total_table_savings:,.2f}/month"
+                f"**{table_name}** [Account: {table_recs[0].account_id}] - {len(table_recs)} recommendation(s) - Save ${total_table_savings:,.2f}/month"
             ):
                 for rec in table_recs:
                     st.markdown(f"### {rec.resource_type.upper()}: {rec.resource_name}")
@@ -117,6 +132,7 @@ def render_utilization_analysis(connection, filters: RecommendationFilter):
 
                     with col1:
                         st.markdown("#### Current Provisioning")
+                        st.write(f"**Account:** {rec.account_id}")
                         st.write(f"**Region:** {rec.region}")
                         st.write(f"**RCU:** {rec.current_provisioned_rcu:,}")
                         st.write(f"**WCU:** {rec.current_provisioned_wcu:,}")
@@ -145,7 +161,7 @@ def render_utilization_analysis(connection, filters: RecommendationFilter):
 
                     # Utilization visualization
                     fig = create_utilization_comparison_chart(rec)
-                    st.plotly_chart(fig, use_container_width=True, key=f"util_chart_{rec.resource_name}_{rec.region}")
+                    st.plotly_chart(fig, width='stretch', key=f"util_chart_{rec.resource_name}_{rec.region}")
 
                     st.markdown("**💡 Recommendation Reason:**")
                     st.info(rec.recommendation_reason)

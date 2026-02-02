@@ -13,6 +13,7 @@ from dynamodb_optima.gui.database import (
     get_capacity_recommendations,
     get_table_class_recommendations,
     get_utilization_recommendations,
+    deduplicate_recommendations,
 )
 
 
@@ -70,7 +71,7 @@ def render_dashboard(connection, filters: RecommendationFilter):
             st.subheader("Savings by Category")
             if stats.total_monthly_savings > 0:
                 fig = create_savings_pie_chart(stats)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             else:
                 st.info("No savings opportunities found. Run analysis commands first.")
 
@@ -78,7 +79,7 @@ def render_dashboard(connection, filters: RecommendationFilter):
             st.subheader("Recommendations by Type")
             if stats.total_recommendations > 0:
                 fig = create_recommendations_bar_chart(stats)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             else:
                 st.info("No recommendations found. Run analysis commands first.")
 
@@ -185,6 +186,11 @@ def render_top_recommendations(connection, filters: RecommendationFilter):
         capacity_recs = get_capacity_recommendations(connection, filters)
         table_class_recs = get_table_class_recommendations(connection, filters)
         utilization_recs = get_utilization_recommendations(connection, filters)
+        
+        # Deduplicate: when same savings, prioritize Capacity > Utilization > Table Class
+        capacity_recs, table_class_recs, utilization_recs = deduplicate_recommendations(
+            capacity_recs, table_class_recs, utilization_recs
+        )
     except ValueError as e:
         # Handle invalid regex pattern
         st.error(f"❌ {str(e)}")
@@ -209,6 +215,7 @@ def render_top_recommendations(connection, filters: RecommendationFilter):
         all_recommendations.append(
             {
                 "Type": "Capacity Mode",
+                "Account": rec.account_id,
                 "Table": rec.table_name,
                 "Region": rec.region,
                 "Current": rec.current_billing_mode,
@@ -222,6 +229,7 @@ def render_top_recommendations(connection, filters: RecommendationFilter):
         all_recommendations.append(
             {
                 "Type": "Table Class",
+                "Account": rec.account_id,
                 "Table": rec.table_name,
                 "Region": rec.region,
                 "Current": rec.current_table_class,
@@ -235,6 +243,7 @@ def render_top_recommendations(connection, filters: RecommendationFilter):
         all_recommendations.append(
             {
                 "Type": "Utilization",
+                "Account": rec.account_id,
                 "Table": rec.table_name,
                 "Region": rec.region,
                 "Current": f"{rec.current_provisioned_rcu}R/{rec.current_provisioned_wcu}W",
@@ -253,7 +262,7 @@ def render_top_recommendations(connection, filters: RecommendationFilter):
     df = df.sort_values("Monthly Savings", ascending=False)
 
     # Show top 10
-    top_df = df.head(10)
+    top_df = df.head(10).copy()
 
     # Format currency columns
     top_df["Monthly Savings"] = top_df["Monthly Savings"].apply(lambda x: f"${x:,.2f}")
@@ -262,7 +271,7 @@ def render_top_recommendations(connection, filters: RecommendationFilter):
     # Display table
     st.dataframe(
         top_df,
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         column_config={
             "Type": st.column_config.TextColumn("Type", width="small"),

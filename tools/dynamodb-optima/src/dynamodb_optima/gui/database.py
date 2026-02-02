@@ -447,3 +447,90 @@ def get_available_accounts(connection) -> List[str]:
     """
     results = connection.execute(query).fetchall()
     return [row[0] for row in results if row[0]]
+
+
+def deduplicate_recommendations(
+    capacity_recs: List[CapacityRecommendation],
+    table_class_recs: List[TableClassRecommendation],
+    utilization_recs: List[UtilizationRecommendation],
+) -> tuple[List[CapacityRecommendation], List[TableClassRecommendation], List[UtilizationRecommendation]]:
+    """
+    Deduplicate recommendations when multiple analyzers make the same
+    recommendation for the same table.
+    
+    Rule: When savings match for same (account, table, region):
+    - Priority: Capacity Mode > Utilization > Table Class
+    - Keep only the highest-priority recommendation
+    
+    Args:
+        capacity_recs: List of capacity mode recommendations
+        table_class_recs: List of table class recommendations
+        utilization_recs: List of utilization recommendations
+    
+    Returns:
+        Tuple of (filtered_capacity, filtered_table_class, filtered_utilization)
+    """
+    # Track seen (account, table, region, savings) with their priority
+    seen_recommendations = {}  # key -> (priority, recommendation_type)
+    
+    # Priority levels
+    CAPACITY_PRIORITY = 1
+    UTILIZATION_PRIORITY = 2
+    TABLE_CLASS_PRIORITY = 3
+    
+    # Helper to create key
+    def make_key(account_id, table_name, region, savings):
+        # Round savings to 2 decimal places to handle floating point comparison
+        return (account_id, table_name, region, round(savings, 2))
+    
+    # First pass: collect all recommendations with their priorities
+    all_recs = []
+    
+    for rec in capacity_recs:
+        key = make_key(rec.account_id, rec.table_name, rec.region, rec.monthly_savings_usd)
+        all_recs.append((key, CAPACITY_PRIORITY, 'capacity', rec))
+    
+    for rec in utilization_recs:
+        key = make_key(rec.account_id, rec.table_name, rec.region, rec.monthly_savings_usd)
+        all_recs.append((key, UTILIZATION_PRIORITY, 'utilization', rec))
+    
+    for rec in table_class_recs:
+        key = make_key(rec.account_id, rec.table_name, rec.region, rec.monthly_savings_usd)
+        all_recs.append((key, TABLE_CLASS_PRIORITY, 'table_class', rec))
+    
+    # Second pass: keep only highest priority for each key
+    for key, priority, rec_type, rec in all_recs:
+        if key not in seen_recommendations:
+            seen_recommendations[key] = (priority, rec_type)
+        else:
+            existing_priority, _ = seen_recommendations[key]
+            # Keep the lower priority number (higher priority)
+            if priority < existing_priority:
+                seen_recommendations[key] = (priority, rec_type)
+    
+    # Third pass: filter original lists based on what should be kept
+    filtered_capacity = []
+    for rec in capacity_recs:
+        key = make_key(rec.account_id, rec.table_name, rec.region, rec.monthly_savings_usd)
+        if key in seen_recommendations:
+            priority, rec_type = seen_recommendations[key]
+            if rec_type == 'capacity':
+                filtered_capacity.append(rec)
+    
+    filtered_utilization = []
+    for rec in utilization_recs:
+        key = make_key(rec.account_id, rec.table_name, rec.region, rec.monthly_savings_usd)
+        if key in seen_recommendations:
+            priority, rec_type = seen_recommendations[key]
+            if rec_type == 'utilization':
+                filtered_utilization.append(rec)
+    
+    filtered_table_class = []
+    for rec in table_class_recs:
+        key = make_key(rec.account_id, rec.table_name, rec.region, rec.monthly_savings_usd)
+        if key in seen_recommendations:
+            priority, rec_type = seen_recommendations[key]
+            if rec_type == 'table_class':
+                filtered_table_class.append(rec)
+    
+    return filtered_capacity, filtered_table_class, filtered_utilization

@@ -127,11 +127,10 @@ def discover(
             
             # Initialize Organizations manager
             org_manager = OrganizationsManager()
-            conn = get_connection()
             
-            # Discover and store accounts from Organizations
+            # Discover accounts from Organizations (don't store yet)
             click.echo("📋 Discovering accounts in organization...")
-            accounts = asyncio.run(org_manager.discover_and_store_accounts(conn))
+            accounts = asyncio.run(org_manager.list_accounts())
             
             # Filter out skipped accounts
             if skip_account_list:
