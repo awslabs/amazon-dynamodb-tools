@@ -301,73 +301,52 @@ def get_utilization_recommendations(
 
 
 def get_summary_stats(connection) -> SummaryStats:
-    """Calculate summary statistics across all recommendations."""
-    # Get capacity stats
-    capacity_query = """
-        SELECT 
-            COUNT(*) as count,
-            COALESCE(SUM(monthly_savings_usd), 0) as monthly_savings,
-            COUNT(DISTINCT table_name) as tables
-        FROM capacity_mode_recommendations
-        WHERE current_billing_mode != recommended_billing_mode
-    """
-    capacity_result = connection.execute(capacity_query).fetchone()
-    capacity_count = capacity_result[0]
-    capacity_savings = float(capacity_result[1])
-
-    # Get table class stats
-    table_class_query = """
-        SELECT 
-            COUNT(*) as count,
-            COALESCE(SUM(monthly_savings_usd), 0) as monthly_savings,
-            COUNT(DISTINCT table_name) as tables
-        FROM table_class_recommendations
-        WHERE current_table_class != recommended_table_class
-    """
-    table_class_result = connection.execute(table_class_query).fetchone()
-    table_class_count = table_class_result[0]
-    table_class_savings = float(table_class_result[1])
-
-    # Get utilization stats
-    utilization_query = """
-        SELECT 
-            COUNT(*) as count,
-            COALESCE(SUM(monthly_savings_usd), 0) as monthly_savings,
-            COUNT(DISTINCT table_name) as tables
-        FROM utilization_recommendations
-    """
-    utilization_result = connection.execute(utilization_query).fetchone()
-    utilization_count = utilization_result[0]
-    utilization_savings = float(utilization_result[1])
-
-    # Get unique table count across all recommendations
-    unique_tables_query = """
-        SELECT COUNT(DISTINCT table_name) FROM (
-            SELECT DISTINCT table_name FROM capacity_mode_recommendations
-            UNION
-            SELECT DISTINCT table_name FROM table_class_recommendations
-            UNION
-            SELECT DISTINCT table_name FROM utilization_recommendations
-        )
-    """
-    total_tables = connection.execute(unique_tables_query).fetchone()[0]
-
+    """Calculate summary statistics across all recommendations with deduplication."""
+    # Get all recommendations with no filters (empty filter = show all)
+    empty_filter = RecommendationFilter(
+        min_savings=0.0,
+        region_filter=None,
+        table_filter=None,
+        status_filter=None,
+        account_filter=None,
+    )
+    
+    capacity_recs = get_capacity_recommendations(connection, empty_filter)
+    table_class_recs = get_table_class_recommendations(connection, empty_filter)
+    utilization_recs = get_utilization_recommendations(connection, empty_filter)
+    
+    # Apply deduplication to get consistent view across all pages
+    capacity_recs, table_class_recs, utilization_recs = deduplicate_recommendations(
+        capacity_recs, table_class_recs, utilization_recs
+    )
+    
+    # Calculate stats from deduplicated lists
+    capacity_count = len(capacity_recs)
+    capacity_savings = sum(rec.monthly_savings_usd for rec in capacity_recs)
+    
+    table_class_count = len(table_class_recs)
+    table_class_savings = sum(rec.monthly_savings_usd for rec in table_class_recs)
+    
+    utilization_count = len(utilization_recs)
+    utilization_savings = sum(rec.monthly_savings_usd for rec in utilization_recs)
+    
+    # Get unique tables across all deduplicated recommendations
+    all_tables = set()
+    all_tables.update(rec.table_name for rec in capacity_recs)
+    all_tables.update(rec.table_name for rec in table_class_recs)
+    all_tables.update(rec.table_name for rec in utilization_recs)
+    total_tables = len(all_tables)
+    
     total_recommendations = capacity_count + table_class_count + utilization_count
     total_monthly_savings = capacity_savings + table_class_savings + utilization_savings
     total_annual_savings = total_monthly_savings * 12
-
-    # Count optimized vs not optimized
-    optimized_query = """
-        SELECT COUNT(*) FROM (
-            SELECT table_name FROM capacity_mode_recommendations 
-            WHERE current_billing_mode = recommended_billing_mode
-            UNION ALL
-            SELECT table_name FROM table_class_recommendations 
-            WHERE current_table_class = recommended_table_class
-        )
-    """
-    optimized_count = connection.execute(optimized_query).fetchone()[0]
-
+    
+    # Count optimized vs not optimized from deduplicated recommendations
+    optimized_count = 0
+    optimized_count += sum(1 for rec in capacity_recs if rec.current_billing_mode == rec.recommended_billing_mode)
+    optimized_count += sum(1 for rec in table_class_recs if rec.current_table_class == rec.recommended_table_class)
+    # Utilization recommendations are always optimization opportunities (no "already optimized" state)
+    
     not_optimized_count = total_recommendations - optimized_count
 
     return SummaryStats(
