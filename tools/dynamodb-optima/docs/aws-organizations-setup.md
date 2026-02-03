@@ -20,29 +20,46 @@ AWS Organizations integration allows DynamoDB Optima to automatically discover a
 
 ### Step 1: Management Account Setup
 
-Add Organizations read permissions to your current IAM user/role to discover accounts:
+Add permissions for discovery, metrics collection, and cross-account access to your management account:
 
 ```json
 {
-  "Effect": "Allow",
-  "Action": [
-    "organizations:ListAccounts",
-    "organizations:DescribeAccount",
-    "organizations:ListOrganizationalUnitsForParent"
-  ],
-  "Resource": "*"
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DynamoDBOptimaAccess",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:ListTables",
+        "dynamodb:DescribeTable",
+        "dynamodb:ListTagsOfResource",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:GetMetricStatistics",
+        "pricing:GetProducts",
+        "sts:AssumeRole",
+        "organizations:DescribeOrganization",
+        "organizations:ListAccounts",
+        "cur:DescribeReportDefinitions"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CURDataAccess",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::YOUR-CUR-BUCKET-NAME",
+        "arn:aws:s3:::YOUR-CUR-BUCKET-NAME/*"
+      ]
+    }
+  ]
 }
 ```
 
-Also add permission to assume the cross-account role:
-
-```json
-{
-  "Effect": "Allow",
-  "Action": ["sts:AssumeRole"],
-  "Resource": "arn:aws:iam::*:role/MetricsCollectorRole"
-}
-```
+**Note:** Replace `YOUR-CUR-BUCKET-NAME` with your actual CUR S3 bucket name.
 
 ### Step 2: Member Account Setup
 
@@ -56,14 +73,14 @@ Deploy a cross-account IAM role to each member account with:
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "MemberAccountAccess",
       "Effect": "Allow",
       "Action": [
         "dynamodb:ListTables",
         "dynamodb:DescribeTable",
         "dynamodb:ListTagsOfResource",
         "cloudwatch:GetMetricData",
-        "cloudwatch:GetMetricStatistics",
-        "pricing:GetProducts"
+        "cloudwatch:GetMetricStatistics"
       ],
       "Resource": "*"
     }
@@ -111,14 +128,14 @@ aws iam put-role-policy \
   --policy-document '{
     "Version": "2012-10-17",
     "Statement": [{
+      "Sid": "MemberAccountAccess",
       "Effect": "Allow",
       "Action": [
         "dynamodb:ListTables",
         "dynamodb:DescribeTable",
         "dynamodb:ListTagsOfResource",
         "cloudwatch:GetMetricData",
-        "cloudwatch:GetMetricStatistics",
-        "pricing:GetProducts"
+        "cloudwatch:GetMetricStatistics"
       ],
       "Resource": "*"
     }]

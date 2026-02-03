@@ -42,14 +42,14 @@ Resources:
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - Effect: Allow
+              - Sid: MemberAccountAccess
+                Effect: Allow
                 Action:
                   - 'dynamodb:ListTables'
                   - 'dynamodb:DescribeTable'
                   - 'dynamodb:ListTagsOfResource'
                   - 'cloudwatch:GetMetricData'
                   - 'cloudwatch:GetMetricStatistics'
-                  - 'pricing:GetProducts'
                 Resource: '*'
       Tags:
         - Key: Purpose

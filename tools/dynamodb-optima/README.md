@@ -35,12 +35,13 @@ DynamoDB Optima provides three types of cost optimization analysis for DynamoDB:
 
 - **Python 3.12+**
 - **AWS Credentials** - Configure via `aws configure` or environment variables
-- **IAM Permissions**:
+- **IAM Permissions** (Management Account):
   ```json
   {
     "Version": "2012-10-17",
     "Statement": [
       {
+        "Sid": "DynamoDBOptimaAccess",
         "Effect": "Allow",
         "Action": [
           "dynamodb:ListTables",
@@ -48,13 +49,31 @@ DynamoDB Optima provides three types of cost optimization analysis for DynamoDB:
           "dynamodb:ListTagsOfResource",
           "cloudwatch:GetMetricData",
           "cloudwatch:GetMetricStatistics",
-          "pricing:GetProducts"
+          "pricing:GetProducts",
+          "sts:AssumeRole",
+          "organizations:DescribeOrganization",
+          "organizations:ListAccounts",
+          "cur:DescribeReportDefinitions"
         ],
         "Resource": "*"
+      },
+      {
+        "Sid": "CURDataAccess",
+        "Effect": "Allow",
+        "Action": [
+          "s3:ListBucket",
+          "s3:GetObject"
+        ],
+        "Resource": [
+          "arn:aws:s3:::YOUR-CUR-BUCKET-NAME",
+          "arn:aws:s3:::YOUR-CUR-BUCKET-NAME/*"
+        ]
       }
     ]
   }
   ```
+
+  **Note:** Replace `YOUR-CUR-BUCKET-NAME` with your actual CUR S3 bucket name. The Organizations permissions are only required for `--use-org` mode. AWS CUR and S3 permissions are required for table class analysis with data collected via `collect-cur`.
 
 ### Optional
 
