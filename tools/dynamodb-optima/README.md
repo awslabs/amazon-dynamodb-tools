@@ -73,7 +73,7 @@ DynamoDB Optima provides three types of cost optimization analysis for DynamoDB:
   }
   ```
 
-  **Note:** Replace `YOUR-CUR-BUCKET-NAME` with your actual CUR S3 bucket name. The Organizations permissions are only required for `--use-org` mode. AWS CUR and S3 permissions are required for table class analysis with data collected via `collect-cur`.
+  **Note:** Replace `YOUR-CUR-BUCKET-NAME` with your actual CUR S3 bucket name. The Organizations permissions are only required for `--use-org` mode. AWS CUR and S3 permissions are required for table class analysis with data collected via `collect-cur`. `ListTagsOfResource` is added for future expansion plans, but not required.
 
 ### Optional
 

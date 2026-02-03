@@ -142,7 +142,7 @@ aws iam put-role-policy \
   }'
 ```
 
-**Note:** Replace `MANAGEMENT-ACCOUNT-ID` with your actual management account ID.
+**Note:** Replace `MANAGEMENT-ACCOUNT-ID` with your actual management account ID. `ListTagsOfResource` is added for future expansion plans, but not required.
 
 **Option 2: CloudFormation StackSets (Recommended for many accounts)**
 
