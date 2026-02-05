@@ -102,7 +102,7 @@ settings = Settings(
 | `METRICS_RETENTION_DAYS` | `1095` | Retention period (3 years) |
 | `CHECKPOINT_SAVE_INTERVAL` | `25` | Save checkpoint every N operations |
 | `METRICS_BATCH_FLUSH_SIZE` | `100000` | Auto-flush metrics to database every N records (prevents OOM) |
-| `MAX_CONCURRENT_RESOURCES` | `10` | Max concurrent table collections for parallel processing |
+| `DEFAULT_CONCURRENT_RESOURCES` | `4` | The number of concurrent workers is max(4, # of CPU threads) |
 
 ### Database Memory Settings
 

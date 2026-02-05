@@ -577,6 +577,9 @@ class CloudWatchCollector(StateManagerMixin):
             show_percent=True,
             show_pos=True
         ) if total_resources_to_process > 0 else None
+        
+        # Lock for thread-safe progress bar updates (prevents concurrent updates from causing newlines)
+        progress_lock = asyncio.Lock()
 
         if progress_bar:
             progress_bar.__enter__()
@@ -622,6 +625,7 @@ class CloudWatchCollector(StateManagerMixin):
                             end_time,
                             region,
                             progress_bar,
+                            progress_lock,
                             state,
                         )
                     )
@@ -767,6 +771,8 @@ class CloudWatchCollector(StateManagerMixin):
 
         finally:
             if progress_bar:
+                if progress_bar.pos < successful_collections:
+                    progress_bar.update(successful_collections - progress_bar.pos)
                 progress_bar.__exit__(None, None, None)
 
         # Collection duration tracking
@@ -1596,6 +1602,7 @@ class CloudWatchCollector(StateManagerMixin):
         end_time: datetime,
         region: str,
         progress_bar: Any,
+        progress_lock: asyncio.Lock,
         state: Any,
     ) -> tuple[int, int, int]:
         """Process resources in parallel, updating the provided progress bar."""
@@ -1610,8 +1617,14 @@ class CloudWatchCollector(StateManagerMixin):
         async with await self.aws_client_manager.get_async_client(
             "cloudwatch", region
         ) as cloudwatch:
-
-            semaphore = asyncio.Semaphore(settings.max_concurrent_resources)
+            # Use higher of CPU count or default (fallback to default if psutil unavailable)
+            try:
+                import psutil
+                thread_count = max(psutil.cpu_count(logical=True) or settings.default_concurrent_resources,
+                                   settings.default_concurrent_resources)
+            except (ImportError, Exception):
+                thread_count = settings.default_concurrent_resources
+            semaphore = asyncio.Semaphore(thread_count)
 
             async def collect_one_resource(resource):
                 async with semaphore:
@@ -1646,9 +1659,10 @@ class CloudWatchCollector(StateManagerMixin):
             for coro in asyncio.as_completed(tasks):
                 result = await coro
                 
-                # Update the shared progress bar
+                # Update the shared progress bar with lock to prevent concurrent updates
                 if progress_bar:
-                    progress_bar.update(1)
+                    async with progress_lock:
+                        progress_bar.update(1)
                 
                 if result[0] == "success":
                     successful += 1

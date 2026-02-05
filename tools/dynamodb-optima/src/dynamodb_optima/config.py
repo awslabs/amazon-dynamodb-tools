@@ -16,6 +16,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
+
 class Settings(BaseSettings):
     """Application settings with environment variable support."""
 
@@ -156,9 +157,9 @@ class Settings(BaseSettings):
         default=100000,
         description="Auto-flush metrics to database every N records (prevents OOM with large collections)"
     )
-    max_concurrent_resources: int = Field(
-        default=10,
-        description="Maximum concurrent resource (table) collections for parallel processing"
+    default_concurrent_resources: int = Field(
+        default=4,
+        description="Default concurrent resource (table) collections for parallel processing. We use the higher of this or your # CPU cores."
     )
 
     # Database memory settings
