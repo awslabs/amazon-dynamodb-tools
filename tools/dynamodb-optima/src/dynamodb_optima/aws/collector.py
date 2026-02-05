@@ -110,7 +110,7 @@ class CloudWatchCollector(StateManagerMixin):
         self.checkpoint_interval = (
             checkpoint_interval or settings.checkpoint_save_interval
         )
-        self.batch_size = batch_size or 100  # TODO: Add to config in future task
+        self.batch_flush_size = batch_size or settings.metrics_batch_flush_size
         self.rate_limit_delay = rate_limit_delay
         self.db_manager = get_database_manager()
 
@@ -280,35 +280,20 @@ class CloudWatchCollector(StateManagerMixin):
                 )
                 raise CollectionError("No resources found for collection")
 
-            # Use the same pattern as other status displays with stderr suppression only
-            # Lazy import - only needed conditionally
-            import contextlib
-            import io
-
             status_display.start("Collecting CloudWatch metrics")
 
-            # Capture only stderr to prevent interference while allowing spinner on stdout
-            captured_stderr = io.StringIO()
+            # Collect metrics without stderr capture (allows diagnostic logs to flow)
             try:
-                with contextlib.redirect_stderr(captured_stderr):
-                    result = await self._collect_metrics_for_resources(
-                        resources,
-                        target_metrics,
-                        start_time,
-                        end_time,
-                        state,
-                        show_progress=False,
-                    )
+                result = await self._collect_metrics_for_resources(
+                    resources,
+                    target_metrics,
+                    start_time,
+                    end_time,
+                    state,
+                    show_progress=False,
+                )
             finally:
                 status_display.stop()
-
-            # Log any captured stderr for debugging (but don't print it)
-            captured = captured_stderr.getvalue()
-            if captured.strip():
-                logger.debug(
-                    "Captured stderr during metrics collection",
-                    stderr_output=captured.strip(),
-                )
 
             print(
                 f"  Metrics collection completed - {result.total_metrics_collected:,} metrics collected"
@@ -667,8 +652,19 @@ class CloudWatchCollector(StateManagerMixin):
                         )
 
                         # Add to batch for database storage
+                        should_flush = False
                         async with self._batch_lock:
                             self._metric_batch.extend(resource_metrics)
+                            # Decide atomically while holding lock
+                            should_flush = len(self._metric_batch) >= self.batch_flush_size
+
+                        # Auto-flush if batch size limit reached (prevents OOM)
+                        if should_flush:
+                            logger.info(
+                                f"Auto-flushing {len(self._metric_batch):,} metrics "
+                                f"(limit: {self.batch_flush_size:,})"
+                            )
+                            await self._flush_metric_batch()
 
                         total_metrics_collected += len(resource_metrics)
                         successful_collections += 1
@@ -870,19 +866,67 @@ class CloudWatchCollector(StateManagerMixin):
                 region,
             )
 
+    async def _add_metrics_and_maybe_flush(
+        self,
+        metrics: List[MetricDataPoint]
+    ) -> None:
+        """
+        Add metrics to batch and automatically flush if size limit reached.
+
+        This enables streaming collection where metrics are persisted progressively
+        instead of accumulating unbounded lists in memory.
+
+        Args:
+            metrics: List of metrics to add to batch
+        """
+        if not metrics:
+            return
+
+        should_flush = False
+
+        async with self._batch_lock:
+            self._metric_batch.extend(metrics)
+            # Decide atomically while holding lock (parallel-safe)
+            should_flush = len(self._metric_batch) >= self.batch_flush_size
+
+        # Flush outside lock if needed
+        if should_flush:
+            logger.info(
+                f"Auto-flushing {len(self._metric_batch):,} metrics "
+                f"(limit: {self.batch_flush_size:,})"
+            )
+            await self._flush_metric_batch()
+    
     async def _flush_metric_batch(self) -> None:
-        """Flush accumulated metrics to database optimized for DuckDB OLAP."""
+        """Flush accumulated metrics to database with data recovery on failure."""
+
         if not self._metric_batch:
             return
 
+        # Safety check: warn if batch is unexpectedly large
+        # This indicates auto-flush logic may not be working correctly
+        current_batch_size = len(self._metric_batch)
+        if current_batch_size > self.batch_flush_size * 5:  # More than 5x expected size
+            logger.warning(
+                f"Very large batch detected: {current_batch_size:,} metrics "
+                f"(expected max: {self.batch_flush_size:,}). "
+                "Auto-flush may not be working correctly!"
+            )
+
+        # Keep reference to original metrics for recovery if insert fails
+        metrics_to_restore = []
+        batch_data = []
+
         try:
             # Copy batch data while holding lock briefly
-            batch_data = []
             async with self._batch_lock:
                 if not self._metric_batch:
                     return
 
-                # Copy data quickly for DuckDB batch insert
+                # Keep reference to original MetricDataPoint objects for recovery
+                metrics_to_restore = list(self._metric_batch)
+
+                # Convert to dict format for DuckDB batch insert
                 for metric in self._metric_batch:
                     batch_data.append(
                         {
@@ -904,23 +948,28 @@ class CloudWatchCollector(StateManagerMixin):
                         }
                     )
 
-                # Clear the batch immediately after copying
+                # Clear the batch (will restore if insert fails)
                 self._metric_batch.clear()
 
-            # Perform direct database operation (no thread pool for DuckDB)
+            # Perform direct database operation (OUTSIDE lock to avoid holding during slow I/O)
             if batch_data:
-                logger.debug(f"Storing {len(batch_data):,} metrics in database...")
                 self._direct_batch_insert(batch_data)
-                logger.debug(
-                    f"Successfully stored {len(batch_data):,} metrics in DuckDB"
-                )
+                logger.debug(f"Successfully stored {len(batch_data):,} metrics in DuckDB")
 
         except Exception as e:
-            logger.error(f"Failed to flush metric batch to DuckDB: {e}")
-            # Don't re-raise to avoid breaking the collection process
-        except Exception as e:
-            logger.error(f"Failed to flush metric batch to database: {e}")
-            # Don't re-raise to avoid breaking the collection process
+            # Restore metrics to batch if database insert failed
+            # This prevents silent data loss
+            async with self._batch_lock:
+                # Prepend failed metrics to front of batch (maintain order)
+                self._metric_batch = metrics_to_restore + self._metric_batch
+            
+            logger.error(
+                f"Flush failed! Restored {len(metrics_to_restore):,} metrics to batch. "
+                f"Current batch size: {len(self._metric_batch):,}. Error: {e}"
+            )
+            
+            # RE-RAISE to fail collection visibly (don't silently lose data)
+            raise RuntimeError(f"Metric flush failed, data restored to batch: {e}")
 
     def _direct_batch_insert(self, batch_data: List[Dict[str, Any]]) -> None:
         """Direct batch insert optimized for DuckDB OLAP performance."""
@@ -1066,29 +1115,30 @@ class CloudWatchCollector(StateManagerMixin):
         start_time: datetime,
         end_time: datetime,
         region: str
-    ) -> List[MetricDataPoint]:
+    ) -> int:
         """
-        Collect metrics using GetMetricData batch API for empty resources.
+        Collect metrics using GetMetricData batch API with streaming flush.
         
-        This is much faster than individual GetMetricStatistics calls.
-        Used when resources have no existing data (first-time collection).
+        Metrics are progressively flushed to database during collection instead of
+        accumulating in memory. This prevents OOM on large collections.
         
         Args:
             cloudwatch: CloudWatch client
-            resources: List of resources (should all be empty)
+            resources: List of resources to collect
             metric_configs: Metrics to collect
             start_time: Collection start time
             end_time: Collection end time
             region: AWS region
             
         Returns:
-            List of MetricDataPoint objects
+            Total count of metrics collected (already flushed to database)
         """
         # Build all metric queries for batching
         metric_queries = []
         query_metadata = {}
         query_id_counter = 0
         
+
         for resource in resources:
             for config in metric_configs:
                 for statistic in config.statistics:
@@ -1132,16 +1182,16 @@ class CloudWatchCollector(StateManagerMixin):
                             "period": period,
                             "region": region,
                         }
-        
-        logger.debug(f"Built {len(metric_queries)} queries for batch collection")
-        
-        # Process in batches with pagination
-        all_metrics = []
+
+        # Track total metrics collected
+        total_metrics_collected = 0
         batch_size = self._calculate_optimal_batch_size(len(metric_queries))
         
+        # Process queries in batches with pagination and progressive flushing
         for i in range(0, len(metric_queries), batch_size):
             batch_queries = metric_queries[i:i + batch_size]
             
+
             try:
                 # Paginate through all results using NextToken
                 next_token = None
@@ -1163,11 +1213,15 @@ class CloudWatchCollector(StateManagerMixin):
                         cloudwatch.get_metric_data(**params),
                         timeout=30.0,
                     )
-                    
+
                     # Process this page
                     page_metrics = self._process_batch_response(response, query_metadata)
-                    all_metrics.extend(page_metrics)
+
+                    # FLUSH PROGRESSIVELY: Add metrics and maybe flush
+                    await self._add_metrics_and_maybe_flush(page_metrics)
+
                     batch_total += len(page_metrics)
+                    total_metrics_collected += len(page_metrics)
                     
                     logger.debug(
                         f"Batch {i//batch_size + 1} page {page}: "
@@ -1177,8 +1231,10 @@ class CloudWatchCollector(StateManagerMixin):
                     # Check for more pages
                     next_token = response.get("NextToken")
                     if not next_token:
+                        logger.debug(f"DIAGNOSTIC: No more pages for batch {i//batch_size + 1}")
                         break  # No more data!
                     
+                    logger.debug(f"DIAGNOSTIC: NextToken present, fetching page {page + 1}")
                     page += 1
                 
                 logger.info(
@@ -1192,9 +1248,9 @@ class CloudWatchCollector(StateManagerMixin):
                     
             except Exception as e:
                 logger.error(f"Batch API call failed: {e}")
-        
-        logger.info(f"Batch API collected {len(all_metrics)} metrics for {len(resources)} empty resource(s)")
-        return all_metrics
+                # Continue with next batch instead of failing completely
+        logger.debug(f"Batch API collected {len(all_metrics)} metrics for {len(resources)} empty resource(s)")
+        return total_metrics_collected
 
     def _get_latest_timestamps_for_resource(
         self,
@@ -1292,10 +1348,6 @@ class CloudWatchCollector(StateManagerMixin):
                 # No existing data - collect full window
                 resource['collection_start'] = start_time
                 resources_to_collect.append(resource)
-                logger.debug(
-                    f"{resource['resource_name']}: No existing data, "
-                    f"collecting full window"
-                )
             else:
                 # Find minimum latest timestamp (conservative approach)
                 # This is the earliest point where ANY metric needs new data
@@ -1314,7 +1366,7 @@ class CloudWatchCollector(StateManagerMixin):
                     logger.debug(
                         f"{resource['resource_name']}: Up-to-date "
                         f"(latest: {min_latest.isoformat()}, end: {end_time.isoformat()})"
-                    )
+                        )
                     continue
                 
                 # Collect gap from earliest needed point
@@ -1323,7 +1375,7 @@ class CloudWatchCollector(StateManagerMixin):
                 logger.debug(
                     f"{resource['resource_name']}: Gap detected, "
                     f"collecting from {gap_start.isoformat()} to {end_time.isoformat()}"
-                )
+                    )
         
         logger.info(
             f"Gap analysis complete: {len(resources_to_collect)} need collection, "
@@ -1338,13 +1390,10 @@ class CloudWatchCollector(StateManagerMixin):
         # Collect metrics using batch API for resources that need data
         # Use the minimum gap_start across all resources for batch efficiency
         batch_start = min(r['collection_start'] for r in resources_to_collect)
+
         
-        logger.info(
-            f"Batch collecting {len(resources_to_collect)} resources "
-            f"from {batch_start.isoformat()} to {end_time.isoformat()}"
-        )
-        
-        return await self._collect_with_batch_api(
+        # Collect with streaming flush - returns count of metrics (already flushed)
+        metrics_count = await self._collect_with_batch_api(
             cloudwatch,
             resources_to_collect,
             metric_configs,
@@ -1352,6 +1401,10 @@ class CloudWatchCollector(StateManagerMixin):
             end_time,
             region
         )
+
+        # Return empty list since metrics are already flushed
+        # Caller expects List but won't use it (will use count from return value context)
+        return []
 
     def get_time_period_optimization_recommendations(
         self, metric_configs: List[MetricConfiguration]
@@ -1565,7 +1618,8 @@ class CloudWatchCollector(StateManagerMixin):
             try:
                 # Progress tracking disabled to avoid console interference
 
-                # Collect metrics for all resources in one optimized batch
+                # Collect metrics with streaming flush
+                # Metrics are flushed progressively during collection
                 batch_metrics = await self._collect_metrics_batch_optimized(
                     cloudwatch,
                     resources,
@@ -1575,9 +1629,7 @@ class CloudWatchCollector(StateManagerMixin):
                     region,
                 )
 
-                # Add to batch for database storage
-                async with self._batch_lock:
-                    self._metric_batch.extend(batch_metrics)
+
 
                 # Mark all resources as completed and update counters
                 for resource in resources:
@@ -1652,9 +1704,22 @@ class CloudWatchCollector(StateManagerMixin):
                             timeout=45.0,
                         )
 
+
                         # Add to batch for database storage
+                        should_flush = False
                         async with self._batch_lock:
                             self._metric_batch.extend(resource_metrics)
+                            # Decide atomically while holding lock
+                            should_flush = len(self._metric_batch) >= self.batch_flush_size
+
+                        # Auto-flush if batch size limit reached (prevents OOM)
+                        if should_flush:
+                            logger.debug(
+                                f"Auto-flushing {len(self._metric_batch):,} metrics "
+                                f"(limit: {self.batch_flush_size:,})"
+                            )
+                            await self._flush_metric_batch()
+
 
                         # Mark resource as completed
                         state.collection_state.completed_resources.add(resource_key)
