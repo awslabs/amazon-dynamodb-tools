@@ -1216,6 +1216,8 @@ class CloudWatchCollector(StateManagerMixin):
         Returns:
             Dict mapping metric key to latest timestamp, or empty dict if no data
         """
+        from datetime import timezone
+        
         query = """
             SELECT 
                 metric_name,
@@ -1237,7 +1239,13 @@ class CloudWatchCollector(StateManagerMixin):
             coverage = {}
             for row in results:
                 key = f"{row['metric_name']}:{row['statistic']}:{row['period_seconds']}"
-                coverage[key] = row['latest_timestamp']
+                timestamp = row['latest_timestamp']
+                
+                # Ensure timestamp is timezone-aware (UTC) for comparisons
+                if isinstance(timestamp, datetime) and timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+                
+                coverage[key] = timestamp
             
             return coverage
             
