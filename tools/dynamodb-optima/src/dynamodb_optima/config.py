@@ -16,6 +16,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
+
 class Settings(BaseSettings):
     """Application settings with environment variable support."""
 
@@ -151,6 +152,20 @@ class Settings(BaseSettings):
     )
     checkpoint_save_interval: int = Field(
         default=25, description="Save checkpoint every N operations"
+    )
+    metrics_batch_flush_size: int = Field(
+        default=100000,
+        description="Auto-flush metrics to database every N records (prevents OOM with large collections)"
+    )
+    default_concurrent_resources: int = Field(
+        default=4,
+        description="Default concurrent resource (table) collections for parallel processing. We use the higher of this or your # CPU cores."
+    )
+
+    # Database memory settings
+    duckdb_memory_percent: float = Field(
+        default=0.50,
+        description="Percent of available RAM for DuckDB (0.50 = 50%, per DuckDB best practices)"
     )
 
     # Capacity mode analysis settings

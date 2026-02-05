@@ -202,7 +202,7 @@ def collect(
         # Get unique tables count
         try:
             tables_result = db_manager.execute_query(
-                "SELECT COUNT(DISTINCT table_name) as count FROM table_metadata"
+                "SELECT COUNT(*) as count FROM table_metadata"
             )
             tables_count = tables_result[0]['count'] if tables_result else 0
         except:

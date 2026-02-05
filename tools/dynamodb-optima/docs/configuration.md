@@ -61,6 +61,7 @@ settings = Settings(
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
 | `AWS_REGION` | `"us-east-1"` | Default AWS region |
+| `AWS_REGIONS` | `[list of 12 regions]` | List of AWS regions to collect metrics from (us-east-1, us-east-2, us-west-1, us-west-2, eu-west-1, eu-west-2, eu-west-3, eu-central-1, ap-southeast-1, ap-southeast-2, ap-northeast-1, ap-northeast-2) |
 | `AWS_PROFILE` | `None` | AWS profile name from ~/.aws/credentials |
 | `AWS_ACCESS_KEY_ID` | `None` | AWS Access Key (overrides profile) |
 | `AWS_SECRET_ACCESS_KEY` | `None` | AWS Secret Key (overrides profile) |
@@ -75,8 +76,6 @@ settings = Settings(
 | `ORGANIZATIONS_ROLE_SESSION_NAME` | `"dynamodb-optima"` | Session name for STS AssumeRole |
 | `ORGANIZATIONS_MAX_CREDENTIAL_CACHE_SIZE` | `10000` | Max credentials to cache (prevents OOM) |
 | `ORGANIZATIONS_MANAGEMENT_ACCOUNT_ID` | `None` | Management account ID (auto-detected if not set) |
-
-**Advanced Organizations Settings:** See [`config.py`](../src/dynamodb_optima/config.py) for throttling and retry configuration.
 
 ### Cost & Usage Reports (CUR) Settings
 
@@ -102,6 +101,14 @@ settings = Settings(
 | `METRICS_COLLECTION_INTERVAL_HOURS` | `24` | Collection interval in hours |
 | `METRICS_RETENTION_DAYS` | `1095` | Retention period (3 years) |
 | `CHECKPOINT_SAVE_INTERVAL` | `25` | Save checkpoint every N operations |
+| `METRICS_BATCH_FLUSH_SIZE` | `100000` | Auto-flush metrics to database every N records (prevents OOM) |
+| `DEFAULT_CONCURRENT_RESOURCES` | `4` | The number of concurrent workers is max(4, # of CPU threads) |
+
+### Database Memory Settings
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `DUCKDB_MEMORY_PERCENT` | `0.50` | Percent of available RAM for DuckDB (50% per best practices) |
 
 ### Capacity Mode Analysis Settings
 

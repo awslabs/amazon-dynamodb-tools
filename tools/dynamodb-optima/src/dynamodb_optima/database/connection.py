@@ -286,16 +286,24 @@ class DatabaseManager:
 
             available_memory_gb = psutil.virtual_memory().available / (1024**3)
 
-            # Use 25% of available memory, with min 1GB and max 8GB
-            optimal_memory_gb = max(1, min(8, available_memory_gb * 0.25))
+            # Use configured percent of available memory (default 50% per DuckDB best practices)
+            # DuckDB recommends 50-60% for operations that bypass buffer manager (bulk inserts)
+            memory_percent = self.settings.duckdb_memory_percent
+            optimal_memory_gb = max(2, min(16, available_memory_gb * memory_percent))
+
+            logger.debug(
+                f"Calculated DuckDB memory limit: {int(optimal_memory_gb)}GB "
+                f"({memory_percent:.0%} of {available_memory_gb:.1f}GB available)"
+            )
+
             return f"{int(optimal_memory_gb)}GB"  # Use integer to avoid parsing issues
 
         except ImportError:
             logger.debug("psutil not available, using default memory limit")
-            return "2GB"
+            return "4GB"
         except Exception as e:
             logger.warning(f"Failed to calculate optimal memory limit: {e}")
-            return "2GB"
+            return "4GB"
 
     def _calculate_optimal_thread_count(self) -> int:
         """Calculate optimal thread count based on CPU cores."""
@@ -1179,8 +1187,11 @@ class DatabaseManager:
                     """
                     )
 
-                    # Clean up staging table - DuckDB handles this efficiently
+                    # Clean up staging table
                     conn.execute(f"DROP TABLE {staging_table_name}")
+
+                    # Commit transaction (required for connection pooling)
+                    conn.commit()
 
                     execution_time = time.time() - start_time
                     logger.debug(

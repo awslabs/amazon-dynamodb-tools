@@ -110,7 +110,7 @@ class CloudWatchCollector(StateManagerMixin):
         self.checkpoint_interval = (
             checkpoint_interval or settings.checkpoint_save_interval
         )
-        self.batch_size = batch_size or 100  # TODO: Add to config in future task
+        self.batch_flush_size = batch_size or settings.metrics_batch_flush_size
         self.rate_limit_delay = rate_limit_delay
         self.db_manager = get_database_manager()
 
@@ -280,39 +280,16 @@ class CloudWatchCollector(StateManagerMixin):
                 )
                 raise CollectionError("No resources found for collection")
 
-            # Use the same pattern as other status displays with stderr suppression only
-            # Lazy import - only needed conditionally
-            import contextlib
-            import io
-
-            status_display.start("Collecting CloudWatch metrics")
-
-            # Capture only stderr to prevent interference while allowing spinner on stdout
-            captured_stderr = io.StringIO()
-            try:
-                with contextlib.redirect_stderr(captured_stderr):
-                    result = await self._collect_metrics_for_resources(
-                        resources,
-                        target_metrics,
-                        start_time,
-                        end_time,
-                        state,
-                        show_progress=False,
-                    )
-            finally:
-                status_display.stop()
-
-            # Log any captured stderr for debugging (but don't print it)
-            captured = captured_stderr.getvalue()
-            if captured.strip():
-                logger.debug(
-                    "Captured stderr during metrics collection",
-                    stderr_output=captured.strip(),
-                )
-
-            print(
-                f"  Metrics collection completed - {result.total_metrics_collected:,} metrics collected"
+            result = await self._collect_metrics_for_resources(
+                resources,
+                target_metrics,
+                start_time,
+                end_time,
+                state,
+                show_progress=False,
             )
+
+            
 
             # Mark operation as completed
             state.status = "COMPLETED"
@@ -325,11 +302,8 @@ class CloudWatchCollector(StateManagerMixin):
             state.estimated_completion = datetime.now()
 
             # Save final state and flush any remaining metrics
-            status_display.start("Storing metrics into local DuckDB")
             await self._flush_metric_batch()
-            status_display.stop()
-            print("  Metrics stored in database")
-            print()  # Add newline for better spacing before final summary
+            print("Metrics collection completed.")
             self.state_manager.save_checkpoint(state)
 
             # Log performance metrics and optimization impact
@@ -588,196 +562,232 @@ class CloudWatchCollector(StateManagerMixin):
                 "already completed resources"
             )
 
-        # Process each region
-        for region, region_resources in resources.items():
-            if not region_resources:
-                continue
+        # Create single progress bar for all resources across all regions
+        import click
+        total_resources_to_process = sum(
+            len([r for r in region_resources
+                 if f"{region}:{r['resource_name']}" not in state.collection_state.completed_resources])
+            for region, region_resources in resources.items()
+        )
 
-            regions_processed.append(region)
-            logger.debug(
-                f"Collecting metrics for region {region}",
-                resources=len(region_resources),
-            )
+        progress_bar = click.progressbar(
+            length=total_resources_to_process,
+            label=f'Collecting {total_resources_to_process} resources',
+            show_eta=False,
+            show_percent=True,
+            show_pos=True
+        ) if total_resources_to_process > 0 else None
+        
+        # Lock for thread-safe progress bar updates (prevents concurrent updates from causing newlines)
+        progress_lock = asyncio.Lock()
 
-            # Filter out already completed resources
-            remaining_resources = [
-                resource
-                for resource in region_resources
-                if f"{region}:{resource['resource_name']}"
-                not in state.collection_state.completed_resources
-            ]
+        if progress_bar:
+            progress_bar.__enter__()
 
-            if not remaining_resources:
+        try:
+            # Process each region
+            for region, region_resources in resources.items():
+                if not region_resources:
+                    continue
+
+                regions_processed.append(region)
                 logger.debug(
-                    f"All resources in region {region} already completed, skipping"
+                    f"Collecting metrics for region {region}",
+                    resources=len(region_resources),
                 )
-                continue
 
-            logger.debug(
-                f"Processing {len(remaining_resources)} remaining resources in {region}"
-            )
+                # Filter out already completed resources
+                remaining_resources = [
+                    resource
+                    for resource in region_resources
+                    if f"{region}:{resource['resource_name']}"
+                    not in state.collection_state.completed_resources
+                ]
 
-            # Use batch processing for better efficiency when possible
-            if len(remaining_resources) > 1:
-                # Process multiple resources in optimized batches
-                batch_metrics, batch_successful, batch_failed = (
-                    await self._process_resources_batch_optimized(
-                        remaining_resources,
-                        metric_configs,
-                        start_time,
-                        end_time,
-                        region,
-                        progress,
-                        state,
+                if not remaining_resources:
+                    logger.debug(
+                        f"All resources in region {region} already completed, skipping"
                     )
+                    continue
+
+                logger.debug(
+                    f"Processing {len(remaining_resources)} remaining resources in {region}"
                 )
 
-                # Update counters from batch processing
-                total_metrics_collected += batch_metrics
-                successful_collections += batch_successful
-                failed_collections += batch_failed
-
-            else:
-                # Process single resource (fallback to existing logic)
-                for resource in remaining_resources:
-                    resource_key = f"{region}:{resource['resource_name']}"
-
-                    try:
-                        # Progress is shown via progress bar,
-                        # no need for console logging
-                        logger.debug(
-                            f"Processing resource: {resource['resource_name']} "
-                            f"({len(remaining_resources)} remaining)"
-                        )
-
-                        # Progress tracking disabled to avoid console interference
-
-                        # Process single resource with timeout
-                        resource_metrics, resource_duration = await asyncio.wait_for(
-                            self._process_single_resource(
-                                resource,
+                # Create CloudWatch client ONCE per region for connection reuse
+                # get_async_client returns a context manager, so we need to enter it
+                client_context = await self.aws_client_manager.get_async_client(
+                    "cloudwatch", region
+                )
+                cloudwatch = await client_context.__aenter__()
+                
+                try:
+                    # Use batch processing for better efficiency when possible
+                    if len(remaining_resources) > 1:
+                        # Process multiple resources in optimized batches
+                        batch_metrics, batch_successful, batch_failed = (
+                            await self._process_resources_batch_optimized(
+                                cloudwatch,
+                                remaining_resources,
                                 metric_configs,
                                 start_time,
                                 end_time,
                                 region,
-                                progress,
+                                progress_bar,
+                                progress_lock,
                                 state,
-                            ),
-                            timeout=45.0,  # 45 second timeout per resource
-                        )
-
-                        # Add to batch for database storage
-                        async with self._batch_lock:
-                            self._metric_batch.extend(resource_metrics)
-
-                        total_metrics_collected += len(resource_metrics)
-                        successful_collections += 1
-
-                        # Mark resource as completed
-                        state.collection_state.completed_resources.add(resource_key)
-
-                        # Update batch progress tracking
-                        # (treat individual resource as micro-batch)
-                        state.collection_state.completed_batches += 1
-                        state.collection_state.completed_operations += 1  # Keep in sync
-                        state.completion_percentage = (
-                            (
-                                state.collection_state.completed_operations
-                                / state.collection_state.total_operations
                             )
-                            * 100
-                            if state.collection_state.total_operations > 0
-                            else 0
                         )
 
-                        # Calculate ETA based on batch completion
-                        if state.collection_state.completed_batches > 0:
-                            elapsed_time = (
-                                datetime.now() - state.collection_state.start_time
-                            )
-                            avg_time_per_batch = (
-                                elapsed_time.total_seconds()
-                                / state.collection_state.completed_batches
-                            )
-                            remaining_batches = (
-                                state.collection_state.total_operations
-                                - state.collection_state.completed_batches
-                            )
-                            eta_seconds = avg_time_per_batch * remaining_batches
-                            state.estimated_completion = datetime.now() + timedelta(
-                                seconds=eta_seconds
-                            )
+                        # Update counters from batch processing
+                        total_metrics_collected += batch_metrics
+                        successful_collections += batch_successful
+                        failed_collections += batch_failed
 
-                        # Progress tracking disabled for performance
+                    else:
+                        # Process single resource (fallback to existing logic)
+                        for resource in remaining_resources:
+                            resource_key = f"{region}:{resource['resource_name']}"
 
-                        # Save checkpoint after each resource
-                        self.state_manager.save_checkpoint(state)
+                            try:
+                                # Progress is shown via progress bar,
+                                # no need for console logging
+                                logger.debug(
+                                    f"Processing resource: {resource['resource_name']} "
+                                    f"({len(remaining_resources)} remaining)"
+                                )
 
-                    except asyncio.TimeoutError:
-                        logger.error(
-                            f"Resource {resource['resource_name']} "
-                            f"timed out after 45 seconds - SKIPPING"
-                        )
-                        failed_collections += 1
-                        error_summary["TimeoutError"] = (
-                            error_summary.get("TimeoutError", 0) + 1
-                        )
+                                # Progress tracking disabled to avoid console interference
 
-                        # Mark resource as completed even if it failed
-                        # (to skip it on resume)
-                        state.collection_state.completed_resources.add(resource_key)
+                                # Process single resource with timeout
+                                resource_metrics, resource_duration = await asyncio.wait_for(
+                                    self._process_single_resource(
+                                        cloudwatch,
+                                        resource,
+                                        metric_configs,
+                                        start_time,
+                                        end_time,
+                                        region,
+                                        progress,
+                                        state,
+                                    ),
+                                    timeout=45.0,  # 45 second timeout per resource
+                                )
 
-                        # Add to failed collections
-                        state.collection_state.failed_collections.append(
-                            {
-                                "resource": resource["resource_name"],
-                                "region": region,
-                                "error": "Timeout after 45 seconds",
-                                "timestamp": datetime.now().isoformat(),
-                            }
-                        )
+                                # Add to batch for database storage
+                                should_flush = False
+                                async with self._batch_lock:
+                                    self._metric_batch.extend(resource_metrics)
+                                    # Decide atomically while holding lock
+                                    should_flush = len(self._metric_batch) >= self.batch_flush_size
 
-                        # Update batch progress tracking
-                        # (failed resource still counts as processed batch)
-                        state.collection_state.completed_batches += 1
+                                # Auto-flush if batch size limit reached (prevents OOM)
+                                if should_flush:
+                                    logger.info(
+                                        f"Auto-flushing {len(self._metric_batch):,} metrics "
+                                        f"(limit: {self.batch_flush_size:,})"
+                                    )
+                                    await self._flush_metric_batch()
 
-                        # Save checkpoint even for failed resources
-                        self.state_manager.save_checkpoint(state)
+                                total_metrics_collected += len(resource_metrics)
+                                successful_collections += 1
 
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to process resource "
-                            f"{resource['resource_name']}: {e}"
-                        )
-                        failed_collections += 1
-                        error_type = type(e).__name__
-                        error_summary[error_type] = error_summary.get(error_type, 0) + 1
+                                # Mark resource as completed
+                                state.collection_state.completed_resources.add(resource_key)
 
-                        # Mark resource as completed even if it failed (to skip it on
-                        # resume)
-                        state.collection_state.completed_resources.add(resource_key)
+                                # Update batch progress tracking
+                                # (treat individual resource as micro-batch)
+                                state.collection_state.completed_batches += 1
+                                state.collection_state.completed_operations += 1  # Keep in sync
+                                state.completion_percentage = (
+                                    (
+                                        state.collection_state.completed_operations
+                                        / state.collection_state.total_operations
+                                    )
+                                    * 100
+                                    if state.collection_state.total_operations > 0
+                                    else 0
+                                )
 
-                        # Add to failed collections
-                        state.collection_state.failed_collections.append(
-                            {
-                                "resource": resource["resource_name"],
-                                "region": region,
-                                "error": str(e),
-                                "timestamp": datetime.now().isoformat(),
-                            }
-                        )
+                                # Save checkpoint after each resource
+                                self.state_manager.save_checkpoint(state)
 
-                        # Update batch progress tracking
-                        # (failed resource still counts as processed batch)
-                        state.collection_state.completed_batches += 1
+                            except asyncio.TimeoutError:
+                                logger.error(
+                                    f"Resource {resource['resource_name']} "
+                                    f"timed out after 45 seconds - SKIPPING"
+                                )
+                                failed_collections += 1
+                                error_summary["TimeoutError"] = (
+                                    error_summary.get("TimeoutError", 0) + 1
+                                )
 
-                        # Save checkpoint even for failed resources
-                        self.state_manager.save_checkpoint(state)
+                                # Mark resource as completed even if it failed
+                                # (to skip it on resume)
+                                state.collection_state.completed_resources.add(resource_key)
 
-            logger.debug(
-                f"Completed region {region}: "
-                f"{successful_collections} resources processed"
-            )
+                                # Add to failed collections
+                                state.collection_state.failed_collections.append(
+                                    {
+                                        "resource": resource["resource_name"],
+                                        "region": region,
+                                        "error": "Timeout after 45 seconds",
+                                        "timestamp": datetime.now().isoformat(),
+                                    }
+                                )
+
+                                # Update batch progress tracking
+                                # (failed resource still counts as processed batch)
+                                state.collection_state.completed_batches += 1
+
+                                # Save checkpoint even for failed resources
+                                self.state_manager.save_checkpoint(state)
+
+                            except Exception as e:
+                                logger.error(
+                                    f"Failed to process resource "
+                                    f"{resource['resource_name']}: {e}"
+                                )
+                                failed_collections += 1
+                                error_type = type(e).__name__
+                                error_summary[error_type] = error_summary.get(error_type, 0) + 1
+
+                                # Mark resource as completed even if it failed (to skip it on
+                                # resume)
+                                state.collection_state.completed_resources.add(resource_key)
+
+                                # Add to failed collections
+                                state.collection_state.failed_collections.append(
+                                    {
+                                        "resource": resource["resource_name"],
+                                        "region": region,
+                                        "error": str(e),
+                                        "timestamp": datetime.now().isoformat(),
+                                    }
+                                )
+
+                                # Update batch progress tracking
+                                # (failed resource still counts as processed batch)
+                                state.collection_state.completed_batches += 1
+
+                                # Save checkpoint even for failed resources
+                                self.state_manager.save_checkpoint(state)
+                
+                finally:
+                    # Close CloudWatch client after all resources in region processed
+                    await client_context.__aexit__(None, None, None)
+                    logger.debug(f"Closed CloudWatch client for region {region}")
+
+                logger.debug(
+                    f"Completed region {region}: "
+                    f"{successful_collections} resources processed"
+                )
+
+        finally:
+            if progress_bar:
+                if progress_bar.pos < successful_collections:
+                    progress_bar.update(successful_collections - progress_bar.pos)
+                progress_bar.__exit__(None, None, None)
 
         # Collection duration tracking
         collection_duration = datetime.now() - collection_start
@@ -798,6 +808,7 @@ class CloudWatchCollector(StateManagerMixin):
 
     async def _process_single_resource(
         self,
+        cloudwatch,
         resource: Dict[str, Any],
         metric_configs: List[MetricConfiguration],
         start_time: datetime,
@@ -812,13 +823,22 @@ class CloudWatchCollector(StateManagerMixin):
         logger.debug(f"Starting collection for {resource['resource_name']} in {region}")
 
         try:
-            # Collect metrics for this resource
+            # Collect metrics for this resource using the provided cloudwatch client
             logger.debug(
-                f"Calling _collect_resource_metrics for {resource['resource_name']}"
+                f"Calling _collect_metrics_batch_optimized for {resource['resource_name']}"
             )
-            resource_metrics = await self._collect_resource_metrics(
-                resource, metric_configs, start_time, end_time, region
+            # Use batch optimized method directly with shared client
+            await self._collect_metrics_batch_optimized(
+                cloudwatch,
+                [resource],
+                metric_configs,
+                start_time,
+                end_time,
+                region,
             )
+            
+            # Return empty list since metrics are already flushed
+            resource_metrics = []
 
             resource_duration = time.time() - resource_start_time
 
@@ -870,19 +890,67 @@ class CloudWatchCollector(StateManagerMixin):
                 region,
             )
 
+    async def _add_metrics_and_maybe_flush(
+        self,
+        metrics: List[MetricDataPoint]
+    ) -> None:
+        """
+        Add metrics to batch and automatically flush if size limit reached.
+
+        This enables streaming collection where metrics are persisted progressively
+        instead of accumulating unbounded lists in memory.
+
+        Args:
+            metrics: List of metrics to add to batch
+        """
+        if not metrics:
+            return
+
+        should_flush = False
+
+        async with self._batch_lock:
+            self._metric_batch.extend(metrics)
+            # Decide atomically while holding lock (parallel-safe)
+            should_flush = len(self._metric_batch) >= self.batch_flush_size
+
+        # Flush outside lock if needed
+        if should_flush:
+            logger.info(
+                f"Auto-flushing {len(self._metric_batch):,} metrics "
+                f"(limit: {self.batch_flush_size:,})"
+            )
+            await self._flush_metric_batch()
+    
     async def _flush_metric_batch(self) -> None:
-        """Flush accumulated metrics to database optimized for DuckDB OLAP."""
+        """Flush accumulated metrics to database with data recovery on failure."""
+
         if not self._metric_batch:
             return
 
+        # Safety check: warn if batch is unexpectedly large
+        # This indicates auto-flush logic may not be working correctly
+        current_batch_size = len(self._metric_batch)
+        if current_batch_size > self.batch_flush_size * 5:  # More than 5x expected size
+            logger.warning(
+                f"Very large batch detected: {current_batch_size:,} metrics "
+                f"(expected max: {self.batch_flush_size:,}). "
+                "Auto-flush may not be working correctly!"
+            )
+
+        # Keep reference to original metrics for recovery if insert fails
+        metrics_to_restore = []
+        batch_data = []
+
         try:
             # Copy batch data while holding lock briefly
-            batch_data = []
             async with self._batch_lock:
                 if not self._metric_batch:
                     return
 
-                # Copy data quickly for DuckDB batch insert
+                # Keep reference to original MetricDataPoint objects for recovery
+                metrics_to_restore = list(self._metric_batch)
+
+                # Convert to dict format for DuckDB batch insert
                 for metric in self._metric_batch:
                     batch_data.append(
                         {
@@ -904,38 +972,46 @@ class CloudWatchCollector(StateManagerMixin):
                         }
                     )
 
-                # Clear the batch immediately after copying
+                # Clear the batch (will restore if insert fails)
                 self._metric_batch.clear()
 
-            # Perform direct database operation (no thread pool for DuckDB)
+            # Perform direct database operation (OUTSIDE lock to avoid holding during slow I/O)
             if batch_data:
-                logger.debug(f"Storing {len(batch_data):,} metrics in database...")
                 self._direct_batch_insert(batch_data)
-                logger.debug(
-                    f"Successfully stored {len(batch_data):,} metrics in DuckDB"
-                )
+                logger.debug(f"Successfully stored {len(batch_data):,} metrics in DuckDB")
 
         except Exception as e:
-            logger.error(f"Failed to flush metric batch to DuckDB: {e}")
-            # Don't re-raise to avoid breaking the collection process
-        except Exception as e:
-            logger.error(f"Failed to flush metric batch to database: {e}")
-            # Don't re-raise to avoid breaking the collection process
+            # Restore metrics to batch if database insert failed
+            # This prevents silent data loss
+            async with self._batch_lock:
+                # Prepend failed metrics to front of batch (maintain order)
+                self._metric_batch = metrics_to_restore + self._metric_batch
+            
+            logger.error(
+                f"Flush failed! Restored {len(metrics_to_restore):,} metrics to batch. "
+                f"Current batch size: {len(self._metric_batch):,}. Error: {e}"
+            )
+            
+            # RE-RAISE to fail collection visibly (don't silently lose data)
+            raise RuntimeError(f"Metric flush failed, data restored to batch: {e}")
 
     def _direct_batch_insert(self, batch_data: List[Dict[str, Any]]) -> None:
-        """Direct batch insert optimized for DuckDB OLAP performance."""
+        """Direct batch insert with performance timing."""
+        insert_start = time.time()
         try:
-            # DuckDB performs best with large batch inserts
-            # Use upsert for data consistency
             self.db_manager.execute_batch_upsert_metrics(batch_data)
+            insert_duration_ms = (time.time() - insert_start) * 1000
             logger.debug(
-                f"Successfully inserted {len(batch_data)} metrics to DuckDB "
-                "using upsert"
+                f"DuckDB insert: {len(batch_data):,} metrics in {insert_duration_ms:.1f}ms "
+                f"({len(batch_data)/(insert_duration_ms/1000):.0f} records/sec)"
             )
         except Exception as e:
-            logger.error(f"FATAL: Failed to insert {len(batch_data)} metrics to database: {e}")
-            # RE-RAISE so errors are visible to user!
-            raise RuntimeError(f"Database insert failed for {len(batch_data)} metrics: {e}")
+            insert_duration_ms = (time.time() - insert_start) * 1000
+            logger.error(
+                f"FATAL: Insert failed after {insert_duration_ms:.1f}ms "
+                f"for {len(batch_data)} metrics: {e}"
+            )
+            raise RuntimeError(f"Database insert failed: {e}")
 
     def get_collection_status(self, operation_id: str) -> Optional[Dict]:
         """Get current status of a collection operation."""
@@ -1066,29 +1142,30 @@ class CloudWatchCollector(StateManagerMixin):
         start_time: datetime,
         end_time: datetime,
         region: str
-    ) -> List[MetricDataPoint]:
+    ) -> int:
         """
-        Collect metrics using GetMetricData batch API for empty resources.
+        Collect metrics using GetMetricData batch API with streaming flush.
         
-        This is much faster than individual GetMetricStatistics calls.
-        Used when resources have no existing data (first-time collection).
+        Metrics are progressively flushed to database during collection instead of
+        accumulating in memory. This prevents OOM on large collections.
         
         Args:
             cloudwatch: CloudWatch client
-            resources: List of resources (should all be empty)
+            resources: List of resources to collect
             metric_configs: Metrics to collect
             start_time: Collection start time
             end_time: Collection end time
             region: AWS region
             
         Returns:
-            List of MetricDataPoint objects
+            Total count of metrics collected (already flushed to database)
         """
         # Build all metric queries for batching
         metric_queries = []
         query_metadata = {}
         query_id_counter = 0
         
+
         for resource in resources:
             for config in metric_configs:
                 for statistic in config.statistics:
@@ -1132,16 +1209,16 @@ class CloudWatchCollector(StateManagerMixin):
                             "period": period,
                             "region": region,
                         }
-        
-        logger.debug(f"Built {len(metric_queries)} queries for batch collection")
-        
-        # Process in batches with pagination
-        all_metrics = []
+
+        # Track total metrics collected
+        total_metrics_collected = 0
         batch_size = self._calculate_optimal_batch_size(len(metric_queries))
         
+        # Process queries in batches with pagination and progressive flushing
         for i in range(0, len(metric_queries), batch_size):
             batch_queries = metric_queries[i:i + batch_size]
             
+
             try:
                 # Paginate through all results using NextToken
                 next_token = None
@@ -1163,11 +1240,15 @@ class CloudWatchCollector(StateManagerMixin):
                         cloudwatch.get_metric_data(**params),
                         timeout=30.0,
                     )
-                    
+
                     # Process this page
                     page_metrics = self._process_batch_response(response, query_metadata)
-                    all_metrics.extend(page_metrics)
+
+                    # FLUSH PROGRESSIVELY: Add metrics and maybe flush
+                    await self._add_metrics_and_maybe_flush(page_metrics)
+
                     batch_total += len(page_metrics)
+                    total_metrics_collected += len(page_metrics)
                     
                     logger.debug(
                         f"Batch {i//batch_size + 1} page {page}: "
@@ -1177,8 +1258,10 @@ class CloudWatchCollector(StateManagerMixin):
                     # Check for more pages
                     next_token = response.get("NextToken")
                     if not next_token:
+                        logger.debug(f"DIAGNOSTIC: No more pages for batch {i//batch_size + 1}")
                         break  # No more data!
                     
+                    logger.debug(f"DIAGNOSTIC: NextToken present, fetching page {page + 1}")
                     page += 1
                 
                 logger.info(
@@ -1193,8 +1276,7 @@ class CloudWatchCollector(StateManagerMixin):
             except Exception as e:
                 logger.error(f"Batch API call failed: {e}")
         
-        logger.info(f"Batch API collected {len(all_metrics)} metrics for {len(resources)} empty resource(s)")
-        return all_metrics
+        return total_metrics_collected
 
     def _get_latest_timestamps_for_resource(
         self,
@@ -1292,10 +1374,6 @@ class CloudWatchCollector(StateManagerMixin):
                 # No existing data - collect full window
                 resource['collection_start'] = start_time
                 resources_to_collect.append(resource)
-                logger.debug(
-                    f"{resource['resource_name']}: No existing data, "
-                    f"collecting full window"
-                )
             else:
                 # Find minimum latest timestamp (conservative approach)
                 # This is the earliest point where ANY metric needs new data
@@ -1314,7 +1392,7 @@ class CloudWatchCollector(StateManagerMixin):
                     logger.debug(
                         f"{resource['resource_name']}: Up-to-date "
                         f"(latest: {min_latest.isoformat()}, end: {end_time.isoformat()})"
-                    )
+                        )
                     continue
                 
                 # Collect gap from earliest needed point
@@ -1323,7 +1401,7 @@ class CloudWatchCollector(StateManagerMixin):
                 logger.debug(
                     f"{resource['resource_name']}: Gap detected, "
                     f"collecting from {gap_start.isoformat()} to {end_time.isoformat()}"
-                )
+                    )
         
         logger.info(
             f"Gap analysis complete: {len(resources_to_collect)} need collection, "
@@ -1338,13 +1416,10 @@ class CloudWatchCollector(StateManagerMixin):
         # Collect metrics using batch API for resources that need data
         # Use the minimum gap_start across all resources for batch efficiency
         batch_start = min(r['collection_start'] for r in resources_to_collect)
+
         
-        logger.info(
-            f"Batch collecting {len(resources_to_collect)} resources "
-            f"from {batch_start.isoformat()} to {end_time.isoformat()}"
-        )
-        
-        return await self._collect_with_batch_api(
+        # Collect with streaming flush - returns count of metrics (already flushed)
+        metrics_count = await self._collect_with_batch_api(
             cloudwatch,
             resources_to_collect,
             metric_configs,
@@ -1352,6 +1427,10 @@ class CloudWatchCollector(StateManagerMixin):
             end_time,
             region
         )
+
+        # Return empty list since metrics are already flushed
+        # Caller expects List but won't use it (will use count from return value context)
+        return []
 
     def get_time_period_optimization_recommendations(
         self, metric_configs: List[MetricConfiguration]
@@ -1541,168 +1620,87 @@ class CloudWatchCollector(StateManagerMixin):
 
     async def _process_resources_batch_optimized(
         self,
+        cloudwatch,
         resources: List[Dict[str, Any]],
         metric_configs: List[MetricConfiguration],
         start_time: datetime,
         end_time: datetime,
         region: str,
-        progress: Any,
+        progress_bar: Any,
+        progress_lock: asyncio.Lock,
         state: Any,
     ) -> tuple[int, int, int]:
-        # Returns (metrics_collected, successful_resources,
-        # failed_resources)
-        """Process multiple resources using optimized batch collection."""
+        """Process resources in parallel using shared cloudwatch client."""
 
-        logger.debug(
-            f"Starting optimized batch processing "
-            "for {len(resources)} resources in {region}"
-        )
+        from ..config import get_settings
+        settings = get_settings()
+        
+        total = len(resources)
+        successful = 0
+        failed = 0
 
-        async with await self.aws_client_manager.get_async_client(
-            "cloudwatch", region
-        ) as cloudwatch:
+        # Use higher of CPU count or default (fallback to default if psutil unavailable)
+        try:
+            import psutil
+            thread_count = max(psutil.cpu_count(logical=True) or settings.default_concurrent_resources,
+                               settings.default_concurrent_resources)
+        except (ImportError, Exception):
+            thread_count = settings.default_concurrent_resources
+        semaphore = asyncio.Semaphore(thread_count)
 
-            try:
-                # Progress tracking disabled to avoid console interference
-
-                # Collect metrics for all resources in one optimized batch
-                batch_metrics = await self._collect_metrics_batch_optimized(
-                    cloudwatch,
-                    resources,
-                    metric_configs,
-                    start_time,
-                    end_time,
-                    region,
-                )
-
-                # Add to batch for database storage
-                async with self._batch_lock:
-                    self._metric_batch.extend(batch_metrics)
-
-                # Mark all resources as completed and update counters
-                for resource in resources:
+        async def collect_one_resource(resource):
+            async with semaphore:
+                try:
+                    await self._collect_metrics_batch_optimized(
+                        cloudwatch,
+                        [resource],
+                        metric_configs,
+                        start_time,
+                        end_time,
+                        region,
+                    )
+                    
                     resource_key = f"{region}:{resource['resource_name']}"
                     state.collection_state.completed_resources.add(resource_key)
-
-                # Update batch progress tracking
-                state.collection_state.completed_batches += 1
-                state.collection_state.completed_operations += 1  # Keep in sync
-                state.completion_percentage = (
-                    (
-                        state.collection_state.completed_operations
-                        / state.collection_state.total_operations
-                    )
-                    * 100
-                    if state.collection_state.total_operations > 0
-                    else 0
-                )
-
-                # Calculate ETA based on batch completion
-                if state.collection_state.completed_batches > 0:
-                    elapsed_time = datetime.now() - state.collection_state.start_time
-                    avg_time_per_batch = (
-                        elapsed_time.total_seconds()
-                        / state.collection_state.completed_batches
-                    )
-                    remaining_batches = (
-                        state.collection_state.total_operations
-                        - state.collection_state.completed_batches
-                    )
-                    eta_seconds = avg_time_per_batch * remaining_batches
-                    state.estimated_completion = datetime.now() + timedelta(
-                        seconds=eta_seconds
-                    )
-
-                # Progress tracking disabled for performance
-
-                # Save checkpoint after batch
-                self.state_manager.save_checkpoint(state)
-
-                logger.debug(
-                    f"Batch processing completed for {len(resources)} resources: "
-                    f"{len(batch_metrics)} metrics collected"
-                )
-
-                # Return success counts
-                return len(batch_metrics), len(resources), 0
-
-            except Exception as e:
-                logger.error(
-                    f"Batch processing failed for {len(resources)} resources: {e}"
-                )
-
-                # Fall back to individual processing for error isolation
-                logger.debug("Falling back to individual resource processing")
-
-                for resource in resources:
+                    return ("success", resource)
+                
+                except Exception as e:
                     resource_key = f"{region}:{resource['resource_name']}"
+                    state.collection_state.completed_resources.add(resource_key)
+                    state.collection_state.failed_collections.append({
+                        "resource": resource["resource_name"],
+                        "region": region,
+                        "error": str(e),
+                        "timestamp": datetime.now().isoformat(),
+                    })
+                    return ("error", resource, e)
 
-                    try:
-                        # Process single resource
-                        resource_metrics, resource_duration = await asyncio.wait_for(
-                            self._process_single_resource(
-                                resource,
-                                metric_configs,
-                                start_time,
-                                end_time,
-                                region,
-                                progress,
-                                state,
-                            ),
-                            timeout=45.0,
-                        )
+        tasks = [asyncio.create_task(collect_one_resource(r)) for r in resources]
+        
+        # Use the provided progress bar instead of creating a new one
+        for coro in asyncio.as_completed(tasks):
+            result = await coro
+            
+            # Update the shared progress bar with lock to prevent concurrent updates
+            if progress_bar:
+                async with progress_lock:
+                    progress_bar.update(1)
+            
+            if result[0] == "success":
+                successful += 1
+            else:
+                failed += 1
 
-                        # Add to batch for database storage
-                        async with self._batch_lock:
-                            self._metric_batch.extend(resource_metrics)
+        state.collection_state.completed_batches += 1
+        state.collection_state.completed_operations += 1
+        state.completion_percentage = (
+            state.collection_state.completed_operations / state.collection_state.total_operations * 100
+            if state.collection_state.total_operations > 0 else 0
+        )
 
-                        # Mark resource as completed
-                        state.collection_state.completed_resources.add(resource_key)
+        self.state_manager.save_checkpoint(state)
 
-                        # Update progress (individual resource fallback)
-                        # Treat each individual resource as a "micro-batch"
-                        state.collection_state.completed_batches += 1
-
-                        # Save checkpoint
-                        self.state_manager.save_checkpoint(state)
-
-                    except Exception as resource_error:
-                        logger.error(
-                            f"Individual resource processing failed for "
-                            f"{resource['resource_name']}: {resource_error}"
-                        )
-
-                        # Mark as completed even if failed (to skip on resume)
-                        state.collection_state.completed_resources.add(resource_key)
-
-                        # Add to failed collections
-                        state.collection_state.failed_collections.append(
-                            {
-                                "resource": resource["resource_name"],
-                                "region": region,
-                                "error": str(resource_error),
-                                "timestamp": datetime.now().isoformat(),
-                            }
-                        )
-
-                        # Progress tracking disabled for performance
-                        self.state_manager.save_checkpoint(state)
-
-                # Return counts from fallback processing
-                successful_fallback = len(
-                    [
-                        r
-                        for r in resources
-                        if f"{region}:{r['resource_name']}"
-                        in state.collection_state.completed_resources
-                    ]
-                )
-                failed_fallback = len(resources) - successful_fallback
-                # We can't easily count metrics from fallback, so estimate
-                estimated_metrics = (
-                    successful_fallback * len(metric_configs) * 10
-                )  # Rough estimate
-                return estimated_metrics, successful_fallback, failed_fallback
+        return 0, successful, failed
 
     def get_batch_performance_stats(self) -> Dict[str, Any]:
         """Get performance statistics for batch operations."""

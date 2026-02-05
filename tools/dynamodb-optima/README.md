@@ -35,6 +35,7 @@ DynamoDB Optima provides three types of cost optimization analysis for DynamoDB:
 
 - **Python 3.12+**
 - **AWS Credentials** - Configure via `aws configure` or environment variables
+- **RAM** - ~2GB of free memory
 - **IAM Permissions** (Management Account):
   ```json
   {
