@@ -156,6 +156,10 @@ class Settings(BaseSettings):
         default=100000,
         description="Auto-flush metrics to database every N records (prevents OOM with large collections)"
     )
+    max_concurrent_resources: int = Field(
+        default=10,
+        description="Maximum concurrent resource (table) collections for parallel processing"
+    )
 
     # Database memory settings
     duckdb_memory_percent: float = Field(
