@@ -289,9 +289,7 @@ class CloudWatchCollector(StateManagerMixin):
                 show_progress=False,
             )
 
-            print(
-                f"\n✅ Metrics collection completed - {result.total_metrics_collected:,} metrics collected"
-            )
+            
 
             # Mark operation as completed
             state.status = "COMPLETED"
@@ -304,11 +302,8 @@ class CloudWatchCollector(StateManagerMixin):
             state.estimated_completion = datetime.now()
 
             # Save final state and flush any remaining metrics
-            status_display.start("Storing metrics into local DuckDB")
             await self._flush_metric_batch()
-            status_display.stop()
-            print("  Metrics stored in database")
-            print()  # Add newline for better spacing before final summary
+            print("Metrics collection completed.")
             self.state_manager.save_checkpoint(state)
 
             # Log performance metrics and optimization impact
