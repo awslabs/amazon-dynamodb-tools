@@ -88,7 +88,7 @@ DynamoDB Optima provides three types of cost optimization analysis for DynamoDB:
 ## 🚀 Installation
 
 ```bash
-cd beta/dynamodb-optima
+cd tools/dynamodb-optima
 
 # Install with development dependencies
 pip install -e ".[dev]"
