@@ -132,15 +132,14 @@ def _get_table_info(dynamodb_client, table_name):
         raise
 
 def validate_tables(env_configs, parser, *tables, index=None, pitr_enabled=False, schemas_match=False):
-    # This is kinda messy
-    aws_region = env_configs.aws_region
-    clients = Clients(aws_region)
-    dynamodb_client = clients.dynamodb_client
-
     reference_schema = None
     reference_table = None
 
     for table_name in tables:
+        region = _region_from_table_ref(table_name) or _default_region() # each table might be in a diff region
+        clients = Clients(region)
+        dynamodb_client = clients.dynamodb_client
+
         # Get all table info upfront
         table_info = _get_table_info(dynamodb_client, table_name)
 
@@ -161,8 +160,18 @@ def validate_tables(env_configs, parser, *tables, index=None, pitr_enabled=False
                 pitr_status = response['ContinuousBackupsDescription']['PointInTimeRecoveryDescription']['PointInTimeRecoveryStatus']
                 if pitr_status != 'ENABLED':
                     sys.exit(f"For safety, point in time recovery (PITR) must be enabled for table '{table_name}' before performing bulk mutations against it")
-            except ClientError:
-                sys.exit(f"Could not check PITR status for table '{table_name}'")
+            except ClientError as e:
+                err = e.response.get("Error", {}) or {}
+                code = err.get("Code")
+                msg  = err.get("Message", "") or ""
+
+                # If table is in a diff account, we can't read PITR, so warn + skip
+                if code == "ValidationException" and "only supported by accounts that match" in msg:
+                    print(
+                        f"WARNING: Skipping PITR check for table '{table_name}' because PITR status is unreadable when the table is in a different account."
+                    )
+                else:
+                    sys.exit(f"Could not check PITR status for table '{table_name}' {e}")
 
         # Check all schemas match (if required)
         if schemas_match:
@@ -234,4 +243,46 @@ def validate_tables(env_configs, parser, *tables, index=None, pitr_enabled=False
                 for name in shared:
                     if lsi_a[name] != lsi_b[name]:
                         warn(f"LSI '{name}' differs between '{reference_table}' and '{table_name}'")
+
+
+# The below is also in the server codebase
+
+def _default_region():
+    return (
+        boto3.Session().region_name
+        or os.environ.get("AWS_REGION")
+        or os.environ.get("AWS_DEFAULT_REGION")
+    )
+
+def _parse_arn(arn: str) -> dict:
+    """
+    Minimal ARN parser.
+    Returns dict with: partition, service, region, account, resource.
+    Raises ValueError if malformed.
+    """
+    parts = arn.split(":", 5)
+
+    if len(parts) != 6 or parts[0] != "arn":
+        raise ValueError(f"Invalid ARN: {arn}")
+
+    _, partition, service, region, account, resource = parts
+
+    return {
+        "partition": partition,
+        "service": service,
+        "region": region,
+        "account": account,
+        "resource": resource,
+    }
+
+def _region_from_table_ref(table_ref: str) -> str | None:
+    if not table_ref or not table_ref.startswith("arn:"):
+        return None
+    arn = _parse_arn(table_ref)
+    if arn.get("service") != "dynamodb":
+        return None
+    # Expect resource like "table/MyTable"
+    if not arn.get("resource", "").startswith("table/"):
+        return None
+    return arn.get("region")
 
