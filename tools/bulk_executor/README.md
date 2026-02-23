@@ -109,11 +109,10 @@ Here are some example use cases:
 # If going cross-account, you need a resource-based policy on the table to allow access.
 ./bulk copy --source source --target target
 ./bulk copy --source arn:aws:dynamodb:us-east-1:123456789012:table/source --target arn:aws:dynamodb:us-west-2:987654321098:table/target
-```
 
 # Import a DynamoDB export into an existing DynamoDB table
 ./bulk import --table target --s3-source-bucket exported-data --s3-source-bucket-export-id 01716790307109-5f9d6aaa --import-type full-only|incremental-only|full-incremental [--s3-source-bucket-prefix prod] [--filter example] [--filterfunctionname filter_item]
-
+```
 
 ## Quick start
 
