@@ -25,6 +25,31 @@ While these archived resources are preserved for reference, we encourage you to 
 - January 2026: [Archive ddbtools, reco, and table_tagger.py](https://github.com/awslabs/amazon-dynamodb-tools/issues/114)
 - January 2026: [DynamoDB Cost Tool](./ddb_cost_tool/README.MD) - Tool is not functional due to closed, deprecated webservice
 
+## Recently Archived (February 2026) - Consolidated into DynamoDB Optima
+
+The following tools have been **merged into a unified platform** at [`/tools/dynamodb-optima/`](../tools/dynamodb-optima/):
+
+- **[metrics-collector](./metrics-collector/README.md)** - CloudWatch metrics collection and utilization analysis
+  - Replaced by: `dynamodb-optima discover` and `dynamodb-optima collect` commands
+  - Migration: Compatible database schema, use new CLI commands
+
+- **[capacity-mode-evaluator](./capacity-mode-evaluator/README.md)** - On-Demand vs Provisioned capacity mode optimization
+  - Replaced by: `dynamodb-optima analyze-capacity` command
+  - Migration: Same autoscaling simulation logic, enhanced implementation
+
+- **[table_class_optimizer](./table_class_optimizer/README.md)** - Standard vs Standard-IA table class recommendations
+  - Replaced by: `dynamodb-optima analyze-table-class` command
+  - Migration: No more Athena queries needed - DuckDB reads Parquet files directly from S3
+
+**Why consolidated?** These three tools had overlapping functionality (metrics collection, cost analysis, recommendations). The new unified platform provides:
+- ✅ Single installation and configuration
+- ✅ Shared database for all analysis types
+- ✅ Multi-account AWS Organizations support
+- ✅ Integrated Streamlit GUI dashboard
+- ✅ Comprehensive recommendations in one place
+
+See the [DynamoDB Optima README](../tools/dynamodb-optima/README.md) for installation and usage details.
+
 ## Migrated Tools
 
 **Note:** Some tools have been migrated to [aws-dynamodb-examples](https://github.com/aws-samples/aws-dynamodb-examples) including the Excel cost template, tester framework, and ddb-migration. See [issue 207 in the aws-samples repo for more information](https://github.com/aws-samples/aws-dynamodb-examples/issues/207).

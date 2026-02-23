@@ -104,9 +104,16 @@ Here are some example use cases:
 # See https://spark.apache.org/docs/latest/api/sql/index.html
 ./bulk sql --table target --query "select ..." --limit 100
 
+# Copy from one table to another
+# You can specify a name or a full ARN. Using an ARN lets you drive work cross-region and cross-account!
+# If going cross-account, you need a resource-based policy on the table to allow access.
+./bulk copy --source source --target target
+./bulk copy --source arn:aws:dynamodb:us-east-1:123456789012:table/source --target arn:aws:dynamodb:us-west-2:987654321098:table/target
+```
+
 # Import a DynamoDB export into an existing DynamoDB table
 ./bulk import --table target --s3-source-bucket exported-data --s3-source-bucket-export-id 01716790307109-5f9d6aaa --import-type full-only|incremental-only|full-incremental [--s3-source-bucket-prefix prod] [--filter example] [--filterfunctionname filter_item]
-```
+
 
 ## Quick start
 
@@ -472,6 +479,34 @@ If you ever want to stop execution early, you can hit Control-C. The interrupt w
 * Optional `limit` parameter to limit the number of output items
 * Only `SELECT` queries are supported
 
+**`copy`**
+
+* Performs a copy from one table to another using a parallel tight scan/write loops (doesn't bring full table into memory).
+* Requires `source` and `target` parameters
+* Parameters can be table names or table ARNs. Using ARNs allows cross-account / cross-region access.
+
+If doing cross-account, you need a resource-based policy to enable access. The following example RBP allows access from two specific roles the 123456789012 account. The `role/ClientSide` is whatever role you have for the command-line Python program (so the client-side can describe the table and estimate costs). The `role/AWSGlueServiceRoleBulkDynamoDB-DdbReadWrite-us-east-1` is whatever role you have attached to the Glue job (so the `copy` can be performed).
+
+```
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CrossAccountIdentityBasedPolicy",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::123456789012:role/ClientSide",
+          "arn:aws:iam::123456789012:role/AWSGlueServiceRoleBulkDynamoDB-DdbReadWrite-us-east-1"
+        ]
+      },
+      "Action": "dynamodb:*",
+      "Resource": "arn:aws:dynamodb:us-west-1:599882009758:table/target"
+    }
+  ]
+}
+```
+
 **`import`**
 
 * Leverage glue to do a full import of a DynamoDB table which was exported to S3 (i.e. in DDB-JSON format)
@@ -482,6 +517,7 @@ If you ever want to stop execution early, you can hit Control-C. The interrupt w
 * Best used with:
   * `--XMaxWriteRate N` where _N_ is the max aggregate WCU to consume on the destination table
   * `--filter` and `--filterfunctionname` where you specify the python function used to filter for items to import
+
 
 ## Glue execution parameters
 
