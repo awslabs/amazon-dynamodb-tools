@@ -129,9 +129,27 @@ class ManifestValidator:
             raise
         
         log.info(f"Parsed {len(data_files)} data file entries from manifest-files.json")
+
+        # Step 7: Validate data file MD5 checksums
+        log.info("Step 7: Validating data file MD5 checksums...")
+        try:
+            validation_result = self._validate_data_file_checksums(
+                data_files=data_files,
+                base_path=base_path,
+                validate_all=False,  # Use sample mode by default (validates 5 files)
+                sample_size=5
+            )
+            log.info(
+                f"Data file checksum validation completed: "
+                f"{validation_result['validated_count']}/{validation_result['total_count']} files validated "
+                f"({validation_result['validation_mode']} mode)"
+            )
+        except ValueError as e:
+            log.error(f"Data file checksum validation failed: {e}")
+            raise
         
-        # Step 7: Calculate and validate item count consistency
-        log.info("Validating item count consistency...")
+        # Step 8: Calculate and validate item count consistency
+        log.info("Step 8: Validating item count consistency...")
         calculated_item_count = sum(entry.get('itemCount', 0) for entry in data_files)
         
         if calculated_item_count != total_item_count:
@@ -144,9 +162,9 @@ class ManifestValidator:
         
         log.info(f"Item count validated successfully: {total_item_count} items")
         
-        # Step 8: Log success summary
+        # Step 9: Log success summary
         log.info(
-            f"Manifest validation completed successfully: "
+            f"Step 9: Manifest validation completed successfully: "
             f"{total_item_count} total items across {len(data_files)} data files"
         )
         
@@ -159,6 +177,112 @@ class ManifestValidator:
             'export_to_time': export_to_time,
             'table_name': table_name,
             'data_files': data_files
+        }
+
+    def _validate_data_file_checksums(self, data_files: List[Dict], base_path: str, validate_all: bool = False, sample_size: int = 5) -> Dict:
+        """
+        Validate MD5 checksums of individual data files (.gz files) listed in manifest-files.json.
+        
+        This method ensures that data files have not been tampered with by validating their MD5 checksums
+        against the values stored in the manifest. Works for both FULL_EXPORT and INCREMENTAL_EXPORT.
+        
+        Args:
+            data_files: List of data file entries from manifest-files.json (each entry contains 'dataFileS3Key' and 'md5Checksum')
+            base_path: Base S3 path for resolving data file keys (e.g., 's3://bucket' or 's3://bucket/prefix')
+            validate_all: If True, validates all data files. If False, validates a sample (default: False)
+            sample_size: Number of files to validate when validate_all=False (default: 5)
+            
+        Returns:
+            Dictionary containing:
+            - validated_count: Number of files validated
+            - total_count: Total number of data files
+            - validation_mode: 'full' or 'sample'
+            - failed_files: List of files that failed validation (empty if all passed)
+            
+        Raises:
+            ValueError: If any data file MD5 validation fails
+        """
+        total_count = len(data_files)
+        
+        if total_count == 0:
+            log.warning("No data files to validate")
+            return {
+                'validated_count': 0,
+                'total_count': 0,
+                'validation_mode': 'none',
+                'failed_files': []
+            }
+        
+        # Determine which files to validate
+        if validate_all:
+            files_to_validate = data_files
+            validation_mode = 'full'
+            log.info(f"Validating MD5 checksums for all {total_count} data files...")
+        else:
+            # Validate a sample
+            actual_sample_size = min(sample_size, total_count)
+            files_to_validate = data_files[:actual_sample_size]
+            validation_mode = 'sample'
+            log.info(f"Validating MD5 checksums for {actual_sample_size} of {total_count} data files (sample mode)...")
+        
+        validated_count = 0
+        failed_files = []
+        
+        for idx, file_entry in enumerate(files_to_validate, 1):
+            data_file_key = file_entry.get('dataFileS3Key')
+            expected_md5 = file_entry.get('md5Checksum')
+            
+            if not data_file_key:
+                error_msg = f"Missing 'dataFileS3Key' in data file entry at index {idx}"
+                log.error(error_msg)
+                failed_files.append({'file': 'unknown', 'error': error_msg})
+                continue
+            
+            if not expected_md5:
+                error_msg = f"Missing 'md5Checksum' for data file: {data_file_key}"
+                log.error(error_msg)
+                failed_files.append({'file': data_file_key, 'error': error_msg})
+                continue
+            
+            try:
+                # Construct full S3 path
+                data_file_path = self.file_loader.join_path(base_path, data_file_key)
+                
+                log.debug(f"Validating data file {idx}/{len(files_to_validate)}: {data_file_key}")
+                
+                # Read the data file
+                data_file_content = self.file_loader.read_file(data_file_path)
+                
+                # Validate MD5 checksum
+                MD5Validator.validate_file_checksum(data_file_content, expected_md5)
+                
+                validated_count += 1
+                log.debug(f"Data file MD5 validated successfully: {data_file_key}")
+                
+            except ValueError as e:
+                error_msg = f"MD5 validation failed for {data_file_key}: {e}"
+                log.error(error_msg)
+                failed_files.append({'file': data_file_key, 'error': str(e)})
+            except Exception as e:
+                error_msg = f"Error validating {data_file_key}: {e}"
+                log.error(error_msg)
+                failed_files.append({'file': data_file_key, 'error': str(e)})
+        
+        # Check if any validations failed
+        if failed_files:
+            error_summary = f"Data file validation failed for {len(failed_files)} file(s)"
+            log.error(error_summary)
+            for failure in failed_files:
+                log.error(f"  - {failure['file']}: {failure['error']}")
+            raise ValueError(f"{error_summary}. See logs for details.")
+        
+        log.info(f"Data file MD5 validation completed successfully: {validated_count}/{len(files_to_validate)} files validated ({validation_mode} mode)")
+        
+        return {
+            'validated_count': validated_count,
+            'total_count': total_count,
+            'validation_mode': validation_mode,
+            'failed_files': failed_files
         }
     
     def _extract_table_name(self, manifest_summary: dict) -> str:

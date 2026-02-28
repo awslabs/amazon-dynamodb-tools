@@ -53,6 +53,8 @@ class TestManifestValidator:
                 return manifest_summary_md5
             elif 'manifest-files.md5' in path:
                 return manifest_files_md5
+            elif 'file1.json.gz' in path or 'file2.json.gz' in path:
+                return b"mock data file content"
             raise ValueError(f"Unexpected path: {path}")
         
         mock_file_loader.read_file.side_effect = mock_read_file
@@ -216,6 +218,8 @@ class TestManifestValidator:
                 return manifest_files_content
             elif 'manifest-files.md5' in path:
                 return manifest_files_md5
+            elif 'file1.json.gz' in path or 'file2.json.gz' in path:
+                return b"mock data file content"
             raise ValueError(f"Unexpected path: {path}")
         
         mock_file_loader.read_file.side_effect = mock_read_file
@@ -301,3 +305,120 @@ class TestManifestValidator:
             
             with pytest.raises(Exception):  # Could be ValueError or JSONDecodeError
                 validator.validate_and_parse_manifests(path_resolver)
+    
+    def test_missing_manifest_summary_json(self, mock_path_resolver):
+        """Test missing manifest-summary.json file."""
+        mock_file_loader = Mock()
+        
+        def mock_read_file(path):
+            if 'manifest-summary.json' in path:
+                raise FileNotFoundError(f"File not found: {path}")
+            raise ValueError(f"Unexpected path: {path}")
+        
+        mock_file_loader.read_file.side_effect = mock_read_file
+        mock_file_loader.join_path.side_effect = lambda base, *parts: f"{base}/{'/'.join(parts)}"
+        
+        validator = ManifestValidator(mock_file_loader)
+        path_resolver = mock_path_resolver('test-bucket', '01716790307109-5f9d6aaa')
+        
+        with pytest.raises(FileNotFoundError) as exc_info:
+            validator.validate_and_parse_manifests(path_resolver)
+        
+        assert "manifest-summary.json" in str(exc_info.value)
+    
+    def test_missing_manifest_summary_md5(self, mock_path_resolver):
+        """Test missing manifest-summary.md5 file."""
+        mock_file_loader = Mock()
+        
+        manifest_summary_content = b'{"itemCount": 100, "outputFormat": "DYNAMODB_JSON"}'
+        
+        def mock_read_file(path):
+            if 'manifest-summary.json' in path:
+                return manifest_summary_content
+            elif 'manifest-summary.md5' in path:
+                raise FileNotFoundError(f"File not found: {path}")
+            raise ValueError(f"Unexpected path: {path}")
+        
+        mock_file_loader.read_file.side_effect = mock_read_file
+        mock_file_loader.join_path.side_effect = lambda base, *parts: f"{base}/{'/'.join(parts)}"
+        
+        validator = ManifestValidator(mock_file_loader)
+        path_resolver = mock_path_resolver('test-bucket', '01716790307109-5f9d6aaa')
+        
+        with pytest.raises(FileNotFoundError) as exc_info:
+            validator.validate_and_parse_manifests(path_resolver)
+        
+        assert "manifest-summary.md5" in str(exc_info.value)
+    
+    def test_missing_manifest_files_json(self, mock_path_resolver):
+        """Test missing manifest-files.json file."""
+        mock_file_loader = Mock()
+        
+        manifest_summary_content = b'''{
+            "itemCount": 100,
+            "tableArn": "arn:aws:dynamodb:us-west-1:123456789:table/test_table",
+            "outputFormat": "DYNAMODB_JSON",
+            "manifestFilesS3Key": "manifest-files.json"
+        }'''
+        manifest_summary_md5 = b"validchecksum=="
+        
+        def mock_read_file(path):
+            if 'manifest-summary.json' in path:
+                return manifest_summary_content
+            elif 'manifest-summary.md5' in path:
+                return manifest_summary_md5
+            elif 'manifest-files.json' in path:
+                raise FileNotFoundError(f"File not found: {path}")
+            raise ValueError(f"Unexpected path: {path}")
+        
+        mock_file_loader.read_file.side_effect = mock_read_file
+        mock_file_loader.join_path.side_effect = lambda base, *parts: f"{base}/{'/'.join(parts)}"
+        
+        with patch('server.src.python_modules.ddb_import.validators.manifest_validator.MD5Validator') as mock_md5:
+            mock_md5.validate_file_checksum.return_value = True
+            
+            validator = ManifestValidator(mock_file_loader)
+            path_resolver = mock_path_resolver('test-bucket', '01716790307109-5f9d6aaa')
+            
+            with pytest.raises(FileNotFoundError) as exc_info:
+                validator.validate_and_parse_manifests(path_resolver)
+            
+            assert "manifest-files.json" in str(exc_info.value)
+    
+    def test_missing_manifest_files_md5(self, mock_path_resolver):
+        """Test missing manifest-files.md5 file."""
+        mock_file_loader = Mock()
+        
+        manifest_summary_content = b'''{
+            "itemCount": 100,
+            "tableArn": "arn:aws:dynamodb:us-west-1:123456789:table/test_table",
+            "outputFormat": "DYNAMODB_JSON",
+            "manifestFilesS3Key": "manifest-files.json"
+        }'''
+        manifest_summary_md5 = b"validchecksum=="
+        manifest_files_content = b'{"itemCount":100,"md5Checksum":"abc==","dataFileS3Key":"file.json.gz"}'
+        
+        def mock_read_file(path):
+            if 'manifest-summary.json' in path:
+                return manifest_summary_content
+            elif 'manifest-summary.md5' in path:
+                return manifest_summary_md5
+            elif 'manifest-files.json' in path:
+                return manifest_files_content
+            elif 'manifest-files.md5' in path:
+                raise FileNotFoundError(f"File not found: {path}")
+            raise ValueError(f"Unexpected path: {path}")
+        
+        mock_file_loader.read_file.side_effect = mock_read_file
+        mock_file_loader.join_path.side_effect = lambda base, *parts: f"{base}/{'/'.join(parts)}"
+        
+        with patch('server.src.python_modules.ddb_import.validators.manifest_validator.MD5Validator') as mock_md5:
+            mock_md5.validate_file_checksum.return_value = True
+            
+            validator = ManifestValidator(mock_file_loader)
+            path_resolver = mock_path_resolver('test-bucket', '01716790307109-5f9d6aaa')
+            
+            with pytest.raises(FileNotFoundError) as exc_info:
+                validator.validate_and_parse_manifests(path_resolver)
+            
+            assert "manifest-files.md5" in str(exc_info.value)
