@@ -75,12 +75,8 @@ def print_dynamodb_table_info(session, table_name, numitems, avg_size):
 def run(job, spark_context, glue_context, parsed_args):
     log.info(f"parsed_args {parsed_args}")
     table_name = parsed_args.get('table')
-    s3_source_bucket = parsed_args.get('s3_source_bucket')
+    s3_path = parsed_args.get('s3_path')
     import_type = ImportType(parsed_args.get('import_type', 'full-incremental'))
-    s3_source_bucket_export_id = parsed_args.get('s3_source_bucket_export_id')
-    s3_source_bucket_prefix = parsed_args.get('s3_source_bucket_prefix', '')
-    if s3_source_bucket_prefix == "None":
-        s3_source_bucket_prefix = ''
     
     # Filter configuration
     filter_name = parsed_args.get('filter')
@@ -106,7 +102,7 @@ def run(job, spark_context, glue_context, parsed_args):
     # Track execution time from job start
     start_time = time.time()
 
-    path_resolver = ExportPathResolver(s3_source_bucket, s3_source_bucket_export_id, s3_source_bucket_prefix)
+    path_resolver = ExportPathResolver(s3_path)
 
     log.info(f"S3 Source Bucket: {path_resolver.get_bucket()}")
     log.info(f"S3 Source Bucket Prefix: {path_resolver.get_prefix()}")
