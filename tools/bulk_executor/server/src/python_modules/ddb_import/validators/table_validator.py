@@ -1,4 +1,4 @@
-"""DynamoDB table validation for checking table existence and emptiness."""
+"""DynamoDB table validation for checking table existence and key schema."""
 
 from ...shared.logger import log
 
@@ -14,52 +14,40 @@ class TableValidator:
         """
         self.dynamodb_client = dynamodb_client
     
-    def validate_table_empty(self, table_name: str) -> bool:
+    def validate_table_exists(self, table_name: str) -> dict:
         """
-        Check if the table exists and is empty.
+        Check if the table exists and return its key schema.
         
         Args:
             table_name: Name of the DynamoDB table
             
         Returns:
-            True if table exists and is empty
+            dict with 'pk' (always) and optionally 'sk', each having 'name' and 'type' keys.
+            Example: {'pk': {'name': 'id', 'type': 'S'}, 'sk': {'name': 'ts', 'type': 'N'}}
             
         Raises:
-            ValueError: If table doesn't exist or contains items
+            ValueError: If table doesn't exist or cannot be described
         """
         try:
-            # Use scan with limit=1 for efficiency - we only need to know if any items exist
-            response = self.dynamodb_client.scan(
-                TableName=table_name,
-                Limit=1,
-                Select='COUNT'
-            )
-            
-            item_count = response.get('Count', 0)
-            
-            if item_count > 0:
-                error_msg = f"Table '{table_name}' is not empty. Contains {item_count} or more items."
-                log.error(error_msg)
-                raise ValueError(error_msg)
-            
-            # Table is empty
-            success_msg = f"Table '{table_name}' validation successful: table is empty"
-            log.info(success_msg)
-            return True
-            
-        except ValueError:
-            # Re-raise ValueError from our own checks
-            raise
+            response = self.dynamodb_client.describe_table(TableName=table_name)
+            table_desc = response['Table']
+            key_schema = table_desc['KeySchema']
+            attr_defs = {a['AttributeName']: a['AttributeType'] for a in table_desc['AttributeDefinitions']}
+
+            result = {}
+            for key in key_schema:
+                name = key['AttributeName']
+                key_type = 'pk' if key['KeyType'] == 'HASH' else 'sk'
+                result[key_type] = {'name': name, 'type': attr_defs[name]}
+
+            log.info(f"Table '{table_name}' validation successful: {result}")
+            return result
+
         except Exception as e:
-            # Check if it's a ResourceNotFoundException
             if e.__class__.__name__ == 'ResourceNotFoundException':
                 error_msg = f"Table '{table_name}' does not exist"
                 log.error(error_msg)
                 raise ValueError(error_msg)
-            
-            # Handle other unexpected errors
             error_msg = f"Error validating table '{table_name}': {str(e)}"
             log.error(error_msg)
             raise ValueError(error_msg)
-    
-

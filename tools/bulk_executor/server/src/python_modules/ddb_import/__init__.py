@@ -14,6 +14,7 @@ from ..shared.rate_limiter import RateLimiterAggregator, RateLimiterSharedConfig
 
 from .validators.table_validator import TableValidator
 from .validators.manifest_validator import ManifestValidator
+from .validators.data_file_validator import DataFileValidator
 from .validators.s3_validator import S3Validator
 from .utils.file_loader import FileLoader
 from .utils.enums import ImportType
@@ -126,6 +127,7 @@ def run(job, spark_context, glue_context, parsed_args):
         file_loader = FileLoader(s3_client=s3_client)
         table_validator = TableValidator(dynamodb_client)
         manifest_validator = ManifestValidator(file_loader)
+        data_file_validator = DataFileValidator(file_loader)
         s3_validator = S3Validator(s3_client)
 
         log.info("Components initialized successfully")
@@ -135,14 +137,11 @@ def run(job, spark_context, glue_context, parsed_args):
         log.info("Step 2: Validating S3 export path exists...")
         s3_validator.validate_path_exists(path_resolver)
 
-        # Step 3: Validate target table is empty (only for full-only imports)
+        # Step 3: Validate target table exists and get key schema
         current_phase = "table validation"
-        if import_type == ImportType.FULL_ONLY:
-            log.info("Step 3: Validating destination table is empty...")
-            table_validator.validate_table_empty(table_name)
-        else:
-            log.info("Step 3: Skipping table empty validation (not a full-only import)")
-        log.info("Destination table validation completed successfully")
+        log.info("Step 3: Validating destination table exists...")
+        key_schema = table_validator.validate_table_exists(table_name)
+        log.info(f"Destination table validation completed successfully: {key_schema}")
 
         # Step 4: Validate and parse manifests
         current_phase = "manifest validation"
@@ -150,13 +149,22 @@ def run(job, spark_context, glue_context, parsed_args):
         manifest_data = manifest_validator.validate_and_parse_manifests(path_resolver)
         log.info("Step 4: Manifest validation completed successfully")
 
-        # Step 5: Validate export type matches import type
-        current_phase = "export type validation"
-        log.info("Step 5: Validating export type matches import type...")
-        validate_export_type_matches_import_type(manifest_data['export_type'], import_type)
-        log.info(f"Step 5: Export type validation passed: {manifest_data['export_type']} matches {import_type.value}")
+        # Step 5: Validate data file checksums
+        current_phase = "data file validation"
+        log.info("Step 5: Validating data file checksums...")
+        data_file_validator.validate_data_file_checksums(
+            data_files=manifest_data['data_files'],
+            base_path=path_resolver.get_base_path()
+        )
+        log.info("Step 5: Data file checksum validation completed successfully")
 
-        # Step 5: Print validation summary
+        # Step 6: Validate export type matches import type
+        current_phase = "export type validation"
+        log.info("Step 6: Validating export type matches import type...")
+        validate_export_type_matches_import_type(manifest_data['export_type'], import_type)
+        log.info(f"Step 6: Export type validation passed: {manifest_data['export_type']} matches {import_type.value}")
+
+        # Step 6: Print validation summary
         log.info("=" * 80)
         log.info("Validation Summary:")
         log.info(f"  - Total items to import: {manifest_data['total_item_count']}")
@@ -167,18 +175,18 @@ def run(job, spark_context, glue_context, parsed_args):
         log.info("All validations passed successfully")
         log.info("Ready to proceed with data import")
 
-        # Step 6: Get export file paths
+        # Step 7: Get export file paths
         current_phase = "file path resolution"
-        log.info("Step 6: Resolving export file paths...")
+        log.info("Step 7: Resolving export file paths...")
 
         file_paths, total_expected_items = get_export_file_paths(
             data_files=manifest_data['data_files'],
             file_base_path=path_resolver.get_base_path()
         )
         
-        # Step 7: Read and parse files using Spark
+        # Step 8: Read and parse files using Spark
         current_phase = "data reading"
-        log.info("Step 7: Reading and parsing export files with Spark...")
+        log.info("Step 8: Reading and parsing export files with Spark...")
         
         # Read all data files as text lines using Spark (handles gzip automatically)
         log.info("Reading data files from S3 using Spark textFile...")
