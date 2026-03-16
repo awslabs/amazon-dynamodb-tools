@@ -10,7 +10,7 @@ class WriterFactory:
     @staticmethod
     def create_writer(import_type: ImportType):
         """Create the appropriate writer instance based on import type."""
-        if import_type == ImportType.FULL_ONLY:
+        if import_type == ImportType.FULL:
             return BatchWriter()
         else:
             return ItemWriter()

@@ -9,17 +9,20 @@ class DataFileValidator:
     def __init__(self, file_loader):
         self.file_loader = file_loader
 
-    def validate_data_file_checksums(self, data_files: List[Dict], base_path: str, validate_all: bool = False, sample_size: int = 5) -> Dict:
+    def validate(self, data_files: List[Dict], base_path: str,
+                 validate_all: bool = False, sample_size: int = 5) -> Dict:
         """Validate MD5 checksums of data files listed in manifest-files.json.
 
-        Returns dict with validated_count, total_count, validation_mode, failed_files.
+        Returns dict with validated_count, total_count, validation_mode, failed_files, verified_files.
+        The verified_files list contains the file entries that passed checksum validation,
+        suitable for downstream validation (e.g. key schema checks).
         Raises ValueError if any validation fails.
         """
         total_count = len(data_files)
 
         if total_count == 0:
             log.warning("No data files to validate")
-            return {'validated_count': 0, 'total_count': 0, 'validation_mode': 'none', 'failed_files': []}
+            return {'validated_count': 0, 'total_count': 0, 'validation_mode': 'none', 'failed_files': [], 'verified_files': []}
 
         if validate_all:
             files_to_validate = data_files
@@ -33,6 +36,7 @@ class DataFileValidator:
 
         validated_count = 0
         failed_files = []
+        verified_files = []
 
         for idx, file_entry in enumerate(files_to_validate, 1):
             data_file_key = file_entry.get('dataFileS3Key')
@@ -50,6 +54,7 @@ class DataFileValidator:
                 data_file_content = self.file_loader.read_file(data_file_path)
                 MD5Validator.validate_file_checksum(data_file_content, expected_md5)
                 validated_count += 1
+                verified_files.append(file_entry)
             except ValueError as e:
                 failed_files.append({'file': data_file_key, 'error': str(e)})
             except Exception as e:
@@ -63,4 +68,4 @@ class DataFileValidator:
             raise ValueError(f"{error_summary}. See logs for details.")
 
         log.info(f"Data file MD5 validation completed: {validated_count}/{len(files_to_validate)} files ({validation_mode} mode)")
-        return {'validated_count': validated_count, 'total_count': total_count, 'validation_mode': validation_mode, 'failed_files': []}
+        return {'validated_count': validated_count, 'total_count': total_count, 'validation_mode': validation_mode, 'failed_files': [], 'verified_files': verified_files}

@@ -15,6 +15,7 @@ from ..shared.rate_limiter import RateLimiterAggregator, RateLimiterSharedConfig
 from .validators.table_validator import TableValidator
 from .validators.manifest_validator import ManifestValidator
 from .validators.data_file_validator import DataFileValidator
+from .validators.key_schema_validator import KeySchemaValidator
 from .validators.s3_validator import S3Validator
 from .utils.file_loader import FileLoader
 from .utils.enums import ImportType
@@ -26,26 +27,6 @@ from .filter.filter_loader import load_filter_function
 
 DYNAMO_DB_THROTTLE_EXCEPTION = 'ProvisionedThroughputExceededException'
 DYNAMO_DB_VALIDATION_EXCEPTION = 'ValidationException'
-
-def validate_export_type_matches_import_type(manifest_export_type: str, import_type: ImportType):
-    """
-    Validate that the manifest export type matches the specified import type.
-    
-    Args:
-        manifest_export_type: Export type from manifest-summary.json
-        import_type: Import type specified as parameter
-        
-    Raises:
-        ValueError: If export type doesn't match import type
-    """
-    expected_export_type = "FULL_EXPORT" if import_type == ImportType.FULL_ONLY else "INCREMENTAL_EXPORT"
-    
-    if manifest_export_type != expected_export_type:
-        error_msg = (
-            f"Export type mismatch: manifest contains '{manifest_export_type}' export "
-            f"but import type is '{import_type.value}' (expected '{expected_export_type}')"
-        )
-        raise ValueError(error_msg)
 
 # TODO: Below method is a repeat from /fill/__init__.py, refactor this later
 def print_dynamodb_table_info(session, table_name, numitems, avg_size):
@@ -77,7 +58,6 @@ def run(job, spark_context, glue_context, parsed_args):
     log.info(f"parsed_args {parsed_args}")
     table_name = parsed_args.get('table')
     s3_path = parsed_args.get('s3_path')
-    import_type = ImportType(parsed_args.get('import_type', 'full-incremental'))
     
     # Filter configuration
     filter_name = parsed_args.get('filter')
@@ -128,6 +108,7 @@ def run(job, spark_context, glue_context, parsed_args):
         table_validator = TableValidator(dynamodb_client)
         manifest_validator = ManifestValidator(file_loader)
         data_file_validator = DataFileValidator(file_loader)
+        key_schema_validator = KeySchemaValidator(file_loader)
         s3_validator = S3Validator(s3_client)
 
         log.info("Components initialized successfully")
@@ -152,21 +133,26 @@ def run(job, spark_context, glue_context, parsed_args):
         # Step 5: Validate data file checksums
         current_phase = "data file validation"
         log.info("Step 5: Validating data file checksums...")
-        data_file_validator.validate_data_file_checksums(
+        checksum_result = data_file_validator.validate(
             data_files=manifest_data['data_files'],
             base_path=path_resolver.get_base_path()
         )
         log.info("Step 5: Data file checksum validation completed successfully")
 
-        # Step 6: Validate export type matches import type
-        current_phase = "export type validation"
-        log.info("Step 6: Validating export type matches import type...")
-        validate_export_type_matches_import_type(manifest_data['export_type'], import_type)
-        log.info(f"Step 6: Export type validation passed: {manifest_data['export_type']} matches {import_type.value}")
+        # Step 5b: Validate key schema against verified files
+        current_phase = "key schema validation"
+        log.info("Step 5b: Validating key schema against verified data files...")
+        key_schema_validator.validate(
+            verified_files=checksum_result['verified_files'],
+            base_path=path_resolver.get_base_path(),
+            key_schema=key_schema,
+            export_type=manifest_data['export_type']
+        )
+        log.info("Step 5b: Key schema validation completed successfully")
 
         # Step 6: Print validation summary
         log.info("=" * 80)
-        log.info("Validation Summary:")
+        log.info("Step 6: Validation Summary:")
         log.info(f"  - Total items to import: {manifest_data['total_item_count']}")
         log.info(f"  - Number of data files: {len(manifest_data['data_files'])}")
         log.info(f"  - Output format: {manifest_data['output_format']}")
@@ -194,8 +180,10 @@ def run(job, spark_context, glue_context, parsed_args):
         
         # Parse each line to extract items and deserialize to plain Python format
         log.info("Parsing export lines to extract items...")
-        
+
         # Get the appropriate parser for the import type
+        export_type = manifest_data['export_type']
+        import_type = ImportType.INCREMENTAL if export_type == 'INCREMENTAL_EXPORT' else ImportType.FULL
         parser = ParserFactory.get_parser(import_type)
         log.info(f"Parser of type {parser} returned successfully...")
         
@@ -227,20 +215,20 @@ def run(job, spark_context, glue_context, parsed_args):
         total_item_count = manifest_data['total_item_count']
         log.info(f"Prepared to process items from export (original manifest count: {total_item_count})")
 
-        # Step 8: Repartition for optimal parallelism
+        # Step 9: Repartition for optimal parallelism
         current_phase = "repartitioning"
-        log.info("Step 8: Repartitioning data for parallel processing...")
+        log.info("Step 9: Repartitioning data for parallel processing...")
         num_partitions = 30  # Fixed partitions for optimal parallelism TODO: Would dynamic partitions be better?
         items_rdd = final_items_rdd.repartition(num_partitions)
         log.info(f"Step 8: Repartitioned to {num_partitions} partitions")
 
-        # Step 9: Write items in parallel
+        # Step 10: Write items in parallel
         current_phase = "data processing"
-        log.info("Step 9: Writing items to DynamoDB in parallel...")
+        log.info("Step 10: Writing items to DynamoDB in parallel...")
         
         # Get the appropriate writer based on import type
         writer = WriterFactory.create_writer(import_type)
-        writer_type = "batch writer" if import_type == ImportType.FULL_ONLY else "item writer"
+        writer_type = "batch writer" if import_type == ImportType.FULL else "item writer"
         log.info(f"Using {writer_type} for {import_type.value} import")
 
         # Create accumulator to track written items
