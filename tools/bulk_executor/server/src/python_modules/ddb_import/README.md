@@ -12,6 +12,7 @@ The bulk import reads data from S3 and writes to an existing DynamoDB table, the
 3. If the DynamoDB table uses KMS keys, ensure the role has relevant access
 
 ## Unit testing
+Refer to [README](../../../../tests/README.md)
 1. Activate/create a python virtual environment using `source .venv/bin/activate` at the top level directory `/amazon-dynamodb-tools/bulk_executor`
 2. Install top-level python requirements `pip install -r requirements.txt` 
 3. Install the _Import_ module's test requirements `pip install -r server/src/python_modules/ddb_import/requirements-test.txt`

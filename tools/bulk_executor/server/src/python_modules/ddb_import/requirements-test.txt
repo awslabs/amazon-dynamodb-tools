@@ -1,4 +1,0 @@
-pytest>=7.0.0
-pytest-mock>=3.10.0
-hypothesis>=6.0.0
-pyspark>=3.5.0
