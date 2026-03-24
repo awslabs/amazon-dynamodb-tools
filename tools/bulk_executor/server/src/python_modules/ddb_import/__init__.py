@@ -25,35 +25,6 @@ from .writers.writer_factory import WriterFactory
 from .parsers.parser_factory import ParserFactory
 from .filter.filter_loader import load_filter_function
 
-DYNAMO_DB_THROTTLE_EXCEPTION = 'ProvisionedThroughputExceededException'
-DYNAMO_DB_VALIDATION_EXCEPTION = 'ValidationException'
-
-# TODO: Below method is a repeat from /fill/__init__.py, refactor this later
-def print_dynamodb_table_info(session, table_name, numitems, avg_size):
-    region_name = session.region_name
-    table_info = get_and_print_dynamodb_table_info(table_name)
-
-    #avg_size = max(math.ceil(table_size_bytes / (item_count+1)), 1000) # avoid any division by 0
-    avg_write_units_per_item = math.ceil(avg_size / 1024)
-    write_units = numitems * avg_write_units_per_item
-
-    pricing_utility = PricingUtility()
-    ondemand_pricing = pricing_utility.get_on_demand_capacity_pricing(region_name)
-    wru_cost = float(ondemand_pricing.get(table_info['write_pricing_category']))
-    od_cost = write_units * wru_cost
-    prov_cost = od_cost / 1.5 # very rough, look into updating this
-    log.info("DynamoDB fill costs depend on how many items are being written and the size of the items.")
-    log.info(f"Here we assume the command will insert {numitems:,} items")
-    log.info(f" with average size {int(avg_size):,} bytes (based on peeking at generator output);")
-    log.info(f" each write incurs an average of {avg_write_units_per_item} write units")
-    log.info(f"Write units required to do such a fill (approx): {write_units:,}")
-    log.info("This does not include costs for secondary indexes!")
-    if table_info['billing_mode'] == "PROVISIONED":
-        log.info(f"Approx DynamoDB cost for provisioned writes consuming {write_units:,} WCUs (using {region_name} prices): ${prov_cost:,.2f}")
-    elif table_info['billing_mode'] == "PAY_PER_REQUEST":
-        log.info(f"Approx DynamoDB cost for On-demand writes consuming {write_units:,} WRUs (using {region_name} prices): ${od_cost:,.2f}")
-    print() # empty print intentional
-
 def run(job, spark_context, glue_context, parsed_args):
     log.info(f"parsed_args {parsed_args}")
     table_name = parsed_args.get('table')

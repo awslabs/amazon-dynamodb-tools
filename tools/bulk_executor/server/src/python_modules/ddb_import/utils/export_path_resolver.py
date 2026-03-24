@@ -26,11 +26,11 @@ class ExportPathResolver:
         path_parts = match.group(2)
         
         # Find AWSDynamoDB in the path
-        if f"/{self.AWS_DYNAMODB_PREFIX}/" not in path_parts:
+        if f"/{self.AWS_DYNAMODB_PREFIX}/" not in f"/{path_parts}":
             raise ValueError(f"Path must contain '/{self.AWS_DYNAMODB_PREFIX}/' segment: {s3_path}")
         
         # Split on AWSDynamoDB to get prefix and export_id
-        prefix_part, export_part = path_parts.split(f"/{self.AWS_DYNAMODB_PREFIX}/", 1)
+        prefix_part, export_part = f"/{path_parts}".split(f"/{self.AWS_DYNAMODB_PREFIX}/", 1)
         
         self.prefix = prefix_part.strip("/") if prefix_part else ""
         self.export_id = export_part.strip("/")

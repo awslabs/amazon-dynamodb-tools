@@ -39,6 +39,24 @@ class TestExportPathResolver:
         with pytest.raises(ValueError, match="Invalid S3 path format"):
             ExportPathResolver("my-bucket/AWSDynamoDB/export-id")
 
+    def test_parse_path_without_prefix_single_slash(self):
+        """Test parsing S3 path without prefix using natural single-slash form."""
+        path = "s3://unicornactiviti-data-export/AWSDynamoDB/01716790307109-5f9d6aaa/"
+        resolver = ExportPathResolver(path)
+
+        assert resolver.get_bucket() == "unicornactiviti-data-export"
+        assert resolver.get_prefix() == ""
+        assert resolver.get_export_id() == "01716790307109-5f9d6aaa"
+
+    def test_parse_path_without_prefix_single_slash_no_trailing(self):
+        """Test parsing S3 path without prefix, no trailing slash."""
+        path = "s3://my-bucket/AWSDynamoDB/01716790307109-5f9d6aaa"
+        resolver = ExportPathResolver(path)
+
+        assert resolver.get_bucket() == "my-bucket"
+        assert resolver.get_prefix() == ""
+        assert resolver.get_export_id() == "01716790307109-5f9d6aaa"
+
     def test_invalid_path_missing_awsdynamodb(self):
         """Test error on path missing AWSDynamoDB segment."""
         with pytest.raises(ValueError, match="must contain '/AWSDynamoDB/' segment"):

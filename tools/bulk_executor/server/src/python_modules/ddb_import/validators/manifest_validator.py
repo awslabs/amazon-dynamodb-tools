@@ -48,7 +48,7 @@ class ManifestValidator:
         log.info(f"manifest_base_path {manifest_base_path}")
         
         # Step 1: Validate manifest-summary.json MD5 checksum
-        log.info("Validating manifest-summary.json MD5 checksum...")
+        log.info("Manifest validator-1: Validating manifest-summary.json MD5 checksum...")
         manifest_summary_path = self.file_loader.join_path(manifest_base_path, 'manifest-summary.json')
         manifest_summary_md5_path = self.file_loader.join_path(manifest_base_path, 'manifest-summary.md5')
         
@@ -67,7 +67,7 @@ class ManifestValidator:
             raise
         
         # Step 2: Parse manifest-summary.json
-        log.info("Parsing manifest-summary.json...")
+        log.info("Manifest validator-2: Parsing manifest-summary.json...")
         try:
             manifest_summary = json.loads(manifest_summary_content.decode('utf-8'))
         except json.JSONDecodeError as e:
@@ -85,11 +85,12 @@ class ManifestValidator:
         log.info(f"Parsed manifest-summary.json: itemCount={total_item_count}, outputFormat={output_format}, exportType={export_type}, exportTime={export_time}, exportFromTime={export_from_time}, exportToTime={export_to_time}")
         
         # Step 3: Extract table name from ARN
+        log.info("Manifest validator-3: Extracting table name from arn...")
         table_name = self._extract_table_name(manifest_summary)
         
         # Step 4: Validate output format
         # DynamoDB exports support DYNAMODB_JSON and ION formats; only DYNAMODB_JSON is currently supported.
-        log.info("Validating output format...")
+        log.info("Manifest validator-4: Validating output format...")
         if output_format != 'DYNAMODB_JSON':
             error_msg = f"Unsupported output format: {output_format}. Only DYNAMODB_JSON is currently supported (ION is not supported)."
             log.error(error_msg)
@@ -98,6 +99,7 @@ class ManifestValidator:
         
         # Step 5: Validate output view for incremental exports
         # Incremental exports support NEW_AND_OLD_IMAGES and NEW_IMAGES; only NEW_AND_OLD_IMAGES is currently supported.
+        log.info("Manifest validator-5: Validating export views...")
         if export_type == 'INCREMENTAL_EXPORT':
             output_view = manifest_summary.get('outputView')
             if output_view != 'NEW_AND_OLD_IMAGES':
@@ -108,7 +110,7 @@ class ManifestValidator:
             log.info("Output view validated successfully")
         
         # Step 6: Validate manifest-files.json MD5 checksum
-        log.info("Validating manifest-files.json MD5 checksum..." + manifest_files_key)
+        log.info("Manifest validator-6: Validating manifest-files.json MD5 checksum..." + manifest_files_key)
         manifest_files_path = self.file_loader.join_path(base_path, manifest_files_key)
         manifest_files_md5_path = self.file_loader.join_path(manifest_base_path, 'manifest-files.md5')
 
@@ -124,7 +126,7 @@ class ManifestValidator:
             raise
         
         # Step 7: Parse manifest-files.json (newline-delimited JSON)
-        log.info("Parsing manifest-files.json...")
+        log.info("Manifest validator-7: Parsing manifest-files.json...")
         data_files = []
         try:
             lines = manifest_files_content.decode('utf-8').strip().split('\n')
@@ -143,7 +145,7 @@ class ManifestValidator:
         log.info(f"Parsed {len(data_files)} data file entries from manifest-files.json")
 
         # Step 8: Calculate and validate item count consistency
-        log.info("Step 8: Validating item count consistency...")
+        log.info("Manifest validator-8: Validating item count consistency...")
         calculated_item_count = sum(entry.get('itemCount', 0) for entry in data_files)
         
         if calculated_item_count != total_item_count:
@@ -158,7 +160,7 @@ class ManifestValidator:
         
         # Step 9: Log success summary
         log.info(
-            f"Step 9: Manifest validation completed successfully: "
+            f"Manifest validator-9: Manifest validation completed successfully: "
             f"{total_item_count} total items across {len(data_files)} data files"
         )
         
