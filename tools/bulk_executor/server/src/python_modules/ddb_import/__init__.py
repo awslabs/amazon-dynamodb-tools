@@ -9,7 +9,7 @@ from pyspark.context import SparkContext
 from ..shared.logger import log
 from ..shared.errors import ListAccumulator
 from ..shared.pricing import PricingUtility
-from ..shared.table_info import get_dynamodb_throughput_configs, get_and_print_dynamodb_table_info
+from ..shared.table_info import get_dynamodb_throughput_configs
 from ..shared.rate_limiter import RateLimiterAggregator, RateLimiterSharedConfig
 
 from .validators.table_validator import TableValidator
@@ -24,6 +24,9 @@ from .readers.export_reader import get_export_file_paths
 from .writers.writer_factory import WriterFactory
 from .parsers.parser_factory import ParserFactory
 from .filter.filter_loader import load_filter_function
+
+def _is_filter_specified(filter_name, filter_function_name):
+    return filter_name and filter_name != "None" and filter_function_name and filter_function_name != "None"
 
 def run(job, spark_context, glue_context, parsed_args):
     log.info(f"parsed_args {parsed_args}")
@@ -48,8 +51,10 @@ def run(job, spark_context, glue_context, parsed_args):
     monitor_options = get_dynamodb_throughput_configs(parsed_args, table_name, modes=["write"], format="monitor")
     log.info(f"monitor_options {monitor_options}")
 
+    debug_enabled = parsed_args.get('XDebug', 'false').lower() == 'true'
+
     error_accumulator = spark_context.accumulator([], ListAccumulator()) # Error accumulator for collecting errors from workers
-    debug_accumulator = spark_context.accumulator([], ListAccumulator()) # Debug accumulators for worker info
+    debug_accumulator = spark_context.accumulator([], ListAccumulator()) if debug_enabled else None # Debug accumulators for worker info
 
     # Track execution time from job start
     start_time = time.time()
@@ -155,7 +160,7 @@ def run(job, spark_context, glue_context, parsed_args):
         # Get the appropriate parser for the import type
         export_type = manifest_data['export_type']
         import_type = ImportType.INCREMENTAL if export_type == 'INCREMENTAL_EXPORT' else ImportType.FULL
-        parser = ParserFactory.get_parser(import_type)
+        parser = ParserFactory.get_parser(import_type, output_view=manifest_data.get('output_view'))
         log.info(f"Parser of type {parser} returned successfully...")
         
         def parse_line(line):
@@ -168,7 +173,7 @@ def run(job, spark_context, glue_context, parsed_args):
         items_rdd = all_lines_rdd.map(parse_line)
 
         # Apply filter if specified
-        if filter_name and filter_name != "None" and filter_function_name and filter_function_name != "None":
+        if _is_filter_specified(filter_name, filter_function_name):
             log.info(f"Loading filter function: {filter_name}.{filter_function_name}")
             filter_function = load_filter_function(filter_name, filter_function_name)
             
@@ -188,10 +193,12 @@ def run(job, spark_context, glue_context, parsed_args):
 
         # Step 9: Repartition for optimal parallelism
         current_phase = "repartitioning"
-        log.info("Step 9: Repartitioning data for parallel processing...")
-        num_partitions = 30  # Fixed partitions for optimal parallelism TODO: Would dynamic partitions be better?
+
+        num_partitions = max(1, int(total_item_count / 10000))
+
+        log.info(f"Step 9: Using {num_partitions} partitions (based on item count {total_item_count})")
         items_rdd = final_items_rdd.repartition(num_partitions)
-        log.info(f"Step 8: Repartitioned to {num_partitions} partitions")
+        log.info(f"Step 9: Repartitioned to {num_partitions} partitions")
 
         # Step 10: Write items in parallel
         current_phase = "data processing"
@@ -229,7 +236,7 @@ def run(job, spark_context, glue_context, parsed_args):
         # Log final counts
         written_count = written_items_accumulator.value
         log.info(f"Successfully wrote {written_count:,} items to DynamoDB table '{table_name}'")
-        if filter_name:
+        if _is_filter_specified(filter_name, filter_function_name):
             log.info(f"Filter '{filter_name}' processed {written_count:,} items out of {total_item_count:,} original items")
         log.info("Data processing and writing completed")
 
@@ -237,7 +244,7 @@ def run(job, spark_context, glue_context, parsed_args):
         log.info("=" * 80)
         log.info("Data Processing Summary:")
         log.info(f"  - Manifest items: {manifest_data['total_item_count']}")
-        log.info(f"  - Expected items: {written_items_accumulator.value}")
+        log.info(f"  - Expected items: {total_expected_items}")
         log.info(f"  - Parsed items: {total_item_count}")
         log.info("=" * 80)
 
@@ -288,7 +295,7 @@ def run(job, spark_context, glue_context, parsed_args):
         log.error("Job terminated due to unexpected error")
         raise
     finally:
-        for debug_msg in debug_accumulator.value:
+        for debug_msg in (debug_accumulator.value if debug_accumulator else []):
             log.debug(debug_msg)
 
         rate_limiter_aggregator.shutdown()

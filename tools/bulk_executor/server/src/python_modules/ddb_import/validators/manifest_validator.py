@@ -98,14 +98,15 @@ class ManifestValidator:
         log.info("Output format validated successfully")
         
         # Step 5: Validate output view for incremental exports
-        # Incremental exports support NEW_AND_OLD_IMAGES and NEW_IMAGES; only NEW_AND_OLD_IMAGES is currently supported.
+        # Incremental exports support NEW_AND_OLD_IMAGES and NEW_IMAGE.
         log.info("Manifest validator-5: Validating export views...")
+        output_view = None
         if export_type == 'INCREMENTAL_EXPORT':
             output_view = manifest_summary.get('outputView')
-            if output_view != 'NEW_AND_OLD_IMAGES':
+            if output_view not in ('NEW_AND_OLD_IMAGES', 'NEW_IMAGE'):
                 raise ValueError(
                     f"Unsupported output view: {output_view}. "
-                    f"Only NEW_AND_OLD_IMAGES is currently supported for incremental exports (NEW_IMAGES is not supported)."
+                    f"Only NEW_AND_OLD_IMAGES and NEW_IMAGE are supported for incremental exports."
                 )
             log.info("Output view validated successfully")
         
@@ -168,6 +169,7 @@ class ManifestValidator:
             'total_item_count': total_item_count,
             'output_format': output_format,
             'export_type': export_type,
+            'output_view': output_view,
             'export_time': export_time,
             'export_from_time': export_from_time,
             'export_to_time': export_to_time,

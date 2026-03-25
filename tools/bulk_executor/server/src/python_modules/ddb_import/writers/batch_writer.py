@@ -31,16 +31,17 @@ class BatchWriter(DynamoDBWriter):
         local_count = 0
         rate_limiter_worker = None
         
-        debug_accumulator.add(["Batch writer function started"])
+        if debug_accumulator: debug_accumulator.add(["Batch writer function started"])
         
         try:
             # Initialize rate limiter
             log.info("Rate limiter worker started...")
-            debug_accumulator.add(["Rate limiter worker started"])
+            if debug_accumulator: debug_accumulator.add(["Rate limiter worker started"])
             rate_limiter_worker = RateLimiterWorker(
                 shared_config=rate_limiter_shared_config,
                 debug_accumulator=debug_accumulator,
-                **monitor_options
+                **monitor_options,
+                #worker_max_write_rate=3000 # TODO: Parameterize this
             )
             session = rate_limiter_worker.get_session()
             dynamodb = session.resource('dynamodb', config=Config(
@@ -59,7 +60,7 @@ class BatchWriter(DynamoDBWriter):
                 for operation_data in partition_data:
                     operation, data = operation_data["operation"], operation_data["data"]
 
-                    debug_accumulator.add([f"Operation: {operation}, Data: {data}"])
+                    if debug_accumulator: debug_accumulator.add([f"Operation: {operation}, Data: {data}"])
                     
                     if operation == "PUT":
                         batch.put_item(Item=data)
@@ -72,7 +73,7 @@ class BatchWriter(DynamoDBWriter):
                         log.info(f"Batch writer progress: {local_count} operations processed")
             
             log.info(f"Batch writer completed: {local_count} operations processed on '{table_name}'")
-            debug_accumulator.add([f"Batch writer completed: {local_count} operations processed"])
+            if debug_accumulator: debug_accumulator.add([f"Batch writer completed: {local_count} operations processed"])
             written_items_accumulator.add(local_count)
         
         except botocore.exceptions.ClientError as e:

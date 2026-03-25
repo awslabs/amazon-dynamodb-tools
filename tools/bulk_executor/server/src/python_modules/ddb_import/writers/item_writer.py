@@ -33,16 +33,17 @@ class ItemWriter(DynamoDBWriter):
         condition_failed_count = 0
         rate_limiter_worker = None
         
-        debug_accumulator.add(["Item writer function started"])
+        if debug_accumulator: debug_accumulator.add(["Item writer function started"])
         
         try:
             # Initialize rate limiter
             log.info("Rate limiter worker started...")
-            debug_accumulator.add(["Rate limiter worker started"])
+            if debug_accumulator: debug_accumulator.add(["Rate limiter worker started"])
             rate_limiter_worker = RateLimiterWorker(
                 shared_config=rate_limiter_shared_config,
                 debug_accumulator=debug_accumulator,
-                **monitor_options
+                **monitor_options,
+                #worker_max_write_rate=3000  # TODO: Parameterize this
             )
             session = rate_limiter_worker.get_session()
             dynamodb = session.resource('dynamodb', config=Config(
@@ -60,7 +61,7 @@ class ItemWriter(DynamoDBWriter):
             for operation_data in partition_data:
                 operation, data, condition = operation_data["operation"], operation_data["data"], operation_data["condition"]
 
-                debug_accumulator.add([f"Operation: {operation}, Data: {data}, Condition: {condition}"])
+                if debug_accumulator: debug_accumulator.add([f"Operation: {operation}, Data: {data}, Condition: {condition}"])
                 
                 try:
                     if operation == "PUT":
@@ -84,7 +85,7 @@ class ItemWriter(DynamoDBWriter):
                     
                     if error_code == DYNAMO_DB_CONDITIONAL_CHECK_FAILED:
                         condition_failed_count += 1
-                        debug_accumulator.add([f"Condition failed for operation: {operation}, continuing..."])
+                        if debug_accumulator: debug_accumulator.add([f"Condition failed for operation: {operation}, continuing..."])
                     elif error_code == DYNAMO_DB_THROTTLE_EXCEPTION:
                         raise
                     elif error_code == DYNAMO_DB_VALIDATION_EXCEPTION:
@@ -95,7 +96,7 @@ class ItemWriter(DynamoDBWriter):
                         break
             
             log.info(f"Item writer completed: {local_count} operations processed, {condition_failed_count} conditions failed on '{table_name}'")
-            debug_accumulator.add([f"Item writer completed: {local_count} operations processed, {condition_failed_count} conditions failed"])
+            if debug_accumulator: debug_accumulator.add([f"Item writer completed: {local_count} operations processed, {condition_failed_count} conditions failed"])
             written_items_accumulator.add(local_count)
         
         except botocore.exceptions.ClientError as e:

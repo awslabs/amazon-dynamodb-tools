@@ -191,7 +191,7 @@ class TestManifestValidator:
             assert "ION" in error_message
 
     def test_unsupported_output_view_for_incremental_export(self, mock_path_resolver):
-        """Test that NEW_IMAGES output view is rejected for incremental exports."""
+        """Test that an unknown output view is rejected for incremental exports."""
         mock_file_loader = Mock()
         
         manifest_summary_content = b'''{
@@ -199,7 +199,7 @@ class TestManifestValidator:
             "tableArn": "arn:aws:dynamodb:us-west-1:123456789:table/test_table",
             "outputFormat": "DYNAMODB_JSON",
             "exportType": "INCREMENTAL_EXPORT",
-            "outputView": "NEW_IMAGES",
+            "outputView": "UNKNOWN_VIEW",
             "manifestFilesS3Key": "manifest-files.json"
         }'''
         manifest_summary_md5 = b"fake_md5"
@@ -223,8 +223,9 @@ class TestManifestValidator:
             with pytest.raises(ValueError) as exc_info:
                 validator.validate_and_parse_manifests(path_resolver)
             
-            assert "NEW_IMAGES" in str(exc_info.value)
+            assert "UNKNOWN_VIEW" in str(exc_info.value)
             assert "NEW_AND_OLD_IMAGES" in str(exc_info.value)
+            assert "NEW_IMAGE" in str(exc_info.value)
 
     def test_output_view_not_checked_for_full_export(self, mock_path_resolver):
         """Test that output view validation is skipped for full exports."""
@@ -264,6 +265,46 @@ class TestManifestValidator:
             
             # Should pass without error - output view not checked for full exports
             assert result['total_item_count'] == 100
+
+    def test_new_image_output_view_accepted_for_incremental_export(self, mock_path_resolver):
+        """Test that NEW_IMAGE output view is accepted for incremental exports."""
+        mock_file_loader = Mock()
+
+        manifest_summary_content = b'''{
+            "itemCount": 10,
+            "tableArn": "arn:aws:dynamodb:us-west-1:123456789:table/test_table",
+            "outputFormat": "DYNAMODB_JSON",
+            "exportType": "INCREMENTAL_EXPORT",
+            "outputView": "NEW_IMAGE",
+            "manifestFilesS3Key": "AWSDynamoDB/export-id/manifest-files.json"
+        }'''
+        manifest_files_content = b'{"itemCount":10,"md5Checksum":"abc==","dataFileS3Key":"data/file.json.gz"}'
+        manifest_summary_md5 = b"fake_md5"
+        manifest_files_md5 = b"fake_md5"
+
+        def mock_read_file(path):
+            if 'manifest-summary.json' in path:
+                return manifest_summary_content
+            elif 'manifest-summary.md5' in path:
+                return manifest_summary_md5
+            elif 'manifest-files.json' in path:
+                return manifest_files_content
+            elif 'manifest-files.md5' in path:
+                return manifest_files_md5
+            raise ValueError(f"Unexpected path: {path}")
+
+        mock_file_loader.read_file.side_effect = mock_read_file
+        mock_file_loader.join_path.side_effect = lambda base, *parts: f"{base}/{'/'.join(parts)}"
+
+        with patch('python_modules.ddb_import.validators.manifest_validator.MD5Validator') as mock_md5:
+            mock_md5.validate_file_checksum.return_value = True
+
+            validator = ManifestValidator(mock_file_loader)
+            path_resolver = mock_path_resolver('test-bucket', 'export-id')
+            result = validator.validate_and_parse_manifests(path_resolver)
+
+            assert result['output_view'] == 'NEW_IMAGE'
+            assert result['export_type'] == 'INCREMENTAL_EXPORT'
 
     def test_item_count_mismatch_between_manifests(self, mock_path_resolver):
         """Test item count mismatch between manifests."""
