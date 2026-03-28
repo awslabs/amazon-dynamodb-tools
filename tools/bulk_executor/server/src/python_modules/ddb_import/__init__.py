@@ -161,7 +161,7 @@ def run(job, spark_context, glue_context, parsed_args):
         export_type = manifest_data['export_type']
         import_type = ImportType.INCREMENTAL if export_type == 'INCREMENTAL_EXPORT' else ImportType.FULL
         parser = ParserFactory.get_parser(import_type, output_view=manifest_data.get('output_view'))
-        log.info(f"Parser of type {parser} returned successfully...")
+        log.info(f"Parser of type {type(parser).__name__} returned successfully...")
         
         def parse_line(line):
             """Parse a line from the export file using the appropriate parser."""
@@ -194,7 +194,8 @@ def run(job, spark_context, glue_context, parsed_args):
         # Step 9: Repartition for optimal parallelism
         current_phase = "repartitioning"
 
-        num_partitions = max(1, int(total_item_count / 10000))
+        #num_partitions = max(1, int(total_item_count / 10000))
+        num_partitions = spark_context.defaultParallelism * 3
 
         log.info(f"Step 9: Using {num_partitions} partitions (based on item count {total_item_count})")
         items_rdd = final_items_rdd.repartition(num_partitions)
