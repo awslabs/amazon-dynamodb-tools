@@ -106,6 +106,10 @@ def run(job, spark_context, glue_context, parsed_args):
         manifest_data = manifest_validator.validate_and_parse_manifests(path_resolver)
         log.info("Step 4: Manifest validation completed successfully")
 
+        if manifest_data['total_item_count'] == 0:
+            log.info("Export contains 0 items, nothing to import. Exiting.")
+            return
+
         # Step 5: Validate data file checksums
         current_phase = "data file validation"
         log.info("Step 5: Validating data file checksums...")
