@@ -177,62 +177,68 @@ class BulkDynamoDbRunner:
         succeeded_counter = 0
         reassembler = GlueLogReassembler()  # Each thread gets its own reassembler
         
-        try:
-            # Start live tail for this specific log group
-            response = self.logs_client.start_live_tail(
-                logGroupIdentifiers=[log_group_arn],
-                logStreamNamePrefixes=[job_run_id] 
-            )
-            event_stream = response['responseStream']
-            
-            for event in event_stream:
-                # Check if we should stop because the job is in a terminal state
+        while True:
+            try:
+                # Start (or restart) live tail for this specific log group
+                response = self.logs_client.start_live_tail(
+                    logGroupIdentifiers=[log_group_arn],
+                    logStreamNamePrefixes=[job_run_id]
+                )
+                event_stream = response['responseStream']
+
+                for event in event_stream:
+                    # Check if we should stop because the job is in a terminal state
+                    job_run_state = self._get_job_run_state(job_run_id)
+                    if job_run_state in TERMINAL_JOB_STATES or job_unhealthy_event.is_set():
+                        event_stream.close()
+                        break
+
+                    # Handle when session is started
+                    if 'sessionStart' in event:
+                        session_start_event = event['sessionStart']
+
+                    # Handle when log event is given in a session update
+                    elif 'sessionUpdate' in event:
+                        log_events = event['sessionUpdate']['sessionResults']
+
+                        # Add to reassembler and process ready events
+                        reassembled_events = reassembler.process(log_events)
+
+                        for log_event in reassembled_events:
+                            self._pretty_print_log_event(log_event)
+                            if self._is_job_state_unhealthy(log_event):
+                                log.error(f"Logs from {log_group_name} indicate the Glue Job is unhealthy! Shutting down...")
+                                job_unhealthy_event.set()
+                                self._stop_glue_job(job_run_id)
+                                return
+
+                        if job_run_state == SUCCEEDED_STATE:
+                            log.debug(f"Glue Job complete! Checking for any remaining logs in {log_group_name}...")
+                            if not log_events:
+                                succeeded_counter += 1
+                            else:
+                                succeeded_counter = 0
+                            if succeeded_counter > LIVE_TAIL_SUCCESS_SHUTDOWN_MAX_COUNT:
+                                log.debug(f"All remaining logs from {log_group_name} appear to have been captured! Closing Live Tail session...")
+                                event_stream.close()
+                                break
+
+                    else:
+                        raise RuntimeError(str(event))
+
+                # Final flush for any remaining buffered logs
+                log.debug(f"Flushing remaining buffered/reassembled logs from {log_group_name}...")
+                for log_event in reassembler.flush():
+                    self._pretty_print_log_event(log_event)
+
+                return  # Clean exit
+
+            except Exception as e:
                 job_run_state = self._get_job_run_state(job_run_id)
-                if job_run_state in TERMINAL_JOB_STATES or job_unhealthy_event.is_set():
-                    event_stream.close()
-                    break
-
-                # Handle when session is started
-                if 'sessionStart' in event:
-                    session_start_event = event['sessionStart']
-
-                # Handle when log event is given in a session update
-                elif 'sessionUpdate' in event:
-                    log_events = event['sessionUpdate']['sessionResults']
-
-                    # Add to reassembler and process ready events
-                    reassembled_events = reassembler.process(log_events)
-
-                    for log_event in reassembled_events:
-                        self._pretty_print_log_event(log_event)
-                        if self._is_job_state_unhealthy(log_event):
-                            log.error(f"Logs from {log_group_name} indicate the Glue Job is unhealthy! Shutting down...")
-                            job_unhealthy_event.set()  # Signal to other threads that the job is unhealthy
-                            self._stop_glue_job(job_run_id)
-                            return
-
-                    if job_run_state == SUCCEEDED_STATE:
-                        log.debug(f"Glue Job complete! Checking for any remaining logs in {log_group_name}...")
-                        if not log_events:  # Update counter for closing out the job.
-                            succeeded_counter += 1
-                        else:  # Reset counter since more logs still coming through.
-                            succeeded_counter = 0
-                        if succeeded_counter > LIVE_TAIL_SUCCESS_SHUTDOWN_MAX_COUNT:
-                            log.debug(f"All remaining logs from {log_group_name} appear to have been captured! Closing Live Tail session...")
-                            event_stream.close()  # This will end the Live Tail session.
-                            break
-
-                else:
-                    raise RuntimeError(str(event))
-
-            # Final flush for any remaining buffered logs
-            log.debug(f"Flushing remaining buffered/reassembled logs from {log_group_name}...")
-            for log_event in reassembler.flush():
-                self._pretty_print_log_event(log_event)
-
-        except Exception as e:
-            log.error(f"Unexpected error occurred in {log_group_name} live tail: {str(e)}.")
-            return
+                if job_run_state in TERMINAL_JOB_STATES or job_run_state == SUCCEEDED_STATE or job_unhealthy_event.is_set():
+                    return  # Job is done, no need to reconnect
+                log.debug(f"Live tail session for {log_group_name} expired or failed ({e}), reconnecting...")
+                time.sleep(1)
 
     def _watch_glue_job(self, job_run_id):
         # Fetch log group identifiers (ARNs)
