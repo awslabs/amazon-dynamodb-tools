@@ -198,10 +198,8 @@ def run(job, spark_context, glue_context, parsed_args):
         # Step 9: Repartition for optimal parallelism
         current_phase = "repartitioning"
 
-        #num_partitions = max(1, int(total_item_count / 10000))
-        num_partitions = spark_context.defaultParallelism * 3
-
-        log.info(f"Step 9: Using {num_partitions} partitions (based on item count {total_item_count})")
+        num_partitions = min(final_items_rdd.getNumPartitions(), spark_context.defaultParallelism*2)
+        log.info(f"Step 9: Using {num_partitions} partitions (based on mins of #gz files {final_items_rdd.getNumPartitions()} and defaultParallelism {spark_context.defaultParallelism})")
         items_rdd = final_items_rdd.repartition(num_partitions)
         log.info(f"Step 9: Repartitioned to {num_partitions} partitions")
 

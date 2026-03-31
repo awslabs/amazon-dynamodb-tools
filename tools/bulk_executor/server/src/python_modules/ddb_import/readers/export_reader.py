@@ -37,10 +37,15 @@ def get_export_file_paths(
     file_paths = []
     total_expected_items = 0
     
+    skipped_empty = 0
     for data_file in data_files:
         file_key = data_file['dataFileS3Key']
         expected_count = data_file['itemCount']
         
+        if expected_count == 0:
+            skipped_empty += 1
+            continue
+
         # Construct full S3 file path
         file_path = file_base_path.rstrip('/') + '/' + file_key.lstrip('/')
         
@@ -48,6 +53,9 @@ def get_export_file_paths(
         total_expected_items += expected_count
         log.info(f"Will process file: {file_key} (expected items: {expected_count})")
     
+    if skipped_empty:
+        log.info(f"Skipped {skipped_empty} empty data file(s)")
+
     log.info(f"Total files to process: {len(file_paths)}")
     log.info(f"Total expected items: {total_expected_items}")
     
