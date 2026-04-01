@@ -17,7 +17,7 @@ def load_filter_function(filter_module, function_name):
         AttributeError: If the function doesn't exist in the module
     """
     try:
-        module = importlib.import_module(f"python_modules.import.filter.{filter_module}")
+        module = importlib.import_module(f"python_modules.ddb_import.filter.{filter_module}")
         filter_function = getattr(module, function_name)
         return filter_function
     except ImportError as e:

@@ -186,9 +186,10 @@ def run(job, spark_context, glue_context, parsed_args):
         def parse_line(line):
             """Parse a line from the export file using the appropriate parser."""
             result = parser.parse_export_line(line)
-            operation, item_data, condition = result
+            operation, item_data, condition = result[0], result[1], result[2]
+            expr_names = result[3] if len(result) > 3 else None
             # Return the full operation info for the writer to handle
-            return {"operation": operation, "data": item_data, "condition": condition}
+            return {"operation": operation, "data": item_data, "condition": condition, "expr_names": expr_names}
 
         items_rdd = all_lines_rdd.map(parse_line)
 
@@ -198,7 +199,7 @@ def run(job, spark_context, glue_context, parsed_args):
             filter_function = load_filter_function(filter_name, filter_function_name)
             
             log.info("Applying filter to items...")
-            filtered_items_rdd = items_rdd.filter(filter_function)
+            filtered_items_rdd = items_rdd.filter(lambda item: filter_function(item["data"]))
             log.info("Filter applied (filtered count will be determined during processing)")
             
             # Use filtered items
