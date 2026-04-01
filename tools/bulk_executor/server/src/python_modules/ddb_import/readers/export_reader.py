@@ -51,12 +51,12 @@ def get_export_file_paths(
         
         file_paths.append(file_path)
         total_expected_items += expected_count
-        log.info(f"Will process file: {file_key} (expected items: {expected_count})")
+        #log.info(f"Will process file: {file_key} (expected items: {expected_count:,})")
     
     if skipped_empty:
         log.info(f"Skipped {skipped_empty} empty data file(s)")
 
-    log.info(f"Total files to process: {len(file_paths)}")
-    log.info(f"Total expected items: {total_expected_items}")
+    log.info(f"Total files to process: {len(file_paths):,}")
+    log.info(f"Total expected items: {total_expected_items:,}")
     
     return file_paths, total_expected_items

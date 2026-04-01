@@ -82,7 +82,7 @@ class ManifestValidator:
         export_type = manifest_summary.get('exportType', 'FULL_EXPORT')  # Default to FULL_EXPORT if not present
         manifest_files_key = manifest_summary.get('manifestFilesS3Key')
         
-        log.info(f"Parsed manifest-summary.json: itemCount={total_item_count}, outputFormat={output_format}, exportType={export_type}, exportTime={export_time}, exportFromTime={export_from_time}, exportToTime={export_to_time}")
+        log.info(f"Parsed manifest-summary.json: itemCount={total_item_count:,}, outputFormat={output_format}, exportType={export_type}, exportTime={export_time}, exportFromTime={export_from_time}, exportToTime={export_to_time}")
         
         # Step 3: Extract table name from ARN
         log.info("Manifest validator-3: Extracting table name from arn...")
@@ -143,7 +143,7 @@ class ManifestValidator:
             log.error(f"Failed to parse manifest-files.json: {e}")
             raise
         
-        log.info(f"Parsed {len(data_files)} data file entries from manifest-files.json")
+        log.info(f"Parsed {len(data_files):,} data file entries from manifest-files.json")
 
         # Step 8: Calculate and validate item count consistency
         log.info("Manifest validator-8: Validating item count consistency...")
@@ -151,22 +151,23 @@ class ManifestValidator:
         
         if calculated_item_count != total_item_count:
             error_msg = (
-                f"Item count mismatch: manifest-summary.json reports {total_item_count} items, "
-                f"but manifest-files.json entries sum to {calculated_item_count} items"
+                f"Item count mismatch: manifest-summary.json reports {total_item_count:,} items, "
+                f"but manifest-files.json entries sum to {calculated_item_count:,} items"
             )
             log.error(error_msg)
             raise ValueError(error_msg)
         
-        log.info(f"Item count validated successfully: {total_item_count} items")
+        log.info(f"Item count validated successfully: {total_item_count:,} items")
         
         # Step 9: Log success summary
         log.info(
             f"Manifest validator-9: Manifest validation completed successfully: "
-            f"{total_item_count} total items across {len(data_files)} data files"
+            f"{total_item_count:,} total items across {len(data_files):,} data files"
         )
         
         return {
             'total_item_count': total_item_count,
+            'billed_size_bytes': manifest_summary.get('billedSizeBytes', 0),
             'output_format': output_format,
             'export_type': export_type,
             'output_view': output_view,

@@ -1,4 +1,3 @@
-import math
 import boto3
 import time
 
@@ -8,8 +7,7 @@ from pyspark.context import SparkContext
 
 from ..shared.logger import log
 from ..shared.errors import ListAccumulator
-from ..shared.pricing import PricingUtility
-from ..shared.table_info import get_dynamodb_throughput_configs
+from ..shared.table_info import get_dynamodb_throughput_configs, get_and_print_dynamodb_table_info, get_and_print_table_write_cost
 from ..shared.rate_limiter import RateLimiterAggregator, RateLimiterSharedConfig
 
 from .validators.table_validator import TableValidator
@@ -75,7 +73,8 @@ def run(job, spark_context, glue_context, parsed_args):
 
         # Step 1: Initialize components
         current_phase = "initialization"
-        log.info("Step 1: Initializing components...")
+        step = 1
+        log.info(f"Step {step}: Initializing components...")
         dynamodb_client = boto3.client('dynamodb')
 
         s3_client = boto3.client('s3')
@@ -89,70 +88,87 @@ def run(job, spark_context, glue_context, parsed_args):
 
         log.info("Components initialized successfully")
 
-        # Step 2: Validate S3 export path exists
+        # Validate S3 export path exists
         current_phase = "s3 path validation"
-        log.info("Step 2: Validating S3 export path exists...")
+        step += 1
+        log.info(f"Step {step}: Validating S3 export path exists...")
         s3_validator.validate_path_exists(path_resolver)
 
-        # Step 3: Validate target table exists and get key schema
+        # Validate target table exists and get key schema
         current_phase = "table validation"
-        log.info("Step 3: Validating destination table exists...")
+        step += 1
+        log.info(f"Step {step}: Validating destination table exists...")
         key_schema = table_validator.validate_table_exists(table_name)
         log.info(f"Destination table validation completed successfully: {key_schema}")
 
-        # Step 4: Validate and parse manifests
+        # Validate and parse manifests
         current_phase = "manifest validation"
-        log.info("Step 4: Validating and parsing manifest files...")
+        step += 1
+        log.info(f"Step {step}: Validating and parsing manifest files...")
         manifest_data = manifest_validator.validate_and_parse_manifests(path_resolver)
-        log.info("Step 4: Manifest validation completed successfully")
+        log.info(f"Step {step}: Manifest validation completed successfully")
 
         if manifest_data['total_item_count'] == 0:
             log.info("Export contains 0 items, nothing to import. Exiting.")
             return
 
-        # Step 5: Validate data file checksums
+        # Validate data file checksums
         current_phase = "data file validation"
-        log.info("Step 5: Validating data file checksums...")
+        step += 1
+        log.info(f"Step {step}: Validating data file checksums...")
         checksum_result = data_file_validator.validate(
             data_files=manifest_data['data_files'],
             base_path=path_resolver.get_base_path()
         )
-        log.info("Step 5: Data file checksum validation completed successfully")
+        log.info(f"Step {step}: Data file checksum validation completed successfully")
 
-        # Step 5b: Validate key schema against verified files
+        # Validate key schema against verified files
         current_phase = "key schema validation"
-        log.info("Step 5b: Validating key schema against verified data files...")
-        key_schema_validator.validate(
+        step += 1
+        log.info(f"Step {step}: Validating key schema against verified data files...")
+        key_schema_result = key_schema_validator.validate(
             verified_files=checksum_result['verified_files'],
             base_path=path_resolver.get_base_path(),
             key_schema=key_schema,
             export_type=manifest_data['export_type']
         )
-        log.info("Step 5b: Key schema validation completed successfully")
+        log.info(f"Step {step}: Key schema validation completed successfully")
 
-        # Step 6: Print validation summary
+        # Validation summary
+        step += 1
         log.info("=" * 80)
-        log.info("Step 6: Validation Summary:")
-        log.info(f"  - Total items to import: {manifest_data['total_item_count']}")
-        log.info(f"  - Number of data files: {len(manifest_data['data_files'])}")
+        log.info(f"Step {step}: Validation Summary:")
+        log.info(f"  - Total items to import: {manifest_data['total_item_count']:,}")
+        log.info(f"  - Number of data files: {len(manifest_data['data_files']):,}")
         log.info(f"  - Output format: {manifest_data['output_format']}")
         log.info(f"  - Export format: {manifest_data['export_type']}")
         log.info("=" * 80)
         log.info("All validations passed successfully")
         log.info("Ready to proceed with data import")
 
-        # Step 7: Get export file paths
+        # Cost estimate
+        current_phase = "cost estimation"
+        step += 1
+        log.info(f"Step {step}: Estimating DynamoDB write costs...")
+        table_info = get_and_print_dynamodb_table_info(table_name, quiet=True)
+        avg_item_size = key_schema_result.get('avg_item_size', 0)
+        estimated_size_bytes = avg_item_size * manifest_data['total_item_count']
+        get_and_print_table_write_cost(table_info, manifest_data['total_item_count'], estimated_size_bytes)
+
+        # Get export file paths
         current_phase = "file path resolution"
-        log.info("Step 7: Resolving export file paths...")
+        step += 1
+        log.info(f"Step {step}: Resolving export file paths...")
 
         file_paths, total_expected_items = get_export_file_paths(
             data_files=manifest_data['data_files'],
             file_base_path=path_resolver.get_base_path()
         )
         
-        # Step 8: Read and parse files using Spark
+        # Read and parse files using Spark
         current_phase = "data reading"
-        log.info("Step 8: Reading and parsing export files with Spark...")
+        step += 1
+        log.info(f"Step {step}: Reading and parsing export files with Spark...")
         
         # Read all data files as text lines using Spark (handles gzip automatically)
         log.info("Reading data files from S3 using Spark textFile...")
@@ -193,19 +209,21 @@ def run(job, spark_context, glue_context, parsed_args):
 
         # Use manifest count (already validated)
         total_item_count = manifest_data['total_item_count']
-        log.info(f"Prepared to process items from export (original manifest count: {total_item_count})")
+        log.info(f"Prepared to process items from export (original manifest count: {total_item_count:,})")
 
-        # Step 9: Repartition for optimal parallelism
+        # Repartition for optimal parallelism
         current_phase = "repartitioning"
+        step += 1
 
         num_partitions = min(final_items_rdd.getNumPartitions(), spark_context.defaultParallelism*2)
-        log.info(f"Step 9: Using {num_partitions} partitions (based on mins of #gz files {final_items_rdd.getNumPartitions()} and defaultParallelism {spark_context.defaultParallelism})")
+        log.info(f"Step {step}: Using {num_partitions:,} partitions (based on mins of #gz files {final_items_rdd.getNumPartitions():,} and defaultParallelism {spark_context.defaultParallelism:,})")
         items_rdd = final_items_rdd.repartition(num_partitions)
-        log.info(f"Step 9: Repartitioned to {num_partitions} partitions")
+        log.info(f"Step {step}: Repartitioned to {num_partitions:,} partitions")
 
-        # Step 10: Write items in parallel
+        # Write items in parallel
         current_phase = "data processing"
-        log.info("Step 10: Writing items to DynamoDB in parallel...")
+        step += 1
+        log.info(f"Step {step}: Writing items to DynamoDB in parallel...")
         
         # Get the appropriate writer based on import type
         writer = WriterFactory.create_writer(import_type)
@@ -246,9 +264,9 @@ def run(job, spark_context, glue_context, parsed_args):
         # Log final summary
         log.info("=" * 80)
         log.info("Data Processing Summary:")
-        log.info(f"  - Manifest items: {manifest_data['total_item_count']}")
-        log.info(f"  - Expected items: {total_expected_items}")
-        log.info(f"  - Parsed items: {total_item_count}")
+        log.info(f"  - Manifest items: {manifest_data['total_item_count']:,}")
+        log.info(f"  - Expected items: {total_expected_items:,}")
+        log.info(f"  - Parsed items: {total_item_count:,}")
         log.info("=" * 80)
 
         # Calculate execution time
@@ -260,8 +278,8 @@ def run(job, spark_context, glue_context, parsed_args):
         log.info("JOB COMPLETED SUCCESSFULLY")
         log.info("=" * 80)
         log.info("Success Summary:")
-        log.info(f"  - Total items expected: {manifest_data['total_item_count']}")
-        log.info(f"  - Total items written: {written_items_accumulator.value}")
+        log.info(f"  - Total items expected: {manifest_data['total_item_count']:,}")
+        log.info(f"  - Total items written: {written_items_accumulator.value:,}")
         log.info(f"  - Execution time: {execution_time:.1f} seconds")
         log.info(f"  - All validations passed")
         log.info("=" * 80)

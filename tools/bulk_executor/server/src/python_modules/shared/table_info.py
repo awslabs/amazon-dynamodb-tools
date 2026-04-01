@@ -55,7 +55,7 @@ def get_quota_value(quota_name, region_name):
         log.info(f"Warning: Could not retrieve quota: {str(e)}")
         return None
 
-def get_and_print_dynamodb_table_info(table_name, index_name=None):
+def get_and_print_dynamodb_table_info(table_name, index_name=None, quiet=False):
     region_name = _region_from_table_ref(table_name) or _default_region()
     if not region_name:
         raise ValueError("Unable to determine region_name for DynamoDB call.")
@@ -93,22 +93,22 @@ def get_and_print_dynamodb_table_info(table_name, index_name=None):
     # Handle provisioned throughput based on whether we're looking at table or index
     if billing_mode == 'PROVISIONED':
         if index_name:
-            log.info(f"Table: '{table_name}'")
-            log.info(f"Index: '{index_name}'")
-            log.info("Billing mode: Provisioned")
+            if not quiet: log.info(f"Table: '{table_name}'")
+            if not quiet: log.info(f"Index: '{index_name}'")
+            if not quiet: log.info("Billing mode: Provisioned")
             rcu = gsi['ProvisionedThroughput']['ReadCapacityUnits']
             wcu = gsi['ProvisionedThroughput']['WriteCapacityUnits']
         else:
-            log.info(f"Table: '{table_name}'")
-            log.info("Billing mode: Provisioned")
+            if not quiet: log.info(f"Table: '{table_name}'")
+            if not quiet: log.info("Billing mode: Provisioned")
             rcu = table_desc['ProvisionedThroughput']['ReadCapacityUnits']
             wcu = table_desc['ProvisionedThroughput']['WriteCapacityUnits']
 
-        log.info(f"Read Capacity Units (RCU): {rcu:,}")
-        log.info(f"Write Capacity Units (WCU): {wcu:,}")
+        if not quiet: log.info(f"Read Capacity Units (RCU): {rcu:,}")
+        if not quiet: log.info(f"Write Capacity Units (WCU): {wcu:,}")
 
         # Get auto-scaling settings
-        log.info("\nAuto Scaling Settings:")
+        if not quiet: log.info("\nAuto Scaling Settings:")
         if index_name:
             resource_id = f'table/{table_name}/index/{index_name}'
             scalable_dimensions = [
@@ -122,50 +122,51 @@ def get_and_print_dynamodb_table_info(table_name, index_name=None):
                 'dynamodb:table:WriteCapacityUnits'
             ]
 
-        for dimension in scalable_dimensions:
-            scalable_target = autoscaling.describe_scalable_targets(
-                ServiceNamespace='dynamodb',
-                ResourceIds=[resource_id],
-                ScalableDimension=dimension
-            )
-
-            if scalable_target['ScalableTargets']:
-                target = scalable_target['ScalableTargets'][0]
-                min_capacity = target['MinCapacity']
-                max_capacity = target['MaxCapacity']
-                log.info(f"- {dimension.split(':')[-1]}:")
-                log.info(f"  Auto Scaling Enabled: Yes")
-                log.info(f"  Min Capacity: {min_capacity:,}")
-                log.info(f"  Max Capacity: {max_capacity:,}")
-
-                # Get scaling policies
-                policies = autoscaling.describe_scaling_policies(
+        if not quiet:
+            for dimension in scalable_dimensions:
+                scalable_target = autoscaling.describe_scalable_targets(
                     ServiceNamespace='dynamodb',
-                    ResourceId=resource_id,
+                    ResourceIds=[resource_id],
                     ScalableDimension=dimension
                 )
-                for policy in policies['ScalingPolicies']:
-                    target_value = policy['TargetTrackingScalingPolicyConfiguration']['TargetValue']
-                    log.info(f"  Target Value: {target_value}")
-            else:
-                log.info(f"- {dimension.split(':')[-1]}:")
-                log.info(f"  Auto Scaling Enabled: No")
+
+                if scalable_target['ScalableTargets']:
+                    target = scalable_target['ScalableTargets'][0]
+                    min_capacity = target['MinCapacity']
+                    max_capacity = target['MaxCapacity']
+                    log.info(f"- {dimension.split(':')[-1]}:")
+                    log.info(f"  Auto Scaling Enabled: Yes")
+                    log.info(f"  Min Capacity: {min_capacity:,}")
+                    log.info(f"  Max Capacity: {max_capacity:,}")
+
+                    # Get scaling policies
+                    policies = autoscaling.describe_scaling_policies(
+                        ServiceNamespace='dynamodb',
+                        ResourceId=resource_id,
+                        ScalableDimension=dimension
+                    )
+                    for policy in policies['ScalingPolicies']:
+                        target_value = policy['TargetTrackingScalingPolicyConfiguration']['TargetValue']
+                        log.info(f"  Target Value: {target_value}")
+                else:
+                    log.info(f"- {dimension.split(':')[-1]}:")
+                    log.info(f"  Auto Scaling Enabled: No")
 
     else:
         if index_name:
-            log.info(f"Table: '{table_name}'")
-            log.info(f"Index: '{index_name}'")
-            log.info("Billing mode: On-demand")
+            if not quiet: log.info(f"Table: '{table_name}'")
+            if not quiet: log.info(f"Index: '{index_name}'")
+            if not quiet: log.info("Billing mode: On-demand")
             capacity = gsi.get('OnDemandThroughput', {})
         else:
-            log.info(f"Table: '{table_name}'")
-            log.info("Billing mode: On-demand")
+            if not quiet: log.info(f"Table: '{table_name}'")
+            if not quiet: log.info("Billing mode: On-demand")
             capacity = table_desc.get('OnDemandThroughput', {})
 
         max_rru = capacity.get('MaxReadRequestUnits', None)
         max_wru = capacity.get('MaxWriteRequestUnits', None)
 
-        if max_rru is not None and max_wru is not None:
+        if not quiet and max_rru is not None and max_wru is not None:
             log.info(f"Max Read Request Units: {int(max_rru):,}")
             log.info(f"Max Write Request Units: {int(max_wru):,}")
 
@@ -173,14 +174,14 @@ def get_and_print_dynamodb_table_info(table_name, index_name=None):
     if index_name:
         item_count = gsi.get('ItemCount', 0)
         size_bytes = gsi.get('IndexSizeBytes', 0)
-        log.info(f"\nIndex Item Count (approx): {item_count:,}")
-        log.info(f"Index Size (approx): {size_bytes:,} bytes")
+        if not quiet: log.info(f"\nIndex Item Count (approx): {item_count:,}")
+        if not quiet: log.info(f"Index Size (approx): {size_bytes:,} bytes")
     else:
         item_count = table_desc.get('ItemCount', 0)
         size_bytes = table_desc.get('TableSizeBytes', 0)
-        log.info(f"\nTable Item Count (approx): {item_count:,}")
-        log.info(f"Table Size (approx): {size_bytes:,} bytes")
-    log.info("")
+        if not quiet: log.info(f"\nTable Item Count (approx): {item_count:,}")
+        if not quiet: log.info(f"Table Size (approx): {size_bytes:,} bytes")
+    if not quiet: log.info("")
 
     return {
         'table_name': table_name,
@@ -221,6 +222,37 @@ def get_and_print_table_scan_cost(table_info, region_name=None, fraction=1.0, nu
         return prov_cost
     elif table_info['billing_mode'] == "PAY_PER_REQUEST":
         log.info(f"Approx DynamoDB cost for on-demand scan consuming {read_units:,} RRUs (using {region_name} prices): ${od_cost:,.2f}\n")
+        return od_cost
+    return 0
+
+def get_and_print_table_write_cost(table_info, item_count, size_bytes):
+    region_name = table_info.get("region_name") or _default_region()
+
+    if item_count == 0:
+        log.info("No items to write, skipping cost estimate.")
+        return 0
+
+    avg_size = size_bytes / item_count
+    avg_write_units_per_item = math.ceil(avg_size / 1024)
+    write_units = item_count * avg_write_units_per_item
+
+    pricing_utility = PricingUtility()
+    ondemand_pricing = pricing_utility.get_on_demand_capacity_pricing(region_name)
+    wru_cost = float(ondemand_pricing.get(table_info['write_pricing_category']))
+    od_cost = write_units * wru_cost
+    prov_cost = od_cost / 1.5  # very rough, look into updating this
+
+    log.info("DynamoDB write costs depend on how many items are being written and the size of the items.")
+    log.info(f"Here we estimate the command will write {item_count:,} items")
+    log.info(f" with average size {int(avg_size):,} bytes;")
+    log.info(f" each write incurs an average of {avg_write_units_per_item} write units")
+    log.info(f"Write units required (approx): {write_units:,}")
+    log.info("This does not include costs for secondary indexes!")
+    if table_info['billing_mode'] == "PROVISIONED":
+        log.info(f"Approx DynamoDB cost for provisioned writes consuming {write_units:,} WCUs (using {region_name} prices): ${prov_cost:,.2f}")
+        return prov_cost
+    elif table_info['billing_mode'] == "PAY_PER_REQUEST":
+        log.info(f"Approx DynamoDB cost for on-demand writes consuming {write_units:,} WRUs (using {region_name} prices): ${od_cost:,.2f}")
         return od_cost
     return 0
 

@@ -78,7 +78,7 @@ class ItemWriter(DynamoDBWriter):
                     local_count += 1
 
                     if local_count % 1000 == 0:
-                        log.info(f"Item writer progress: {local_count} operations processed")
+                        log.info(f"Item writer progress: {local_count:,} operations processed")
                         
                 except botocore.exceptions.ClientError as e:
                     error_code = get_error_code(e)
@@ -95,7 +95,7 @@ class ItemWriter(DynamoDBWriter):
                         error_accumulator.add([f"Error during operation: {get_error_message(e)}"])
                         break
             
-            log.info(f"Item writer completed: {local_count} operations processed, {condition_failed_count} conditions failed on '{table_name}'")
+            log.info(f"Item writer completed: {local_count:,} operations processed, {condition_failed_count:,} conditions failed on '{table_name}'")
             if debug_accumulator: debug_accumulator.add([f"Item writer completed: {local_count} operations processed, {condition_failed_count} conditions failed"])
             written_items_accumulator.add(local_count)
         

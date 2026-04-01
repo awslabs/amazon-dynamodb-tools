@@ -47,6 +47,7 @@ class KeySchemaValidator:
         rows_to_check = lines[:sample_size]
         validated_count = 0
         failed_rows = []
+        total_item_size = 0
 
         for i, line in enumerate(rows_to_check):
             try:
@@ -60,6 +61,7 @@ class KeySchemaValidator:
                 failed_rows.append(error)
             else:
                 validated_count += 1
+                total_item_size += len(line.encode('utf-8'))
 
         if failed_rows:
             error_summary = f"Key validation failed for {len(failed_rows)} of {len(rows_to_check)} sampled row(s)"
@@ -68,8 +70,9 @@ class KeySchemaValidator:
                 log.error(f"  - Row {f['row']}: {f['error']}")
             raise ValueError(f"{error_summary}. See logs for details.")
 
-        log.info(f"Key validation completed: {validated_count}/{len(rows_to_check)} sampled rows verified")
-        return {'validated_count': validated_count, 'sampled_rows': len(rows_to_check), 'failed_rows': []}
+        avg_item_size = total_item_size // validated_count if validated_count > 0 else 0
+        log.info(f"Key validation completed: {validated_count}/{len(rows_to_check)} sampled rows verified (avg item size: {avg_item_size:,} bytes)")
+        return {'validated_count': validated_count, 'sampled_rows': len(rows_to_check), 'failed_rows': [], 'avg_item_size': avg_item_size}
 
     def _check_incremental_keys(self, data: Dict, expected_keys: List, row_idx: int) -> Dict | None:
         keys = data.get('Keys')

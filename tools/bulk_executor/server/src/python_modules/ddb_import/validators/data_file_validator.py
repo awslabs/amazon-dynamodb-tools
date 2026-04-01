@@ -32,7 +32,7 @@ class DataFileValidator:
             files_to_validate = data_files[:actual_sample_size]
             validation_mode = 'sample'
 
-        log.info(f"Validating MD5 checksums for {len(files_to_validate)} of {total_count} data files ({validation_mode} mode)...")
+        log.info(f"Validating MD5 checksums for {len(files_to_validate):,} of {total_count:,} data files ({validation_mode} mode)...")
 
         validated_count = 0
         failed_files = []
