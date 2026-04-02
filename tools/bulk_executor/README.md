@@ -471,14 +471,14 @@ If you ever want to stop execution early, you can hit Control-C. The interrupt w
     * `blockSize`: Specifies the size in bytes of a row group being buffered in memory. You use this for tuning performance. Size should divide exactly into a number of megabytes. Default: `134217728` (equal to 128 MB).
     * `pageSize`: Specifies the size in bytes of a page. You use this for tuning performance. A page is the smallest unit that must be read fully to access a single record. Default: `1048576` (equal to 1 MB).
 
-**`sql`**
+#### `sql`**
 
 * Performs a scan-driven execution of arbitrary Spark SQL against a table, useful for aggregates.
 * Requires `table` and `query` parameters
 * Optional `limit` parameter to limit the number of output items
 * Only `SELECT` queries are supported
 
-**`copy`**
+#### `copy`**
 
 * Performs a copy from one table to another using a parallel tight scan/write loops (doesn't bring full table into memory).
 * Requires `source` and `target` parameters
@@ -506,7 +506,7 @@ If doing cross-account, you need a resource-based policy to enable access. The f
 }
 ```
 
-**`import`**
+#### `import`**
 
 * Leverage Glue to do a full/incremental import of a DynamoDB table which was exported to S3 (i.e. currently only supports DDB-JSON format)
 * Requires `table` and `s3-path`
