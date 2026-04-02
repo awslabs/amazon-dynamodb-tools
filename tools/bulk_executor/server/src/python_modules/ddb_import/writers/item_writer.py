@@ -107,6 +107,7 @@ class ItemWriter(DynamoDBWriter):
         except botocore.exceptions.ClientError as e:
             if get_error_code(e) == DYNAMO_DB_THROTTLE_EXCEPTION:
                 log.info('Persistent throttling on individual operations, retries exhausted...')
+                error_accumulator.add([f"Persistent throttling, retries exhausted. {local_count} items written before failure."])
             else:
                 error_accumulator.add([f"Error during writing: {get_error_message(e)}"])
         except Exception as e:

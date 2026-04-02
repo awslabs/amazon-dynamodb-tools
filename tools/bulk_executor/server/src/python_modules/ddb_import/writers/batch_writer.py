@@ -79,6 +79,7 @@ class BatchWriter(DynamoDBWriter):
         except botocore.exceptions.ClientError as e:
             if get_error_code(e) == DYNAMO_DB_THROTTLE_EXCEPTION:
                 log.info('Persistent throttling on batch_writer exit, give up on last few operations...')
+                error_accumulator.add([f"Persistent throttling, retries exhausted. {local_count} items written before failure."])
             elif get_error_code(e) == DYNAMO_DB_VALIDATION_EXCEPTION:
                 error_accumulator.add([f"Schema validation error: Perhaps items don't match table schema?: {get_error_message(e)}"])
             else:
