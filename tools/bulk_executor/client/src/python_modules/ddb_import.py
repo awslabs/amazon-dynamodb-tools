@@ -26,8 +26,8 @@ def run(env_configs):
     parser.add_argument('verb', help=argparse.SUPPRESS)
     parser.add_argument('--table', required=True, type=str, help='Table name')
     parser.add_argument('--s3-path', required=True, type=str, help='Amazon S3 path in format like s3://bucket-name/prefix/AWSDynamoDB/01716790307109-5f9d6aaa')
-    parser.add_argument('--filter', required=False, type=str, help='Specify the module/file in which the custom filter logic resides')  # Don't advertise this one
-    parser.add_argument('--filterfunctionname', required=False, type=str, help='Specify the name of the function to use for filtering')  # Don't advertise this one
+    parser.add_argument('--filter', type=str, default=argparse.SUPPRESS, help=argparse.SUPPRESS)  # Don't advertise this one
+    parser.add_argument('--filterfunctionname', type=str, default=argparse.SUPPRESS, help=argparse.SUPPRESS)  # Don't advertise this one
 
     args = parser.parse_args()
 

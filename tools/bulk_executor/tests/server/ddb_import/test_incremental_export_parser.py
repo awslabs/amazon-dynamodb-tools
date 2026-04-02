@@ -23,10 +23,11 @@ class TestIncrementalExportParserNewAndOldImages(unittest.TestCase):
             "NewImage": {"id": {"N": "123"}, "name": {"S": "John Doe"}},
             "Metadata": {"WriteTimestampMicros": {"N": "1234567890"}}
         }
-        operation, data, condition = self.parser.parse_export_line(json.dumps(record))
+        operation, data, condition, expr_names = self.parser.parse_export_line(json.dumps(record))
         self.assertEqual(operation, "PUT")
         self.assertEqual(data, {"id": 123, "name": "John Doe"})
-        self.assertEqual(condition, "attribute_not_exists(id)")
+        self.assertIn("attribute_not_exists(", condition)
+        self.assertIn("id", expr_names.values())
 
     def test_parse_modify_operation(self):
         """Test parsing a MODIFY operation (both OldImage and NewImage)."""
@@ -36,10 +37,11 @@ class TestIncrementalExportParserNewAndOldImages(unittest.TestCase):
             "NewImage": {"id": {"N": "123"}, "name": {"S": "John Doe"}},
             "Metadata": {"WriteTimestampMicros": {"N": "1234567890"}}
         }
-        operation, data, condition = self.parser.parse_export_line(json.dumps(record))
+        operation, data, condition, expr_names = self.parser.parse_export_line(json.dumps(record))
         self.assertEqual(operation, "PUT")
         self.assertEqual(data, {"id": 123, "name": "John Doe"})
-        self.assertEqual(condition, "attribute_exists(id)")
+        self.assertIn("attribute_exists(", condition)
+        self.assertIn("id", expr_names.values())
 
     def test_parse_remove_operation(self):
         """Test parsing a REMOVE operation (OldImage only)."""
@@ -48,10 +50,11 @@ class TestIncrementalExportParserNewAndOldImages(unittest.TestCase):
             "OldImage": {"id": {"N": "123"}, "name": {"S": "John Doe"}},
             "Metadata": {"WriteTimestampMicros": {"N": "1234567890"}}
         }
-        operation, data, condition = self.parser.parse_export_line(json.dumps(record))
+        operation, data, condition, expr_names = self.parser.parse_export_line(json.dumps(record))
         self.assertEqual(operation, "DELETE")
         self.assertEqual(data, {"id": 123})
-        self.assertEqual(condition, "attribute_exists(id)")
+        self.assertIn("attribute_exists(", condition)
+        self.assertIn("id", expr_names.values())
 
     def test_parse_composite_key(self):
         """Test parsing with composite primary key."""
@@ -60,10 +63,11 @@ class TestIncrementalExportParserNewAndOldImages(unittest.TestCase):
             "NewImage": {"pk": {"S": "USER"}, "sk": {"S": "123"}, "name": {"S": "John"}},
             "Metadata": {"WriteTimestampMicros": {"N": "1234567890"}}
         }
-        operation, data, condition = self.parser.parse_export_line(json.dumps(record))
+        operation, data, condition, expr_names = self.parser.parse_export_line(json.dumps(record))
         self.assertEqual(operation, "PUT")
         self.assertEqual(data, {"pk": "USER", "sk": "123", "name": "John"})
-        self.assertEqual(condition, "attribute_not_exists(pk)")
+        self.assertIn("attribute_not_exists(", condition)
+        self.assertEqual(len(expr_names), 2)
 
     def test_parse_invalid_record_no_images(self):
         """Test parsing record with neither OldImage nor NewImage."""
@@ -115,10 +119,11 @@ class TestIncrementalExportParserNewImage(unittest.TestCase):
             "NewImage": {"id": {"N": "123"}, "name": {"S": "John Doe"}},
             "Metadata": {"WriteTimestampMicros": {"N": "1234567890"}}
         }
-        operation, data, condition = self.parser.parse_export_line(json.dumps(record))
+        operation, data, condition, expr_names = self.parser.parse_export_line(json.dumps(record))
         self.assertEqual(operation, "PUT")
         self.assertEqual(data, {"id": 123, "name": "John Doe"})
         self.assertIsNone(condition)
+        self.assertIsNone(expr_names)
 
     def test_parse_remove_returns_conditional_delete(self):
         """Test that Keys-only record (REMOVE) returns conditional DELETE."""
@@ -126,10 +131,11 @@ class TestIncrementalExportParserNewImage(unittest.TestCase):
             "Keys": {"id": {"N": "123"}},
             "Metadata": {"WriteTimestampMicros": {"N": "1234567890"}}
         }
-        operation, data, condition = self.parser.parse_export_line(json.dumps(record))
+        operation, data, condition, expr_names = self.parser.parse_export_line(json.dumps(record))
         self.assertEqual(operation, "DELETE")
         self.assertEqual(data, {"id": 123})
-        self.assertEqual(condition, "attribute_exists(id)")
+        self.assertIn("attribute_exists(", condition)
+        self.assertIn("id", expr_names.values())
 
     def test_parse_composite_key_unconditional_put(self):
         """Test composite key with NEW_IMAGE returns unconditional PUT."""
@@ -138,10 +144,11 @@ class TestIncrementalExportParserNewImage(unittest.TestCase):
             "NewImage": {"pk": {"S": "USER"}, "sk": {"S": "123"}, "val": {"N": "42"}},
             "Metadata": {"WriteTimestampMicros": {"N": "1234567890"}}
         }
-        operation, data, condition = self.parser.parse_export_line(json.dumps(record))
+        operation, data, condition, expr_names = self.parser.parse_export_line(json.dumps(record))
         self.assertEqual(operation, "PUT")
         self.assertEqual(data, {"pk": "USER", "sk": "123", "val": 42})
         self.assertIsNone(condition)
+        self.assertIsNone(expr_names)
 
     def test_real_world_new_image_record(self):
         """Test parsing a real-world NEW_IMAGE export record."""
@@ -150,10 +157,108 @@ class TestIncrementalExportParserNewImage(unittest.TestCase):
             "Keys": {"timestamp": {"S": "2026-03-11T10:03:00Z"}, "turbine_id": {"S": "new_item2"}},
             "NewImage": {"timestamp": {"S": "2026-03-11T10:03:00Z"}, "turbine_id": {"S": "new_item2"}}
         }
-        operation, data, condition = self.parser.parse_export_line(json.dumps(record))
+        operation, data, condition, expr_names = self.parser.parse_export_line(json.dumps(record))
         self.assertEqual(operation, "PUT")
         self.assertEqual(data, {"timestamp": "2026-03-11T10:03:00Z", "turbine_id": "new_item2"})
         self.assertIsNone(condition)
+        self.assertIsNone(expr_names)
+
+
+class TestIncrementalExportParserReservedKeywords(unittest.TestCase):
+    """Test that condition expressions handle reserved keywords via ExpressionAttributeNames."""
+
+    def test_reserved_keyword_pk_insert(self):
+        """Reserved keyword 'timestamp' as key must use placeholder in condition."""
+        parser = IncrementalExportParser(output_view="NEW_AND_OLD_IMAGES")
+        record = {
+            "Keys": {"timestamp": {"S": "2026-01-01"}, "turbine_id": {"S": "WT-001"}},
+            "NewImage": {"timestamp": {"S": "2026-01-01"}, "turbine_id": {"S": "WT-001"}, "val": {"N": "42"}},
+            "Metadata": {"WriteTimestampMicros": {"N": "123"}}
+        }
+        result = parser.parse_export_line(json.dumps(record))
+        operation, data, condition, expr_names = result
+        self.assertEqual(operation, "PUT")
+        # Condition must NOT contain raw 'timestamp' — must use placeholders
+        self.assertNotIn("timestamp", condition)
+        self.assertIn("attribute_not_exists(", condition)
+        # ExpressionAttributeNames must map placeholders to actual key names
+        self.assertIn("timestamp", expr_names.values())
+        self.assertIn("turbine_id", expr_names.values())
+
+    def test_reserved_keyword_pk_modify(self):
+        """MODIFY with reserved keyword keys uses placeholders."""
+        parser = IncrementalExportParser(output_view="NEW_AND_OLD_IMAGES")
+        record = {
+            "Keys": {"timestamp": {"S": "2026-01-01"}, "turbine_id": {"S": "WT-001"}},
+            "OldImage": {"timestamp": {"S": "2026-01-01"}, "turbine_id": {"S": "WT-001"}, "val": {"N": "1"}},
+            "NewImage": {"timestamp": {"S": "2026-01-01"}, "turbine_id": {"S": "WT-001"}, "val": {"N": "2"}},
+            "Metadata": {"WriteTimestampMicros": {"N": "123"}}
+        }
+        result = parser.parse_export_line(json.dumps(record))
+        operation, data, condition, expr_names = result
+        self.assertEqual(operation, "PUT")
+        self.assertNotIn("timestamp", condition)
+        self.assertIn("attribute_exists(", condition)
+        self.assertIn("timestamp", expr_names.values())
+        self.assertIn("turbine_id", expr_names.values())
+
+    def test_reserved_keyword_pk_delete(self):
+        """DELETE with reserved keyword keys uses placeholders."""
+        parser = IncrementalExportParser(output_view="NEW_AND_OLD_IMAGES")
+        record = {
+            "Keys": {"timestamp": {"S": "2026-01-01"}, "turbine_id": {"S": "WT-001"}},
+            "OldImage": {"timestamp": {"S": "2026-01-01"}, "turbine_id": {"S": "WT-001"}, "val": {"N": "1"}},
+            "Metadata": {"WriteTimestampMicros": {"N": "123"}}
+        }
+        result = parser.parse_export_line(json.dumps(record))
+        operation, data, condition, expr_names = result
+        self.assertEqual(operation, "DELETE")
+        self.assertNotIn("timestamp", condition)
+        self.assertIn("attribute_exists(", condition)
+        self.assertIn("timestamp", expr_names.values())
+        self.assertIn("turbine_id", expr_names.values())
+
+    def test_composite_key_condition_checks_both_keys(self):
+        """Condition must check both PK and SK, not just one."""
+        parser = IncrementalExportParser(output_view="NEW_AND_OLD_IMAGES")
+        record = {
+            "Keys": {"pk": {"S": "A"}, "sk": {"S": "B"}},
+            "NewImage": {"pk": {"S": "A"}, "sk": {"S": "B"}},
+            "Metadata": {"WriteTimestampMicros": {"N": "123"}}
+        }
+        result = parser.parse_export_line(json.dumps(record))
+        operation, data, condition, expr_names = result
+        # Must have two attribute_not_exists checks joined by AND
+        self.assertEqual(condition.count("attribute_not_exists("), 2)
+        self.assertIn(" AND ", condition)
+        self.assertEqual(len(expr_names), 2)
+
+    def test_new_image_delete_reserved_keyword(self):
+        """NEW_IMAGE view DELETE with reserved keyword uses placeholders."""
+        parser = IncrementalExportParser(output_view="NEW_IMAGE")
+        record = {
+            "Keys": {"timestamp": {"S": "2026-01-01"}, "turbine_id": {"S": "WT-001"}},
+            "Metadata": {"WriteTimestampMicros": {"N": "123"}}
+        }
+        result = parser.parse_export_line(json.dumps(record))
+        operation, data, condition, expr_names = result
+        self.assertEqual(operation, "DELETE")
+        self.assertNotIn("timestamp", condition)
+        self.assertIn("timestamp", expr_names.values())
+
+    def test_new_image_put_returns_no_expr_names(self):
+        """NEW_IMAGE view PUT has no condition, so expr_names should be None."""
+        parser = IncrementalExportParser(output_view="NEW_IMAGE")
+        record = {
+            "Keys": {"timestamp": {"S": "2026-01-01"}},
+            "NewImage": {"timestamp": {"S": "2026-01-01"}, "val": {"N": "1"}},
+            "Metadata": {"WriteTimestampMicros": {"N": "123"}}
+        }
+        result = parser.parse_export_line(json.dumps(record))
+        operation, data, condition, expr_names = result
+        self.assertEqual(operation, "PUT")
+        self.assertIsNone(condition)
+        self.assertIsNone(expr_names)
 
 
 class TestIncrementalExportParserInit(unittest.TestCase):

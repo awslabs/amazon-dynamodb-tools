@@ -60,20 +60,25 @@ class ItemWriter(DynamoDBWriter):
             # Process operations individually to support conditions
             for operation_data in partition_data:
                 operation, data, condition = operation_data["operation"], operation_data["data"], operation_data["condition"]
+                expr_names = operation_data.get("expr_names")
 
                 if debug_accumulator: debug_accumulator.add([f"Operation: {operation}, Data: {data}, Condition: {condition}"])
                 
                 try:
                     if operation == "PUT":
+                        kwargs = {"Item": data}
                         if condition:
-                            table.put_item(Item=data, ConditionExpression=condition)
-                        else:
-                            table.put_item(Item=data)
+                            kwargs["ConditionExpression"] = condition
+                        if expr_names:
+                            kwargs["ExpressionAttributeNames"] = expr_names
+                        table.put_item(**kwargs)
                     elif operation == "DELETE":
+                        kwargs = {"Key": data}
                         if condition:
-                            table.delete_item(Key=data, ConditionExpression=condition)
-                        else:
-                            table.delete_item(Key=data)
+                            kwargs["ConditionExpression"] = condition
+                        if expr_names:
+                            kwargs["ExpressionAttributeNames"] = expr_names
+                        table.delete_item(**kwargs)
                     
                     local_count += 1
 

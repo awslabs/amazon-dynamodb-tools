@@ -111,7 +111,7 @@ Here are some example use cases:
 ./bulk copy --source arn:aws:dynamodb:us-east-1:123456789012:table/source --target arn:aws:dynamodb:us-west-2:987654321098:table/target
 
 # Import a DynamoDB export into an existing DynamoDB table
-./bulk import --table target --s3-path "s3://..." [--filter example --filterfunctionname filter_item]
+./bulk import --table target --s3-path "s3://..." [--filter example] [--filterfunctionname filter_item]
 ```
 
 ## Quick start
@@ -508,7 +508,7 @@ If doing cross-account, you need a resource-based policy to enable access. The f
 
 **`import`**
 
-* Leverage glue to do a full import of a DynamoDB table which was exported to S3 (i.e. currently only supports DDB-JSON format)
+* Leverage Glue to do a full/incremental import of a DynamoDB table which was exported to S3 (i.e. currently only supports DDB-JSON format)
 * Requires `table` and `s3-path`
 * Validates manifest files to ensure integrity of the exported files and data
 * Supports importing a full export into an empty table or table with data (will overwrite existing data if keys match)
@@ -516,6 +516,7 @@ If doing cross-account, you need a resource-based policy to enable access. The f
 * Best used with:
   * `--XMaxWriteRate N` where _N_ is the max aggregate WCU to consume on the destination table
   * `--filter` and `--filterfunctionname` where you specify the python function used to filter for items to import
+  * `--XTimeout` for large imports, set this appropriately to ensure Glue job doesn't time out, with a maximum of 10080 minutes (7 days)
 
 
 ## Glue execution parameters

@@ -23,8 +23,8 @@ from .writers.writer_factory import WriterFactory
 from .parsers.parser_factory import ParserFactory
 from .filter.filter_loader import load_filter_function
 
-def _is_filter_specified(filter_name, filter_function_name):
-    return filter_name and filter_name != "None" and filter_function_name and filter_function_name != "None"
+def _is_filter_specified(filter_name):
+    return bool(filter_name)
 
 def run(job, spark_context, glue_context, parsed_args):
     log.info(f"parsed_args {parsed_args}")
@@ -33,7 +33,7 @@ def run(job, spark_context, glue_context, parsed_args):
     
     # Filter configuration
     filter_name = parsed_args.get('filter')
-    filter_function_name = parsed_args.get('filterfunctionname')
+    filter_function_name = parsed_args.get('filterfunctionname', 'filter_item') # Recommend _not_ passing unless there's a specific reason.
 
     # Rate limiter configuration
     bucket_name = parsed_args.get('s3-bucket-name')
@@ -194,12 +194,20 @@ def run(job, spark_context, glue_context, parsed_args):
         items_rdd = all_lines_rdd.map(parse_line)
 
         # Apply filter if specified
-        if _is_filter_specified(filter_name, filter_function_name):
+        filter_active = _is_filter_specified(filter_name)
+        filtered_out_accumulator = spark_context.accumulator(0) if filter_active else None
+
+        if filter_active:
             log.info(f"Loading filter function: {filter_name}.{filter_function_name}")
             filter_function = load_filter_function(filter_name, filter_function_name)
             
             log.info("Applying filter to items...")
-            filtered_items_rdd = items_rdd.filter(lambda item: filter_function(item["data"]))
+            def _apply_filter(item):
+                if filter_function(item["data"]):
+                    return True
+                filtered_out_accumulator.add(1)
+                return False
+            filtered_items_rdd = items_rdd.filter(_apply_filter)
             log.info("Filter applied (filtered count will be determined during processing)")
             
             # Use filtered items
@@ -258,8 +266,9 @@ def run(job, spark_context, glue_context, parsed_args):
         # Log final counts
         written_count = written_items_accumulator.value
         log.info(f"Successfully wrote {written_count:,} items to DynamoDB table '{table_name}'")
-        if _is_filter_specified(filter_name, filter_function_name):
-            log.info(f"Filter '{filter_name}' processed {written_count:,} items out of {total_item_count:,} original items")
+        if filter_active:
+            filtered_out_count = filtered_out_accumulator.value
+            log.info(f"Filter '{filter_name}' kept {written_count:,} items, excluded {filtered_out_count:,} items out of {total_item_count:,} total")
         log.info("Data processing and writing completed")
 
         # Log final summary
@@ -279,7 +288,9 @@ def run(job, spark_context, glue_context, parsed_args):
         log.info("JOB COMPLETED SUCCESSFULLY")
         log.info("=" * 80)
         log.info("Success Summary:")
-        log.info(f"  - Total items expected: {manifest_data['total_item_count']:,}")
+        log.info(f"  - Total items in export: {manifest_data['total_item_count']:,}")
+        if filter_active:
+            log.info(f"  - Items excluded by filter: {filtered_out_accumulator.value:,}")
         log.info(f"  - Total items written: {written_items_accumulator.value:,}")
         log.info(f"  - Execution time: {execution_time:.1f} seconds")
         log.info(f"  - All validations passed")

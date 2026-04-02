@@ -57,33 +57,35 @@ class IncrementalExportParser(BaseExportParser):
             raise ValueError("Incremental export line missing 'Metadata' field")
 
         keys = data["Keys"]
-        pk_name = list(keys.keys())[0]
+        key_names = list(keys.keys())
+        expr_names = {f"#k{i}": name for i, name in enumerate(key_names)}
+        placeholders = list(expr_names.keys())
         has_old_image = "OldImage" in data
         has_new_image = "NewImage" in data
 
+        exists_cond = " AND ".join(f"attribute_exists({p})" for p in placeholders)
+        not_exists_cond = " AND ".join(f"attribute_not_exists({p})" for p in placeholders)
+
         if self.output_view == self.NEW_IMAGE:
-            # NEW_IMAGE: no OldImage ever present; can't distinguish INSERT from MODIFY
-            # Use unconditional PUT (creates or overwrites) for items, Keys-only means REMOVE
             if has_new_image:
                 new_image = self.deserialize_item(data["NewImage"])
-                return ("PUT", new_image, None)
-            elif not has_new_image:
-                # REMOVE: only Keys present
+                return ("PUT", new_image, None, None)
+            else:
                 keys_deserialized = self.deserialize_item(keys)
-                return ("DELETE", keys_deserialized, f"attribute_exists({pk_name})")
+                return ("DELETE", keys_deserialized, exists_cond, expr_names)
         else:
             # NEW_AND_OLD_IMAGES
             if has_new_image and not has_old_image:
                 # INSERT
                 new_image = self.deserialize_item(data["NewImage"])
-                return ("PUT", new_image, f"attribute_not_exists({pk_name})")
+                return ("PUT", new_image, not_exists_cond, expr_names)
             elif has_new_image and has_old_image:
                 # MODIFY
                 new_image = self.deserialize_item(data["NewImage"])
-                return ("PUT", new_image, f"attribute_exists({pk_name})")
+                return ("PUT", new_image, exists_cond, expr_names)
             elif has_old_image and not has_new_image:
                 # REMOVE
                 keys_deserialized = self.deserialize_item(keys)
-                return ("DELETE", keys_deserialized, f"attribute_exists({pk_name})")
+                return ("DELETE", keys_deserialized, exists_cond, expr_names)
             else:
                 raise ValueError("Invalid incremental export record: no OldImage or NewImage")

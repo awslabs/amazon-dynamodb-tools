@@ -66,6 +66,20 @@ class KeySchemaValidator:
         if failed_rows:
             error_summary = f"Key validation failed for {len(failed_rows)} of {len(rows_to_check)} sampled row(s)"
             log.error(error_summary)
+            log.error(f"  Table key schema expects: {', '.join(f'{name} ({ddb_type})' for name, ddb_type in expected_keys)}")
+
+            # Show what the first export row actually contains
+            try:
+                first_row = json.loads(rows_to_check[0])
+                if is_incremental:
+                    actual_keys = first_row.get('Keys', {})
+                else:
+                    actual_keys = first_row.get('Item', {})
+                actual_key_attrs = ', '.join(f"{k} ({list(v.keys())[0] if isinstance(v, dict) else '?'})" for k, v in list(actual_keys.items())[:10])
+                log.error(f"  Export data contains attributes: {actual_key_attrs}")
+            except Exception:
+                pass
+
             for f in failed_rows:
                 log.error(f"  - Row {f['row']}: {f['error']}")
             raise ValueError(f"{error_summary}. See logs for details.")
