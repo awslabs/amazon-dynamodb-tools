@@ -5,7 +5,14 @@ import time
 from datetime import datetime
 
 import utils
-from botocore.exceptions import ClientError
+from botocore.exceptions import (
+    ClientError,
+    ConnectionClosedError,
+    ConnectionError,
+    EventStreamError,
+    HTTPClientError,
+    ReadTimeoutError,
+)
 # project files
 from clients import Clients
 from infrastructure import GLUE_JOB_NAME, GlueJobDefaults
@@ -233,12 +240,15 @@ class BulkDynamoDbRunner:
 
                 return  # Clean exit
 
-            except Exception as e:
+            except (ConnectionError, HTTPClientError, EventStreamError) as e:
                 job_run_state = self._get_job_run_state(job_run_id)
                 if job_run_state in TERMINAL_JOB_STATES or job_run_state == SUCCEEDED_STATE or job_unhealthy_event.is_set():
                     return  # Job is done, no need to reconnect
                 log.debug(f"Live tail session for {log_group_name} expired or failed ({e}), reconnecting...")
                 time.sleep(1)
+            except Exception as e:
+                log.error(f"Unexpected error occurred in {log_group_name} live tail: {str(e)}.")
+                return
 
     def _watch_glue_job(self, job_run_id):
         # Fetch log group identifiers (ARNs)
