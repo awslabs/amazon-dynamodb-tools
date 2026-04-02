@@ -12,7 +12,7 @@ class FullExportParser(BaseExportParser):
     in the format: {"Item": {...}}
     """
     
-    def parse_export_line(self, line: str) -> Tuple[str, Dict[str, Any], Optional[str]]:
+    def parse_export_line(self, line: str) -> Tuple[str, Dict[str, Any], Optional[str], None]:
         """
         Parse a single line from a DynamoDB full export file.
         
@@ -20,10 +20,11 @@ class FullExportParser(BaseExportParser):
             line: JSON string from full export file
             
         Returns:
-            Tuple of (operation, item_data, condition_expression)
+            Tuple of (operation, item_data, condition_expression, expression_attribute_names)
             - operation: Always "PUT" for full exports
             - item_data: Item in plain Python format (converted from DDB-JSON)
             - condition_expression: None (no conditions needed for full imports)
+            - expression_attribute_names: None (no expression names needed for full imports)
         """
         try:
             data = json.loads(line)
@@ -40,4 +41,4 @@ class FullExportParser(BaseExportParser):
         ddb_item = data["Item"]
         plain_item = self.deserialize_item(ddb_item)
         
-        return ("PUT", plain_item, None)
+        return ("PUT", plain_item, None, None)

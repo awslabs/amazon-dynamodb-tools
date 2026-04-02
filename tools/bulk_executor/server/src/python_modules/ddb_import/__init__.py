@@ -185,10 +185,7 @@ def run(job, spark_context, glue_context, parsed_args):
         
         def parse_line(line):
             """Parse a line from the export file using the appropriate parser."""
-            result = parser.parse_export_line(line)
-            operation, item_data, condition = result[0], result[1], result[2]
-            expr_names = result[3] if len(result) > 3 else None
-            # Return the full operation info for the writer to handle
+            operation, item_data, condition, expr_names = parser.parse_export_line(line)
             return {"operation": operation, "data": item_data, "condition": condition, "expr_names": expr_names}
 
         items_rdd = all_lines_rdd.map(parse_line)

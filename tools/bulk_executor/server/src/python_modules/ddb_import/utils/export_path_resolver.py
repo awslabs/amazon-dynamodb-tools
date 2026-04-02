@@ -34,7 +34,6 @@ class ExportPathResolver:
         
         self.prefix = prefix_part.strip("/") if prefix_part else ""
         self.export_id = export_part.strip("/")
-        self.export_id = export_part.strip("/")
 
     def get_bucket(self) -> str:
         return self.bucket
