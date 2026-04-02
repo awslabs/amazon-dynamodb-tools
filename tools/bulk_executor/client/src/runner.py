@@ -179,7 +179,7 @@ class BulkDynamoDbRunner:
         
         while True:
             try:
-                # Start (or restart) live tail for this specific log group
+                # Start live tail for this specific log group, live tail sessions can be max of 3h (https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/CloudWatchLogs_LiveTail.html)
                 response = self.logs_client.start_live_tail(
                     logGroupIdentifiers=[log_group_arn],
                     logStreamNamePrefixes=[job_run_id]
