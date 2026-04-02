@@ -15,13 +15,6 @@ class TestBatchWriter:
         assert writer is not None
         assert hasattr(writer, 'write_partition_to_dynamodb')
     
-    def test_backward_compatibility_function(self):
-        """Test that the backward compatibility function exists and works."""
-        from python_modules.ddb_import.writers.batch_writer import write_partition_to_dynamodb
-        
-        # Just verify the function exists and can be called
-        assert callable(write_partition_to_dynamodb)
-    
     def test_write_partition_method_signature(self):
         """Test that the write_partition_to_dynamodb method has the correct signature."""
         writer = BatchWriter()

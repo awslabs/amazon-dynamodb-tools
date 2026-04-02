@@ -9,9 +9,7 @@ from ...shared.rate_limiter import RateLimiterWorker
 from ...shared.logger import log
 from ...shared.errors import get_error_code, get_error_message
 
-# DynamoDB exception constants
-DYNAMO_DB_THROTTLE_EXCEPTION = 'ProvisionedThroughputExceededException'
-DYNAMO_DB_VALIDATION_EXCEPTION = 'ValidationException'
+from .constants import DYNAMO_DB_THROTTLE_EXCEPTION, DYNAMO_DB_VALIDATION_EXCEPTION
 
 
 class BatchWriter(DynamoDBWriter):
@@ -41,7 +39,6 @@ class BatchWriter(DynamoDBWriter):
                 shared_config=rate_limiter_shared_config,
                 debug_accumulator=debug_accumulator,
                 **monitor_options,
-                #worker_max_write_rate=3000 # TODO: Parameterize this
             )
             session = rate_limiter_worker.get_session()
             dynamodb = session.resource('dynamodb', config=Config(
@@ -90,9 +87,3 @@ class BatchWriter(DynamoDBWriter):
             if rate_limiter_worker:
                 rate_limiter_worker.shutdown()
 
-
-# Keep the original function for backward compatibility
-def write_partition_to_dynamodb(*args, **kwargs):
-    """Backward compatibility function."""
-    writer = BatchWriter()
-    return writer.write_partition_to_dynamodb(*args, **kwargs)

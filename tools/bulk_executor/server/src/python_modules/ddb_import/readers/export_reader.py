@@ -18,7 +18,6 @@ def get_export_file_paths(
             - dataFileS3Key: S3 key for the data file
             - itemCount: Expected number of items in the file
         file_base_path: S3 base path for resolving data file paths (e.g., 's3://bucket/prefix/')
-        logger: Logger instance for logging
     
     Returns:
         Tuple of (list of full S3 file paths, total expected item count)

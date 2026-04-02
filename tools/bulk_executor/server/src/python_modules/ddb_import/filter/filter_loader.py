@@ -3,7 +3,7 @@ import importlib
 
 def load_filter_function(filter_module, function_name):
     """
-    Dynamically load a filter function from the filter modules. E.g. load_filter_function('example', 'default') to load the default filter function from default.py.
+    Dynamically load a filter function from the filter modules. E.g. load_filter_function('example', 'filter_item') to load the filter_item function from example.py.
     
     Args:
         filter_module (str): Name of the filter module
