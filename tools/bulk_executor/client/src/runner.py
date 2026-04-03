@@ -7,11 +7,9 @@ from datetime import datetime
 import utils
 from botocore.exceptions import (
     ClientError,
-    ConnectionClosedError,
     ConnectionError,
     EventStreamError,
-    HTTPClientError,
-    ReadTimeoutError,
+    HTTPClientError
 )
 # project files
 from clients import Clients
