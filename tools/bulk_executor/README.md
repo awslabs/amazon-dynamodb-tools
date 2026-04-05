@@ -421,7 +421,9 @@ If you ever want to stop execution early, you can hit Control-C. The interrupt w
 * Requires a `generator` parameter to point at the Python script to use. The Glue job calls the `generate()` function within that script repeatedly and in parallel to generate the items to use for filling the table. The script must exist in the S3 bucket as prepared during the bootstrap. In the likely event you want to use your own generator script, make sure the entity with bootstrap permissions runs bootstrap and includes your generator. The generator scripts are found under the `fill` folder. The generator can return a single item or a list of items. Some sample scripts are provided
 * Required `numitems` parameter to indicate how many items to load.
 * We suggest you consider the [Faker library](https://faker.readthedocs.io/en/master/) for generating the fake data. The Glue job includes the Faker library for your convenience.
-* Note: Given the way `batch_writer` works in the way it handles duplicates, you might end up with fewer net items than requested using the `numitems` parameters. You can re-run `fill` for the remaining count.
+* Note: Given the way `batch_writer` works in the way it handles duplicates, you might end up with fewer net items than requested using the `numitems` parameters. 
+  * You can re-run `fill` for the remaining count.
+  * The chances of this happening can be reduced by building a robust generator which reduces the chances of duplicate keys.
 
 #### `update`
 
