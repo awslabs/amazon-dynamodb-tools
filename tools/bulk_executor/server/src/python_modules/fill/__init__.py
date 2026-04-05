@@ -149,8 +149,7 @@ def _fill_data(monitor_options, table_name, num_items, generate, total_inserted_
     local_count = 0
 
     try:
-        #with table.batch_writer(overwrite_by_pkeys=key_schema) as batch:
-        with table.batch_writer() as batch:
+        with table.batch_writer(overwrite_by_pkeys=key_schema) as batch:
             while local_count < num_items:
                 try:
                     item_collection = generate()
