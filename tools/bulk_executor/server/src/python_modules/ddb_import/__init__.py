@@ -10,7 +10,6 @@ from ..shared.errors import ListAccumulator
 from ..shared.table_info import get_dynamodb_throughput_configs, get_and_print_dynamodb_table_info, get_and_print_table_write_cost
 from ..shared.rate_limiter import RateLimiterAggregator, RateLimiterSharedConfig
 
-from .validators.table_validator import TableValidator
 from .validators.manifest_validator import ManifestValidator
 from .validators.data_file_validator import DataFileValidator
 from .validators.key_schema_validator import KeySchemaValidator
@@ -80,7 +79,6 @@ def run(job, spark_context, glue_context, parsed_args):
         s3_client = boto3.client('s3')
         
         file_loader = FileLoader(s3_client=s3_client)
-        table_validator = TableValidator(dynamodb_client)
         manifest_validator = ManifestValidator(file_loader)
         data_file_validator = DataFileValidator(file_loader)
         key_schema_validator = KeySchemaValidator(file_loader)
@@ -98,7 +96,8 @@ def run(job, spark_context, glue_context, parsed_args):
         current_phase = "table validation"
         step += 1
         log.info(f"Step {step}: Validating destination table exists...")
-        key_schema = table_validator.validate_table_exists(table_name)
+        table_info = get_and_print_dynamodb_table_info(table_name, quiet=True)
+        key_schema = table_info['key_schema']
         log.info(f"Destination table validation completed successfully: {key_schema}")
 
         # Validate and parse manifests
@@ -150,7 +149,6 @@ def run(job, spark_context, glue_context, parsed_args):
         current_phase = "cost estimation"
         step += 1
         log.info(f"Step {step}: Estimating DynamoDB write costs...")
-        table_info = get_and_print_dynamodb_table_info(table_name, quiet=True)
         avg_item_size = key_schema_result.get('avg_item_size', 0)
         estimated_size_bytes = avg_item_size * manifest_data['total_item_count']
         get_and_print_table_write_cost(table_info, manifest_data['total_item_count'], estimated_size_bytes)
