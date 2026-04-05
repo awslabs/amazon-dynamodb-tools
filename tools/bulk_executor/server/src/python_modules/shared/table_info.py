@@ -66,7 +66,10 @@ def get_and_print_dynamodb_table_info(table_name, index_name=None):
     dynamodb = boto3.client('dynamodb', region_name=region_name)
 
     # Get table description
-    response = dynamodb.describe_table(TableName=table_name)
+    try:
+        response = dynamodb.describe_table(TableName=table_name)
+    except dynamodb.exceptions.ResourceNotFoundException:
+        raise ValueError(f"Table '{table_name}' does not exist")
     table_desc = response['Table']
 
     # Find the specific GSI if index_name is provided
@@ -191,7 +194,14 @@ def get_and_print_dynamodb_table_info(table_name, index_name=None):
         'write_pricing_category': write_pricing_category,
         'read_pricing_category': read_pricing_category,
         'item_count': item_count,
-        'size_bytes': size_bytes
+        'size_bytes': size_bytes,
+        'key_schema': {
+            ('pk' if k['KeyType'] == 'HASH' else 'sk'): {
+                'name': k['AttributeName'],
+                'type': {a['AttributeName']: a['AttributeType'] for a in table_desc['AttributeDefinitions']}[k['AttributeName']]
+            }
+            for k in table_desc['KeySchema']
+        }
     }
 
 def get_and_print_table_scan_cost(table_info, region_name=None, fraction=1.0, numberOfScans=1):
