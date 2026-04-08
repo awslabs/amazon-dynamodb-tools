@@ -88,7 +88,7 @@ def run(job, spark_context, glue_context, parsed_args):
 
     session = boto3.Session()
     table_info = print_dynamodb_table_info(session, table_name, num_items, avg_size)
-    key_schema = [v['name'] for v in table_info['key_schema'].values()]
+    key_names = [v['name'] for v in table_info['key_schema'].values()]
 
     # Divide the work into groups of ~10,000 item inserts
     parallelize_count = math.ceil(record_count / 10000)  # Assuming each worker will handle around 10,000 items
@@ -116,7 +116,7 @@ def run(job, spark_context, glue_context, parsed_args):
     # Handle exceptions (raised or in accumulator) here so we process once instead of once per worker
     try:
         rdd = spark_context.parallelize(list(enumerate(items_per_worker)), parallelize_count).map(
-                lambda x: _fill_data(monitor_options, table_name, x[1], generate, total_inserted_accumulator, error_accumulator, rate_limiter_shared_config, key_schema)).collect()
+                lambda x: _fill_data(monitor_options, table_name, x[1], generate, total_inserted_accumulator, error_accumulator, rate_limiter_shared_config, key_names)).collect()
     except Exception as e:
         raise Exception(f"Error in parallel execution: {get_error_message(e)}") from None
     finally:
@@ -128,7 +128,7 @@ def run(job, spark_context, glue_context, parsed_args):
     # Print the total records inserted using the accumulator after all tasks complete
     log.info(f"Total records filled: {total_inserted_accumulator.value:,}")
 
-def _fill_data(monitor_options, table_name, num_items, generate, total_inserted_accumulator, error_accumulator, rate_limiter_shared_config, key_schema):
+def _fill_data(monitor_options, table_name, num_items, generate, total_inserted_accumulator, error_accumulator, rate_limiter_shared_config, key_names):
     rate_limiter_worker = RateLimiterWorker(
         shared_config=rate_limiter_shared_config,
         **monitor_options
@@ -149,7 +149,7 @@ def _fill_data(monitor_options, table_name, num_items, generate, total_inserted_
     local_count = 0
 
     try:
-        with table.batch_writer(overwrite_by_pkeys=key_schema) as batch:
+        with table.batch_writer(overwrite_by_pkeys=key_names) as batch:
             while local_count < num_items:
                 try:
                     item_collection = generate()
