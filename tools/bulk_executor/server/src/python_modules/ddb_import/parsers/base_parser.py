@@ -2,7 +2,7 @@
 
 import base64
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 from boto3.dynamodb.types import TypeDeserializer
 
 class BaseExportParser(ABC):
@@ -48,7 +48,7 @@ class BaseExportParser(ABC):
         return python_item
     
     @abstractmethod
-    def parse_export_line(self, line: str) -> Optional[Tuple[str, Dict[str, Any], Optional[str], Optional[Dict[str, str]]]]:
+    def parse_export_line(self, line: str) -> Tuple[str, Dict[str, Any]]:
         """
         Parse a single line from a DynamoDB export file.
         
@@ -56,10 +56,8 @@ class BaseExportParser(ABC):
             line: JSON string from export file
             
         Returns:
-            Tuple of (operation, item_data, condition_expression, expression_attribute_names)
+            Tuple of (operation, item_data)
             - operation: "PUT" or "DELETE"
             - item_data: Deserialized item dict (for PUT) or key dict (for DELETE)
-            - condition_expression: ConditionExpression string, or None
-            - expression_attribute_names: ExpressionAttributeNames dict, or None
         """
         pass

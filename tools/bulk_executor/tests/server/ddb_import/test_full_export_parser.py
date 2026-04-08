@@ -18,20 +18,18 @@ class TestFullExportParser:
         """Test parsing a simple item with string and number attributes."""
         line = '{"Item":{"name":{"S":"John"},"age":{"N":"30"}}}'
         
-        operation, item_data, condition, expr_names = self.parser.parse_export_line(line)
+        operation, item_data = self.parser.parse_export_line(line)
         
         assert operation == "PUT"
-        assert condition is None
         assert item_data == {"name": "John", "age": Decimal("30")}
     
     def test_parse_complex_item_with_list(self):
         """Test parsing item with complex list structure like the sample data."""
         line = '{"Item":{"name":{"S":"Argyros1003"},"activities":{"L":[{"M":{"activity":{"S":"Play violin"},"timestamp":{"S":"Sat, 04 May 2024 04:49:44 GMT"}}},{"M":{"activity":{"S":"Listen to music"},"timestamp":{"S":"Sat, 04 May 2024 04:50:21 GMT"}}}]}}}'
         
-        operation, item_data, condition, expr_names = self.parser.parse_export_line(line)
+        operation, item_data = self.parser.parse_export_line(line)
         
         assert operation == "PUT"
-        assert condition is None
         assert item_data == {
             "name": "Argyros1003",
             "activities": [
@@ -58,10 +56,9 @@ class TestFullExportParser:
             }
         }'''
         
-        operation, item_data, condition, expr_names = self.parser.parse_export_line(line)
+        operation, item_data = self.parser.parse_export_line(line)
         
         assert operation == "PUT"
-        assert condition is None
         assert item_data == {
             "pk": "user123",
             "sk": "profile", 
@@ -92,10 +89,9 @@ class TestFullExportParser:
             }
         }'''
         
-        operation, item_data, condition, expr_names = self.parser.parse_export_line(line)
+        operation, item_data = self.parser.parse_export_line(line)
         
         assert operation == "PUT"
-        assert condition is None
         assert item_data == {
             "id": "test",
             "nested": {
@@ -112,10 +108,9 @@ class TestFullExportParser:
         """Test parsing item with minimal attributes."""
         line = '{"Item":{"id":{"S":"empty"}}}'
         
-        operation, item_data, condition, expr_names = self.parser.parse_export_line(line)
+        operation, item_data = self.parser.parse_export_line(line)
         
         assert operation == "PUT"
-        assert condition is None
         assert item_data == {"id": "empty"}
     
     def test_malformed_json_raises_error(self):
@@ -146,20 +141,18 @@ class TestFullExportParser:
         """Test parsing with empty Item field."""
         line = '{"Item":{}}'
         
-        operation, item_data, condition, expr_names = self.parser.parse_export_line(line)
+        operation, item_data = self.parser.parse_export_line(line)
         
         assert operation == "PUT"
-        assert condition is None
         assert item_data == {}
     
     def test_item_with_binary_data(self):
         """Test parsing item with binary attribute."""
         line = '{"Item":{"id":{"S":"test"},"data":{"B":"SGVsbG8gV29ybGQ="}}}'
         
-        operation, item_data, condition, expr_names = self.parser.parse_export_line(line)
+        operation, item_data = self.parser.parse_export_line(line)
         
         assert operation == "PUT"
-        assert condition is None
         assert item_data["id"] == "test"
         # Binary data is returned as base64 decoded bytes
         assert item_data["data"] == base64.b64decode("SGVsbG8gV29ybGQ=")
@@ -168,10 +161,9 @@ class TestFullExportParser:
         """Test parsing item with binary set attribute."""
         line = '{"Item":{"id":{"S":"test"},"binaries":{"BS":["SGVsbG8=","V29ybGQ="]}}}'
         
-        operation, item_data, condition, expr_names = self.parser.parse_export_line(line)
+        operation, item_data = self.parser.parse_export_line(line)
         
         assert operation == "PUT"
-        assert condition is None
         assert item_data["id"] == "test"
         # Binary set is returned as a set of base64 decoded bytes
         expected_binaries = {base64.b64decode("SGVsbG8="), base64.b64decode("V29ybGQ=")}
@@ -182,10 +174,9 @@ class TestFullExportParser:
         # This matches the format from the sample data file
         line = '{"Item":{"name":{"S":"Sparkles1902"},"activities":{"L":[{"M":{"activity":{"S":"Brush teeth"},"timestamp":{"S":"Sun, 14 Apr 2024 02:19:28 GMT"}}},{"M":{"activity":{"S":"Went to school"},"timestamp":{"S":"Sun, 14 Apr 2024 02:22:54 GMT"}}},{"M":{"activity":{"S":"Eat hotdogs"},"timestamp":{"S":"Sun, 21 Apr 2024 15:21:43 GMT"}}}]}}}'
         
-        operation, item_data, condition, expr_names = self.parser.parse_export_line(line)
+        operation, item_data = self.parser.parse_export_line(line)
         
         assert operation == "PUT"
-        assert condition is None
         assert item_data["name"] == "Sparkles1902"
         assert len(item_data["activities"]) == 3
         assert item_data["activities"][0]["activity"] == "Brush teeth"
@@ -204,10 +195,9 @@ class TestFullExportParser:
         }
         line = json.dumps({"Item": original_ddb_item})
         
-        operation, item_data, condition, expr_names = self.parser.parse_export_line(line)
+        operation, item_data = self.parser.parse_export_line(line)
         
         assert operation == "PUT"
-        assert condition is None
         # Verify conversion to plain Python format
         assert item_data == {
             "pk": "test",
@@ -223,10 +213,9 @@ class TestFullExportParser:
         from decimal import Decimal
         line = '{"Item":{"decimal":{"N":"123.456789"},"integer":{"N":"42"}}}'
         
-        operation, item_data, condition, expr_names = self.parser.parse_export_line(line)
+        operation, item_data = self.parser.parse_export_line(line)
         
         assert operation == "PUT"
-        assert condition is None
         # All numbers are preserved as Decimal objects for precision
         assert item_data["decimal"] == Decimal("123.456789")
         assert item_data["integer"] == Decimal("42")
@@ -237,10 +226,9 @@ class TestFullExportParser:
         from decimal import Decimal
         line = '{"Item":{"big_int":{"N":"9223372036854775807"},"big_decimal":{"N":"999999999999999.999999999"}}}'
         
-        operation, item_data, condition, expr_names = self.parser.parse_export_line(line)
+        operation, item_data = self.parser.parse_export_line(line)
         
         assert operation == "PUT"
-        assert condition is None
         assert item_data["big_int"] == Decimal("9223372036854775807")
         # Large decimals are preserved as Decimal objects for precision
         assert item_data["big_decimal"] == Decimal("999999999999999.999999999")

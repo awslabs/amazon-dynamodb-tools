@@ -518,6 +518,7 @@ If doing cross-account, you need a resource-based policy to enable access. The f
   * `--XMaxWriteRate N` where _N_ is the max aggregate WCU to consume on the destination table
   * `--filter` and `--filterfunctionname` where you specify the python function used to filter for items to import
   * `--XTimeout` for large imports, set this appropriately to ensure Glue job doesn't time out, with a maximum of 10080 minutes (7 days)
+* Note: If there is an updated item in an incremental export and that item does not exist in the destination table, the tool will insert this item
 
 
 ## Glue execution parameters

@@ -52,7 +52,6 @@ class BatchWriter(DynamoDBWriter):
             
             table = dynamodb.Table(table_name)
             
-            # Use batch_writer (no condition support)
             with table.batch_writer() as batch:
                 for operation_data in partition_data:
                     operation, data = operation_data["operation"], operation_data["data"]

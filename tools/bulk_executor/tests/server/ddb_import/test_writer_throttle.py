@@ -4,7 +4,6 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 import botocore.exceptions
 
-from python_modules.ddb_import.writers.item_writer import ItemWriter
 from python_modules.ddb_import.writers.batch_writer import BatchWriter
 
 THROTTLE_CODE = 'ProvisionedThroughputExceededException'
@@ -41,48 +40,6 @@ def _mock_list_accumulator():
         acc.value.extend(v)
     acc.add = add
     return acc
-
-
-class TestItemWriterThrottleSilentFailure:
-
-    @patch('python_modules.ddb_import.writers.item_writer.get_error_message', side_effect=_real_get_error_message)
-    @patch('python_modules.ddb_import.writers.item_writer.get_error_code', side_effect=_real_get_error_code)
-    @patch('python_modules.ddb_import.writers.item_writer.RateLimiterWorker')
-    def test_throttle_exhaustion_must_report_error(self, mock_rlw_class, mock_gec, mock_gem):
-        mock_worker = Mock()
-        mock_session = Mock()
-        mock_dynamodb = Mock()
-        mock_table = Mock()
-
-        mock_rlw_class.return_value = mock_worker
-        mock_worker.get_session.return_value = mock_session
-        mock_session.resource.return_value = mock_dynamodb
-        mock_dynamodb.Table.return_value = mock_table
-
-        mock_table.put_item.side_effect = _make_throttle_error()
-
-        operations = [
-            {"operation": "PUT", "data": {"id": "item-1"}, "condition": None, "expr_names": None},
-        ]
-
-        error_accumulator = _mock_list_accumulator()
-        written_accumulator = _mock_accumulator()
-
-        writer = ItemWriter()
-        writer.write_partition_to_dynamodb(
-            partition_data=iter(operations),
-            table_name="test-table",
-            rate_limiter_shared_config=Mock(),
-            monitor_options={},
-            error_accumulator=error_accumulator,
-            debug_accumulator=None,
-            written_items_accumulator=written_accumulator,
-        )
-
-        assert len(error_accumulator.value) > 0, (
-            "Throttle exhaustion was silently swallowed. "
-            "error_accumulator is empty, so the caller will report success despite data loss."
-        )
 
 
 class TestBatchWriterThrottleSilentFailure:

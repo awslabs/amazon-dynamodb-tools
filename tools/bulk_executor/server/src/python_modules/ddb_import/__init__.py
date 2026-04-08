@@ -178,13 +178,13 @@ def run(job, spark_context, glue_context, parsed_args):
         # Get the appropriate parser for the import type
         export_type = manifest_data['export_type']
         import_type = ImportType.INCREMENTAL if export_type == 'INCREMENTAL_EXPORT' else ImportType.FULL
-        parser = ParserFactory.get_parser(import_type, output_view=manifest_data.get('output_view'))
+        parser = ParserFactory.get_parser(import_type)
         log.info(f"Parser of type {type(parser).__name__} returned successfully...")
         
         def parse_line(line):
             """Parse a line from the export file using the appropriate parser."""
-            operation, item_data, condition, expr_names = parser.parse_export_line(line)
-            return {"operation": operation, "data": item_data, "condition": condition, "expr_names": expr_names}
+            operation, item_data = parser.parse_export_line(line)
+            return {"operation": operation, "data": item_data}
 
         items_rdd = all_lines_rdd.map(parse_line)
 
@@ -229,10 +229,9 @@ def run(job, spark_context, glue_context, parsed_args):
         step += 1
         log.info(f"Step {step}: Writing items to DynamoDB in parallel...")
         
-        # Get the appropriate writer based on import type
-        writer = WriterFactory.create_writer(import_type)
-        writer_type = "batch writer" if import_type == ImportType.FULL else "item writer"
-        log.info(f"Using {writer_type} for {import_type.value} import")
+        # Get the appropriate writer
+        writer = WriterFactory.create_writer()
+        log.info(f"Using batch writer for {import_type.value} import")
 
         # Create accumulator to track written items
         written_items_accumulator = spark_context.accumulator(0)
