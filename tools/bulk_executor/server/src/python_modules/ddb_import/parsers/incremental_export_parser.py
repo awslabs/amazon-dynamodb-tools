@@ -1,34 +1,21 @@
-"""DynamoDB incremental export parser for extracting items from incremental export format."""
+"""DynamoDB incremental export parser."""
 
 import json
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 from .base_parser import BaseExportParser
+from .records import IncrementalExportRecord
+from ..utils.enums import Operation
+
 
 class IncrementalExportParser(BaseExportParser):
-    """
-    Parser for DynamoDB incremental export format.
-    
-    Handles both NEW_AND_OLD_IMAGES and NEW_IMAGE export view types.
-    """
+    """Parser for DynamoDB incremental export format."""
 
-    def __init__(self):
+    def __init__(self, table_key_schema):
         super().__init__()
+        self.table_key_schema = table_key_schema
 
-    def parse_export_line(self, line: str) -> Tuple[str, Dict[str, Any]]:
-        """
-        Parse a single line from a DynamoDB incremental export file.
-
-        Args:
-            line: JSON string from incremental export file
-
-        Returns:
-            Tuple of (operation, item_data)
-            - operation: "PUT" or "DELETE"
-            - item_data: Item in plain Python format (for PUT) or Keys (for DELETE)
-
-        Raises:
-            ValueError: If JSON is malformed or doesn't contain expected fields
-        """
+    def parse_to_record(self, line: str) -> IncrementalExportRecord:
+        """Parse a JSON line, deserialize, and return an IncrementalExportRecord."""
         try:
             data = json.loads(line)
         except json.JSONDecodeError as e:
@@ -43,10 +30,20 @@ class IncrementalExportParser(BaseExportParser):
         if "Metadata" not in data:
             raise ValueError("Incremental export line missing 'Metadata' field")
 
-        keys = data["Keys"]
         new_image = data.get("NewImage")
+        old_image = data.get("OldImage")
 
-        if new_image:
-            return ("PUT", self.deserialize_item(new_image))
+        return IncrementalExportRecord(
+            keys=self.deserialize_item(data["Keys"]),
+            new_image=self.deserialize_item(new_image) if new_image else None,
+            old_image=self.deserialize_item(old_image) if old_image else None,
+            table_key_schema=self.table_key_schema,
+            write_timestamp_micros=data["Metadata"].get("WriteTimestampMicros", {}).get("N")
+        )
+
+    def resolve(self, record: IncrementalExportRecord) -> Dict[str, Any]:
+        """Resolve an IncrementalExportRecord into {"operation", "data"}."""
+        if record.new_image:
+            return {"operation": Operation.PUT, "data": record.new_image}
         else:
-            return ("DELETE", self.deserialize_item(keys))
+            return {"operation": Operation.DELETE, "data": record.keys}

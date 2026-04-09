@@ -111,7 +111,7 @@ Here are some example use cases:
 ./bulk copy --source arn:aws:dynamodb:us-east-1:123456789012:table/source --target arn:aws:dynamodb:us-west-2:987654321098:table/target
 
 # Import a DynamoDB export into an existing DynamoDB table
-./bulk import --table target --s3-path "s3://..." [--filter example] [--filterfunctionname filter_item]
+./bulk import --table target --s3-path "s3://..." [--transform example] [--transformfunctionname transform]
 ```
 
 ## Quick start
@@ -516,7 +516,7 @@ If doing cross-account, you need a resource-based policy to enable access. The f
 * Supports importing an incremental export, will add new data and only update/delete data if keys match
 * Best used with:
   * `--XMaxWriteRate N` where _N_ is the max aggregate WCU to consume on the destination table
-  * `--filter` and `--filterfunctionname` where you specify the python function used to filter for items to import
+  * `--transform` and `--transformfunctionname` where you specify the python function used to transform items during import
   * `--XTimeout` for large imports, set this appropriately to ensure Glue job doesn't time out, with a maximum of 10080 minutes (7 days)
 * Note: If there is an updated item in an incremental export and that item does not exist in the destination table, the tool will insert this item
 

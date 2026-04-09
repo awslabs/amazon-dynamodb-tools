@@ -14,8 +14,11 @@ from python_modules.ddb_import.parsers.base_parser import BaseExportParser
 class ConcreteParser(BaseExportParser):
     """Concrete implementation for testing the abstract base class."""
     
-    def parse_export_line(self, line):
-        return ("PUT", {"test": "data"}, None)
+    def parse_to_record(self, line):
+        return None
+
+    def resolve(self, record):
+        return {"operation": "PUT", "data": {"test": "data"}}
 
 
 class TestBaseExportParser(unittest.TestCase):

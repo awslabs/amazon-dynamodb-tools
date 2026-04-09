@@ -10,6 +10,7 @@ from ...shared.logger import log
 from ...shared.errors import get_error_code, get_error_message
 
 from .constants import DYNAMO_DB_THROTTLE_EXCEPTION, DYNAMO_DB_VALIDATION_EXCEPTION
+from ..utils.enums import Operation
 
 
 class BatchWriter(DynamoDBWriter):
@@ -58,9 +59,9 @@ class BatchWriter(DynamoDBWriter):
 
                     if debug_accumulator: debug_accumulator.add([f"Operation: {operation}, Data: {data}"])
                     
-                    if operation == "PUT":
+                    if operation == Operation.PUT:
                         batch.put_item(Item=data)
-                    elif operation == "DELETE":
+                    elif operation == Operation.DELETE:
                         batch.delete_item(Key=data)
                     
                     local_count += 1

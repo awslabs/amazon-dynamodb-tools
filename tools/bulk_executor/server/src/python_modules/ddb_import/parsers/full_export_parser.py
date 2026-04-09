@@ -1,42 +1,37 @@
-"""DynamoDB full export parser for extracting items from full export format."""
+"""DynamoDB full export parser."""
 
 import json
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 from .base_parser import BaseExportParser
+from .records import FullExportRecord
+from ..utils.enums import Operation
+
 
 class FullExportParser(BaseExportParser):
-    """
-    Parser for DynamoDB full export format.
-    
-    Handles full export records that contain complete item snapshots
-    in the format: {"Item": {...}}
-    """
-    
-    def parse_export_line(self, line: str) -> Tuple[str, Dict[str, Any]]:
-        """
-        Parse a single line from a DynamoDB full export file.
-        
-        Args:
-            line: JSON string from full export file
-            
-        Returns:
-            Tuple of (operation, item_data)
-            - operation: Always "PUT" for full exports
-            - item_data: Item in plain Python format (converted from DDB-JSON)
-        """
+    """Parser for DynamoDB full export format."""
+
+    def __init__(self, table_key_schema):
+        super().__init__()
+        self.table_key_schema = table_key_schema
+
+    def parse_to_record(self, line: str) -> FullExportRecord:
+        """Parse a JSON line, deserialize, and return a FullExportRecord."""
         try:
             data = json.loads(line)
         except json.JSONDecodeError as e:
             raise ValueError(f"Malformed JSON: {e}")
-        
+
         if not isinstance(data, dict):
             raise ValueError("Export line must be a JSON object")
-        
+
         if "Item" not in data:
             raise ValueError("Export line missing 'Item' field")
-        
-        # Convert from DDB-JSON format to plain Python dict
-        ddb_item = data["Item"]
-        plain_item = self.deserialize_item(ddb_item)
-        
-        return ("PUT", plain_item)
+
+        return FullExportRecord(
+            item=self.deserialize_item(data["Item"]),
+            table_key_schema=self.table_key_schema
+        )
+
+    def resolve(self, record: FullExportRecord) -> Dict[str, Any]:
+        """Resolve a FullExportRecord into {"operation", "data"}."""
+        return {"operation": Operation.PUT, "data": record.item}
