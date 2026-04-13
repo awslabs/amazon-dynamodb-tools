@@ -32,6 +32,10 @@ def run(env_configs):
     result = args.__dict__
 
     utils.validate_tables(env_configs, parser, result['table'], pitr_enabled=True)
+    utils.validate_s3_export_path(result['s3_path'])
+
+    if 'transform' in result:
+        result['transform'] = utils.sanitize_arg(result['transform'], r'\.py$')
 
     log.info(f"Running action '{result['verb']}' with arguments: {result}")
 

@@ -247,6 +247,27 @@ def validate_tables(env_configs, parser, *tables, index=None, pitr_enabled=False
                         warn(f"LSI '{name}' differs between '{reference_table}' and '{table_name}'")
 
 
+def sanitize_arg(value, pattern, replacement=''):
+    """Apply a regex substitution to sanitize a CLI argument value."""
+    return re.sub(pattern, replacement, value)
+
+
+def validate_s3_path(s3_path):
+    """Validate basic S3 path format."""
+    if not s3_path.startswith('s3://'):
+        sys.exit(f"Invalid S3 path: '{s3_path}'. Must start with 's3://'")
+    without_prefix = s3_path[5:]
+    if '/' not in without_prefix or without_prefix.index('/') == 0:
+        sys.exit(f"Invalid S3 path: '{s3_path}'. Expected: s3://bucket-name/path")
+
+
+def validate_s3_export_path(s3_path):
+    """Validate S3 path format for a DynamoDB export."""
+    validate_s3_path(s3_path)
+    if 'AWSDynamoDB/' not in s3_path[5:]:
+        sys.exit(f"Invalid S3 path: '{s3_path}'. Path must contain 'AWSDynamoDB/' segment")
+
+
 # The below is also in the server codebase
 
 def _default_region():
