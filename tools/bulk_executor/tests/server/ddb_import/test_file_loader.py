@@ -143,3 +143,17 @@ class TestFileLoader:
         
         with pytest.raises(Exception, match="S3 error"):
             loader.read_file('s3://my-bucket/nonexistent.json')
+
+    def test_read_file_no_such_key_gives_friendly_message(self):
+        """Test that NoSuchKey errors produce a friendly message about path depth."""
+        from botocore.exceptions import ClientError
+        from python_modules.shared.bulk_executor_error import BulkExecutorError
+        mock_s3_client = Mock()
+        error_response = {'Error': {'Code': 'NoSuchKey', 'Message': 'The specified key does not exist.'}}
+        mock_s3_client.get_object.side_effect = ClientError(error_response, 'GetObject')
+        mock_s3_client.exceptions.NoSuchKey = type(mock_s3_client.get_object.side_effect)
+
+        loader = FileLoader(s3_client=mock_s3_client)
+
+        with pytest.raises(BulkExecutorError, match="File not found.*ensure the path depth"):
+            loader.read_file('s3://my-bucket/wrong/path/manifest-files.json')

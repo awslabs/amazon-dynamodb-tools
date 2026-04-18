@@ -62,5 +62,8 @@ The bulk import reads data from S3 and writes to an existing DynamoDB table, the
 2. Write access to the DynamoDB table to which the export needs to be restored to
 3. If the DynamoDB table uses KMS keys, ensure the role has relevant access
 
+## Caveats
+1. The import command locates the data files based on file paths written inside the manifest files at time of export. These paths are relative to the bucket root. If you copy or move the exported data to a different S3 location, you must preserve the same path depth relative to the bucket root for the data file paths to resolve. Do not add or remove prefixes.  
+
 ## Unit testing
 Refer to [README](../../../../tests/README.md)

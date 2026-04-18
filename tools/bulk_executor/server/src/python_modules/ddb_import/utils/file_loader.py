@@ -101,9 +101,20 @@ class FileLoader:
     
     def _read_from_s3(self, s3_path: str) -> bytes:
         """Read file from S3."""
+        from botocore.exceptions import ClientError
         if self._s3_client is None:
             self._s3_client = boto3.client('s3')
         
         bucket, key = self.parse_s3_path(s3_path)
-        response = self._s3_client.get_object(Bucket=bucket, Key=key)
+        try:
+            response = self._s3_client.get_object(Bucket=bucket, Key=key)
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                from python_modules.shared.bulk_executor_error import BulkExecutorError
+                raise BulkExecutorError(
+                    f"File not found: s3://{bucket}/{key}. "
+                    f"If you moved or copied the export data, ensure the path depth relative to the bucket root was preserved. "
+                    f"The manifest files reference data file locations relative to the bucket root path."
+                ) from e
+            raise
         return response['Body'].read()

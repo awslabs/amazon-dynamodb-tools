@@ -47,6 +47,7 @@ class BulkDynamoDbRunner:
     def __init__(self, env_configs):
         self.aws_region = env_configs.aws_region
         self.aws_account_id = env_configs.aws_account_id
+        self._suppress_glue_noise = False
 
         clients = Clients(self.aws_region)
         self.dynamodb_client = clients.dynamodb_client
@@ -103,6 +104,12 @@ class BulkDynamoDbRunner:
             return # Only watch error log for special substrings indicating the run should terminate early, not to print to the user. Review these in CloudWatch for debugging.
         elif any(key in log_message for key in utils.LOG_PATTERN_IGNORE_LIST):
             return # Skip known noisy log patterns
+
+        # When a BulkExecutorError has been seen, suppress subsequent Glue exception analysis noise
+        if 'BulkExecutorError' in log_message:
+            self._suppress_glue_noise = True
+        if self._suppress_glue_noise and ('GlueExceptionAnalysisListener' in log_message or 'Error Category:' in log_message):
+            return
 
         if log_group == output_log_group_identifier:
             # No formatting allowed

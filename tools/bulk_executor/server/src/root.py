@@ -6,6 +6,7 @@ from awsglue.context import GlueContext
 from awsglue.job import Job
 from awsglue.transforms import *
 from pyspark.context import SparkContext
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 
 
 def _get_first_system_exit_line():
@@ -86,6 +87,8 @@ else:
         action_script_function = getattr(module, action_script_function_name)
         try:
             action_script_function(job, spark_context, glue_context, parsed_args)  # Run the function
+        except BulkExecutorError as e: # if any custom logging is needed before bubbling the exception
+            raise
         except Exception as e:
             raise # Just let it propagate
     else:

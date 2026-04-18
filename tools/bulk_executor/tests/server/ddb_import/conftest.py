@@ -30,6 +30,17 @@ for prefix in ['shared', 'python_modules.shared']:
     sys.modules[f'{prefix}.pricing'] = Mock()
     sys.modules[f'{prefix}.table_info'] = Mock()
 
+# Import the real module — no pyspark dependency, so no mocking needed
+import importlib.util
+_spec = importlib.util.spec_from_file_location(
+    "python_modules.shared.bulk_executor_error",
+    str(__import__('pathlib').Path(__file__).resolve().parents[3] / "server/src/python_modules/shared/bulk_executor_error.py")
+)
+_be_module = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_be_module)
+for prefix in ['shared', 'python_modules.shared']:
+    sys.modules[f'{prefix}.bulk_executor_error'] = _be_module
+
 
 class MockRateLimiterWorker:
     def __init__(self, *args, **kwargs):
