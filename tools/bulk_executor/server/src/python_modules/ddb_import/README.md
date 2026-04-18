@@ -56,6 +56,15 @@ def transform_incremental_record(record: IncrementalExportRecord) -> list[Increm
     return [record]
 ```
 
+**Templated Examples**
+
+The following ready-to-use transform modules are included in the `transform/` folder:
+
+- **`example.py`** - Filter items by attribute value, only importing items that match a condition (e.g. `status == "active"`).
+- **`pkmd5_add_attribute.py`** - Add an MD5 hash of the partition key as a new `pk_md5` attribute, useful for generating a deterministic hash-based attribute for any table.
+- **`pii_remove_attribute.py`** - Strip PII attributes (e.g. `Name`) from items during import, skipping any that are the partition key or sort key.
+- **`pii_mask_attribute.py`** - Mask PII attributes by keeping the first and last character of each word and replacing the middle with `*` (e.g. `"Alice Smith"` → `"A***e S***h"`), skipping any that are the partition key or sort key.
+
 ## Role requirements
 The bulk import reads data from S3 and writes to an existing DynamoDB table, therefore it needs the following permissions:
 1. Access to the S3 bucket in which the source DynamoDB export lives

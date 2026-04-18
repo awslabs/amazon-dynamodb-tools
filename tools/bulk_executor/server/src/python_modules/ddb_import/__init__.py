@@ -169,6 +169,10 @@ def _apply_transform_stage(spark_context, records_rdd, import_type, parser, tran
                 error_accumulator.add([f"Item missing key attributes after resolve: {missing}"])
                 return None
         elif item["operation"] == Operation.DELETE:
+            missing = expected_keys - item["data"].keys()
+            if missing:
+                error_accumulator.add([f"DELETE item missing key attributes: {missing}"])
+                return None
             extra = item["data"].keys() - expected_keys
             if extra:
                 error_accumulator.add([f"DELETE item has non-key attributes: {extra}"])
