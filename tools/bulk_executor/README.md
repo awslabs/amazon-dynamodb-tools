@@ -110,8 +110,8 @@ Here are some example use cases:
 ./bulk copy --source source --target target
 ./bulk copy --source arn:aws:dynamodb:us-east-1:123456789012:table/source --target arn:aws:dynamodb:us-west-2:987654321098:table/target
 
-# Import a DynamoDB export into an existing DynamoDB table
-./bulk import --table target --s3-path "s3://..." [--transform example] [--transformfunctionname transform]
+# Load a DynamoDB export into an existing DynamoDB table
+./bulk load-export --table target --s3-path "s3://..." [--transform example] [--transformfunctionname transform]
 ```
 
 ## Quick start
@@ -507,17 +507,17 @@ If doing cross-account, you need a resource-based policy to enable access. The f
 }
 ```
 
-#### `import`**
+#### `load-export`**
 
-* Leverage Glue to do a full/incremental import of a DynamoDB table which was exported to S3 (i.e. currently only supports DDB-JSON format)
+* Leverage Glue to do a full/incremental load of a DynamoDB table which was exported to S3 (i.e. currently only supports DDB-JSON format)
 * Requires `table` and `s3-path`
 * Validates manifest files to ensure integrity of the exported files and data
-* Supports importing a full export into an empty table or table with data (will overwrite existing data if keys match)
-* Supports importing an incremental export, will add new data and only update/delete data if keys match
+* Supports loading a full export into an empty table or table with data (will overwrite existing data if keys match)
+* Supports loading an incremental export, will add new data and only update/delete data if keys match
 * Best used with:
   * `--XMaxWriteRate N` where _N_ is the max aggregate WCU to consume on the destination table
-  * `--transform` and `--transformfunctionname` where you specify the python function used to transform items during import
-  * `--XTimeout` for large imports, set this appropriately to ensure Glue job doesn't time out, with a maximum of 10080 minutes (7 days)
+  * `--transform` and `--transformfunctionname` where you specify the python function used to transform items during load
+  * `--XTimeout` for large loads, set this appropriately to ensure Glue job doesn't time out, with a maximum of 10080 minutes (7 days)
 * Note: If there is an updated item in an incremental export and that item does not exist in the destination table, the tool will insert this item
 
 

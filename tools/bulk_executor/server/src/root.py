@@ -64,9 +64,9 @@ parsed_args = _get_parsed_glue_job_args(sys.argv)
 
 action_module = parsed_args.get('XAction', 'default')
 
-# Handle Python keyword conflicts - map "import" to "ddb_import"
-if action_module == 'import':
-    action_module = 'ddb_import'
+# Handle hyphen-to-underscore mapping for Python module names
+if action_module == 'load-export':
+    action_module = 'load_export'
 
 module_name = f"python_modules.{action_module}"
 action_script_function_name = 'run'
