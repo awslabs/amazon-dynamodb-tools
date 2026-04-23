@@ -62,11 +62,7 @@ module_path = 'python_modules'
 sys.path.append(module_path)
 parsed_args = _get_parsed_glue_job_args(sys.argv)
 
-action_module = parsed_args.get('XAction', 'default')
-
-# Handle hyphen-to-underscore mapping for Python module names
-if action_module == 'load-export':
-    action_module = 'load_export'
+action_module = parsed_args.get('XAction', 'default').replace('-', '_')
 
 module_name = f"python_modules.{action_module}"
 action_script_function_name = 'run'
