@@ -18,8 +18,7 @@ class DistributedDynamoDBMonitorWorker:
                  worker_id=None,
                  summary_key='summary.json',
                  enable_reporting=False,
-                 autostart=True,
-                 debug_accumulator=None):
+                 autostart=True):
 
         self.session = session
         self.s3_client = session.client('s3')
@@ -30,7 +29,6 @@ class DistributedDynamoDBMonitorWorker:
         self.stop_event = threading.Event()
 
         self.worker_id = worker_id or str(uuid.uuid4())
-        self.debug_accumulator = debug_accumulator
 
         # default initial rates
         if worker_initial_read_rate is None:
@@ -42,18 +40,6 @@ class DistributedDynamoDBMonitorWorker:
         self.aggregate_max_write_rate = aggregate_max_write_rate
         self.worker_max_read_rate = worker_max_read_rate
         self.worker_max_write_rate = worker_max_write_rate
-
-        if self.debug_accumulator:
-            self.debug_accumulator.add([f"DistributedDynamoDBMonitorWorker init: worker_id={self.worker_id}"])
-            self.debug_accumulator.add([
-                f"Aggregate max read rate: {self.aggregate_max_read_rate}",
-                f"Aggregate max write rate: {self.aggregate_max_write_rate}",
-                f"Worker max read rate: {self.worker_max_read_rate}",
-                f"Worker max write rate: {self.worker_max_write_rate}",
-                f"Worker initial read rate: {worker_initial_read_rate}",
-                f"Worker initial write rate: {worker_initial_write_rate}",
-                f"Enable reporting: {enable_reporting}"
-            ])
 
         # instantiate local monitor
         self.monitor = DynamoDBMonitor(
@@ -132,14 +118,6 @@ class DistributedDynamoDBMonitorWorker:
                     smoothing_factor = 0.4  # 0=no change, 1=jump immediately
                     old_write_rate = self.monitor.max_write_rate
                     old_read_rate = self.monitor.max_read_rate
-                    
-                    # Debug before rate calculation
-                    if self.debug_accumulator:
-                        self.debug_accumulator.add([
-                            f"Before rate calc: old_read={old_read_rate:.3f}, old_write={old_write_rate:.3f}",
-                            f"Targets: new_read={new_read_target:.3f}, new_write={new_write_target:.3f}",
-                            f"Smoothing factor: {smoothing_factor}"
-                        ])
                     
                     self.monitor.max_read_rate = (1 - smoothing_factor) * self.monitor.max_read_rate + smoothing_factor * new_read_target
                     self.monitor.max_write_rate = (1 - smoothing_factor) * self.monitor.max_write_rate + smoothing_factor * new_write_target

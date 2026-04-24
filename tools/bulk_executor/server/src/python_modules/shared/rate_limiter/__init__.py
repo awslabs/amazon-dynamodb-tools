@@ -56,18 +56,14 @@ class RateLimiterWorker:
     Args:
         shared_config (RateLimiterSharedConfig): The shared config between Aggregator and Worker.
         monitor_options: The expected monitor options (see @table_info#get_dynamodb_throughput_configs for more info)
-        debug_accumulator (DebugAccumulator): The debug accumulator to use for rate limiter
     """
     def __init__(self, shared_config, debug_accumulator=None, **monitor_options):
         self.session = Session()
         log.info(f"Rate limiter, init, monitor_options {monitor_options}")
-        if debug_accumulator:
-            debug_accumulator.add([f"RateLimiterWorker init: monitor_options={monitor_options}"])
         self.rate_limiter_monitor_worker = DistributedDynamoDBMonitorWorker(
             session=self.session,
             bucket=shared_config.bucket,
             prefix=shared_config.prefix,
-            debug_accumulator=debug_accumulator,
             **monitor_options
         )
 
