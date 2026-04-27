@@ -145,7 +145,9 @@ def check_s3_file_exists(s3_uri):
         return True
     except ClientError as e:
         if e.response['Error']['Code'] == '404':
-            return False
+            # Check if it's a prefix containing objects
+            resp = s3.list_objects_v2(Bucket=bucket_name, Prefix=key, MaxKeys=1)
+            return resp.get('KeyCount', 0) > 0
         else:
             # Something else went wrong
             raise
