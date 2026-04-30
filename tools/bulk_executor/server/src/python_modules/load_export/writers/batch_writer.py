@@ -38,7 +38,6 @@ class BatchWriter(DynamoDBWriter):
             if debug_accumulator: debug_accumulator.add(["Rate limiter worker started"])
             rate_limiter_worker = RateLimiterWorker(
                 shared_config=rate_limiter_shared_config,
-                debug_accumulator=debug_accumulator,
                 **monitor_options,
             )
             session = rate_limiter_worker.get_session()

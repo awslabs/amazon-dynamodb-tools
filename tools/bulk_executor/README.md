@@ -111,7 +111,7 @@ Here are some example use cases:
 ./bulk copy --source arn:aws:dynamodb:us-east-1:123456789012:table/source --target arn:aws:dynamodb:us-west-2:987654321098:table/target
 
 # Load a DynamoDB export into an existing DynamoDB table
-./bulk load-export --table target --s3-path "s3://..." [--transform example]
+./bulk load-export --table target --s3-path "s3://<bucket-name>/prefix/AWSDynamoDB/01716790307109-5f9d6aaa" [--transform example]
 ```
 
 ## Quick start
@@ -518,7 +518,7 @@ If doing cross-account, you need a resource-based policy to enable access. The f
   * `--XMaxWriteRate N` where _N_ is the max aggregate write units per second to consume on the destination table
   * `--transform` where you specify the python module used to transform items during load
   * `--XTimeout` for large loads, set this appropriately to ensure Glue job doesn't time out, with a maximum of 10080 minutes (7 days)
-* Note: If there is an updated item in an incremental export and that item does not exist in the destination table, the tool will insert this item
+* Note: If there is an updated item in an incremental export and that item does not exist in the destination table, the command will insert this item
 
 
 ## Glue execution parameters
@@ -534,7 +534,6 @@ A few parameters, each starting with `X` to differentiate them from regular scri
 * `XRetries`: Controls the max number of Glue Job retries. Defaults to zero to fail a misconfigured Glue Job quickly. It's unlikely you'll need to change this.
 * `XTimeout`: Controls the Glue Job timeout (in minutes). Default is 60 minutes.
 * `XWaitForDPU`: If present, causes the execution to wait 40 seconds at the end of execution in order for the DPU metrics to arrive so they can be reported. Default is off.
-* `XContinuousLogging`: If present, default Glue logging is used rather than Log4J
 
 Here is a sample `delete` action that adjusts some default Glue execution parameters:
 

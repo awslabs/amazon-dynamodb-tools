@@ -57,7 +57,7 @@ class RateLimiterWorker:
         shared_config (RateLimiterSharedConfig): The shared config between Aggregator and Worker.
         monitor_options: The expected monitor options (see @table_info#get_dynamodb_throughput_configs for more info)
     """
-    def __init__(self, shared_config, debug_accumulator=None, **monitor_options):
+    def __init__(self, shared_config, **monitor_options):
         self.session = Session()
         log.info(f"Rate limiter, init, monitor_options {monitor_options}")
         self.rate_limiter_monitor_worker = DistributedDynamoDBMonitorWorker(

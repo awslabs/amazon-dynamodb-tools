@@ -23,6 +23,11 @@ def _remove_pii(item, key_names):
         if attr not in key_names and attr in item:
             del item[attr]
 
+"""
+This example shows how to modify a load to remove unwanted attributes from items. 
+Here the logic removes named attributes which are known to contain PII that we don't want loaded, 
+but not removing any PK/SK attributes based on the stated schema.
+"""
 
 def transform_full_record(record: FullExportRecord) -> list[FullExportRecord]:
     """

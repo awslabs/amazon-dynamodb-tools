@@ -7,7 +7,6 @@ from utils.custom_parser import BulkArgumentParser
 help_text = f"""
     Purpose of "load-export":
         Loads a full export from S3 to an existing DynamoDB table.
-        Loads a full export from S3 to an existing DynamoDB table.
         Required --table parameter to specify the name of destination DynamoDB table.
         Required --s3-path to specify the name of the S3 path where the export resides.
         Optional --transform parameter to specify the transform module containing transform_full_record and/or transform_incremental_record functions.
@@ -36,7 +35,7 @@ def run(env_configs):
     utils.validate_s3_export_path(result['s3_path'])
 
     if 'transform' in result:
-        result['transform'] = utils.sanitize_arg(result['transform'], r'\.py$')
+        result['transform'] = utils.sanitize_arg(result['transform'], r'\.py$') # allows for args with .py extensions if added by accident
 
     log.info(f"Running action '{result['verb']}' with arguments: {result}")
 

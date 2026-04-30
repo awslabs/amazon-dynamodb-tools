@@ -1,6 +1,10 @@
 from ..parsers.records import FullExportRecord, IncrementalExportRecord
 import hashlib
 
+"""
+This example shows how to add a new attribute to an item based on values of other attributes. 
+It stores a calculated md5 hash as a new attribute.
+"""
 
 def _get_pk_name(table_key_schema):
     """Extract the partition key attribute name from the table key schema.

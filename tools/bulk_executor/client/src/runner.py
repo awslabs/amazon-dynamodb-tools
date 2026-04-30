@@ -106,6 +106,7 @@ class BulkDynamoDbRunner:
             return # Skip known noisy log patterns
 
         # When a BulkExecutorError has been seen, suppress subsequent Glue exception analysis noise
+        # This allows us to show the end user the core underlying error/exception message without it being drowned in a sea of "red" Glue errors
         if 'BulkExecutorError' in log_message:
             self._suppress_glue_noise = True
         if self._suppress_glue_noise and ('GlueExceptionAnalysisListener' in log_message or 'Error Category:' in log_message):

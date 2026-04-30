@@ -1,6 +1,6 @@
 # Bulk Load-Export Capability
 
-This utility allows you to load a DynamoDB table exported to S3 by leveraging Glue. The code is modularized to enable unit testing of individual components. It also leverages the `RateLimiter` classes to ensure that any bulk action executed on a table only consumes the capacity configured.
+This command loads a DynamoDB table export to an existing table. The code is modularized to enable unit testing of individual components. It also leverages the `RateLimiter` classes to ensure that any bulk action executed on a table only consumes the capacity configured.
 
 ## Execution
 Refer to the top level [README](../../../../../README.md) file
@@ -58,7 +58,7 @@ def transform_incremental_record(record: IncrementalExportRecord) -> list[Increm
 
 **Templated Examples**
 
-The following ready-to-use transform modules are included in the `transform/` folder:
+The following transform modules are included in the `transform/` folder as examples to help you get started:
 
 - **`example.py`** - Filter items by attribute value, only loading items that match a condition (e.g. `status == "active"`).
 - **`pkmd5_add_attribute.py`** - Add an MD5 hash of the partition key as a new `pk_md5` attribute, useful for generating a deterministic hash-based attribute for any table.
@@ -66,7 +66,7 @@ The following ready-to-use transform modules are included in the `transform/` fo
 - **`pii_mask_attribute.py`** - Mask PII attributes by keeping the first and last character of each word and replacing the middle with `*` (e.g. `"Alice Smith"` → `"A***e S***h"`), skipping any that are the partition key or sort key.
 
 ## Role requirements
-The bulk load-export reads data from S3 and writes to an existing DynamoDB table, therefore it needs the following permissions:
+The bulk load-export command reads data from S3 and writes to an existing DynamoDB table. You will need to change the bootstrapped role to include the following permissions:
 1. Access to the S3 bucket in which the source DynamoDB export lives
 2. Write access to the DynamoDB table to which the export needs to be restored to
 3. If the DynamoDB table uses KMS keys, ensure the role has relevant access

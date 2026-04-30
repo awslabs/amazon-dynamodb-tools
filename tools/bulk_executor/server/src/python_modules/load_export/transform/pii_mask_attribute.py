@@ -1,5 +1,9 @@
 from ..parsers.records import FullExportRecord, IncrementalExportRecord
 
+"""
+This example demonstrates how to modify attributes in place while using the table schema to ignore modifying PK/SK values. 
+Specifically this masks the values within a set of named PII attributes.
+"""
 
 # Attribute names to mask if they are not the partition key or sort key.
 # Add more names here as needed — matching is case-sensitive.

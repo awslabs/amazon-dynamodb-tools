@@ -6,7 +6,7 @@ from utils import sanitize_arg
 class TestSanitizeArg:
 
     def test_strip_py_extension(self):
-        assert sanitize_arg("example.py", r'\.py$') == "example"
+        assert sanitize_arg("load_only_active.py", r'\.py$') == "load_only_active"
 
     def test_no_py_extension(self):
         assert sanitize_arg("example", r'\.py$') == "example"

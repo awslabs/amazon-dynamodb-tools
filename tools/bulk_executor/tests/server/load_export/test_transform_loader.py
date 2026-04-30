@@ -11,7 +11,7 @@ class TestTransformLoader:
         assert hasattr(module, 'transform_incremental_record')
 
     def test_load_example_module(self):
-        module = load_transform_module('example')
+        module = load_transform_module('load_only_active')
         assert hasattr(module, 'transform_full_record')
         assert hasattr(module, 'transform_incremental_record')
 

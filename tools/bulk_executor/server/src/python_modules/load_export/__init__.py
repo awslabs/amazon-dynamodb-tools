@@ -121,10 +121,13 @@ def _read_and_parse(spark_context, manifest_data, path_resolver, key_schema, ste
 
 
 def _apply_transform_stage(spark_context, records_rdd, export_load_type, parser, transform_name, key_schema, error_accumulator):
-    """Apply transform then resolve records into items. Returns items_rdd, transform_active, transformed_out_accumulator, transformed_in_accumulator."""
+    """
+    Apply transform then resolve records into items. Returns items_rdd, transform_active, transformed_excluded_accumulator, transformed_modified_or_included_accumulator.
+    The accumulators allows us to understand how many items were modified and/or added and how many were removed by the transform logic
+    """
     transform_active = bool(transform_name)
-    transformed_out_accumulator = spark_context.accumulator(0) if transform_active else None
-    transformed_in_accumulator = spark_context.accumulator(0) if transform_active else None
+    transformed_excluded_accumulator = spark_context.accumulator(0) if transform_active else None
+    transformed_modified_or_included_accumulator = spark_context.accumulator(0) if transform_active else None
 
     if transform_active:
         log.info(f"Loading transform module: {transform_name}")
@@ -147,10 +150,10 @@ def _apply_transform_stage(spark_context, records_rdd, export_load_type, parser,
                 result = [result]
 
             if not result:
-                transformed_out_accumulator.add(1)
+                transformed_excluded_accumulator.add(1) # we have removed an item, ensure we inform our accumulators that an item was omitted
                 return []
 
-            transformed_in_accumulator.add(len(result))
+            transformed_modified_or_included_accumulator.add(len(result))
             return result
 
         records_rdd = records_rdd.flatMap(_apply_transform)
@@ -180,13 +183,20 @@ def _apply_transform_stage(spark_context, records_rdd, export_load_type, parser,
         return item
 
     items_rdd = records_rdd.map(_resolve_and_validate).filter(lambda x: x is not None)
-    return items_rdd, transform_active, transformed_out_accumulator, transformed_in_accumulator
+    return items_rdd, transform_active, transformed_excluded_accumulator, transformed_modified_or_included_accumulator
 
 
 def _write(spark_context, items_rdd, export_load_type, table_name, rate_limiter_shared_config, monitor_options, error_accumulator, debug_accumulator, step):
     """Repartition and write items to DynamoDB."""
     step += 1
+
+    """
+    Through testing it was noticed that we want to repartition at least to the same size of partitions as before (each .gz file is allocated to a glue partition).
+    This repartition redistributes the DDB data so that the writes don't hammer the same DDB partition, reducing throttling.
+    Also, we don't want to excessively partition which creates a large network overhead for Glue when reshuffling happens, 2x number of Glue slots was found to be a good heuristic
+    """
     num_partitions = min(items_rdd.getNumPartitions(), spark_context.defaultParallelism * 2)
+
     log.info(f"Step {step}: Using {num_partitions:,} partitions (based on mins of #gz files {items_rdd.getNumPartitions():,} and defaultParallelism {spark_context.defaultParallelism:,})")
     items_rdd = items_rdd.repartition(num_partitions)
     log.info(f"Step {step}: Repartitioned to {num_partitions:,} partitions")
@@ -218,14 +228,14 @@ def _write(spark_context, items_rdd, export_load_type, table_name, rate_limiter_
     return written_items_accumulator, step
 
 
-def _report(manifest_data, total_expected_items, written_items_accumulator, transform_active, transform_name, transformed_out_accumulator, transformed_in_accumulator, start_time):
+def _report(manifest_data, total_expected_items, written_items_accumulator, transform_active, transform_name, transformed_excluded_accumulator, transformed_modified_or_included_accumulator, start_time):
     """Log final summary."""
     total_item_count = manifest_data['total_item_count']
     written_count = written_items_accumulator.value
 
     log.info(f"Successfully wrote {written_count:,} items to DynamoDB")
     if transform_active:
-        log.info(f"Transform '{transform_name}': {transformed_in_accumulator.value:,} items produced, {transformed_out_accumulator.value:,} items excluded out of {total_item_count:,} total")
+        log.info(f"Transform '{transform_name}': {transformed_modified_or_included_accumulator.value:,} items produced, {transformed_excluded_accumulator.value:,} items excluded out of {total_item_count:,} total")
     log.info("Data processing and writing completed")
 
     log.info("=" * 80)
@@ -243,8 +253,8 @@ def _report(manifest_data, total_expected_items, written_items_accumulator, tran
     log.info("Success Summary:")
     log.info(f"  - Total items in export: {total_item_count:,}")
     if transform_active:
-        log.info(f"  - Items excluded by transform: {transformed_out_accumulator.value:,}")
-        log.info(f"  - Items produced by transform: {transformed_in_accumulator.value:,}")
+        log.info(f"  - Items excluded by transform: {transformed_excluded_accumulator.value:,}")
+        log.info(f"  - Items produced by transform: {transformed_modified_or_included_accumulator.value:,}")
     log.info(f"  - Total items written: {written_count:,}")
     log.info(f"  - Execution time: {execution_time:.1f} seconds")
     log.info(f"  - All validations passed")
@@ -303,7 +313,7 @@ def run(job, spark_context, glue_context, parsed_args):
 
         # Transform records then resolve into items
         current_phase = "transform"
-        items_rdd, transform_active, transformed_out_acc, transformed_in_acc = _apply_transform_stage(
+        items_rdd, transform_active, transformed_excluded_acc, transformed_modified_or_included_acc = _apply_transform_stage(
             spark_context, records_rdd, export_load_type, parser, transform_name,
             validation['key_schema'], error_accumulator
         )
@@ -319,7 +329,7 @@ def run(job, spark_context, glue_context, parsed_args):
         # Report
         _report(
             validation['manifest_data'], total_expected_items, written_items_acc,
-            transform_active, transform_name, transformed_out_acc, transformed_in_acc,
+            transform_active, transform_name, transformed_excluded_acc, transformed_modified_or_included_acc,
             start_time
         )
 

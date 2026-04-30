@@ -53,7 +53,7 @@ class KeySchemaValidator:
             try:
                 data = json.loads(line)
             except json.JSONDecodeError:
-                failed_rows.append({'row': i, 'error': 'Malformed JSON'})
+                failed_rows.append({'row': i, 'error': f'Malformed JSON: {line[:200]}'})
                 continue
 
             error = self._check_incremental_keys(data, expected_keys, i) if is_incremental else self._check_full_keys(data, expected_keys, i)
@@ -82,7 +82,7 @@ class KeySchemaValidator:
 
             for f in failed_rows:
                 log.error(f"  - Row {f['row']}: {f['error']}")
-            raise ValueError(f"{error_summary}. See logs for details.")
+            raise ValueError(f"{error_summary}. See CloudWatch logs for details.")
 
         avg_item_size = total_item_size // validated_count if validated_count > 0 else 0
         log.info(f"Key validation completed: {validated_count}/{len(rows_to_check)} sampled rows verified (avg item size: {avg_item_size:,} bytes)")

@@ -199,7 +199,7 @@ class ManifestValidator:
         
         # Extract table name from ARN: arn:aws:dynamodb:region:account:table/table-name
         try:
-            if not table_arn.startswith('arn:aws:dynamodb:'):
+            if not table_arn.startswith('arn:') or ':dynamodb:' not in table_arn:
                 raise ValueError("Not a valid DynamoDB table ARN")
             table_name = table_arn.split('/')[-1]
             log.info(f"Extracted table name: {table_name}")

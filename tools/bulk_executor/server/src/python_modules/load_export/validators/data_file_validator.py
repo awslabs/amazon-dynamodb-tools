@@ -65,7 +65,7 @@ class DataFileValidator:
             log.error(error_summary)
             for failure in failed_files:
                 log.error(f"  - {failure['file']}: {failure['error']}")
-            raise ValueError(f"{error_summary}. See logs for details.")
+            raise ValueError(f"{error_summary}. See CloudWatch logs for details.")
 
         log.info(f"Data file MD5 validation completed: {validated_count}/{len(files_to_validate)} files ({validation_mode} mode)")
         return {'validated_count': validated_count, 'total_count': total_count, 'validation_mode': validation_mode, 'failed_files': [], 'verified_files': verified_files}

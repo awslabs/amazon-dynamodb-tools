@@ -1,5 +1,9 @@
 from ..parsers.records import FullExportRecord, IncrementalExportRecord
 
+"""
+This demonstrates how to filter a load to only perform the load for items with certain characteristics. 
+Here only items with an active status are loaded.
+"""
 
 def transform_full_record(record: FullExportRecord) -> list[FullExportRecord]:
     """

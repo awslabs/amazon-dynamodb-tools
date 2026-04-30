@@ -33,7 +33,7 @@ def run(env_configs):
 
     utils.validate_tables(env_configs, parser, result['table'], pitr_enabled=True)
 
-    result['generator'] = utils.sanitize_arg(result['generator'], r'\.py$')
+    result['generator'] = utils.sanitize_arg(result['generator'], r'\.py$') # allows for args with .py extensions if added by accident
 
     log.info(f"Running action '{result['verb']}' with arguments: {result}")
 
