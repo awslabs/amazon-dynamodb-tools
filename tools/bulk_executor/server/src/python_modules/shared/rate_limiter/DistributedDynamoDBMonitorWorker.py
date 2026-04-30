@@ -116,6 +116,7 @@ class DistributedDynamoDBMonitorWorker:
                     # Smooth adjustment to avoid oscillation
                     #smoothing_factor = 0.2  # 0=no change, 1=jump immediately
                     smoothing_factor = 0.4  # 0=no change, 1=jump immediately
+                    
                     self.monitor.max_read_rate = (1 - smoothing_factor) * self.monitor.max_read_rate + smoothing_factor * new_read_target
                     self.monitor.max_write_rate = (1 - smoothing_factor) * self.monitor.max_write_rate + smoothing_factor * new_write_target
 

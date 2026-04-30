@@ -2,7 +2,7 @@ from .DistributedDynamoDBMonitorAggregator import DistributedDynamoDBMonitorAggr
 from .DistributedDynamoDBMonitorWorker import DistributedDynamoDBMonitorWorker
 
 from boto3 import Session
-from python_modules.shared.logger import log
+from ..logger import log
 
 
 class RateLimiterSharedConfig:
@@ -33,6 +33,8 @@ class RateLimiterAggregator:
         modes (none to many list of ("read", "write")): The expected execution modes of the DynamoDB actions requiring rate limiting.
     """
     def __init__(self, shared_config):
+        log.info(f"Initializing...Bucket:{shared_config.bucket}, Prefix:{shared_config.bucket}")
+
         self.rate_limiter_monitor_aggregator = DistributedDynamoDBMonitorAggregator(
             session=Session(),
             bucket=shared_config.bucket,
@@ -57,6 +59,7 @@ class RateLimiterWorker:
     """
     def __init__(self, shared_config, **monitor_options):
         self.session = Session()
+        log.info(f"Rate limiter, init, monitor_options {monitor_options}")
         self.rate_limiter_monitor_worker = DistributedDynamoDBMonitorWorker(
             session=self.session,
             bucket=shared_config.bucket,

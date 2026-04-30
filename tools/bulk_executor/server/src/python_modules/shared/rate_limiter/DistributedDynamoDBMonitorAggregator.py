@@ -2,15 +2,13 @@ import time
 import json
 from datetime import datetime
 import threading
-import sys
 import random
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 from concurrent.futures import ThreadPoolExecutor
 
 # Custom Library Imports
-sys.path.append('/server/src')
-from python_modules.shared.logger import log
+from ..logger import log
 
 class DistributedDynamoDBMonitorAggregator:
     def __init__(self, session, bucket, prefix, staleness_cutoff=15, interval=5, output_key='summary.json', autostart=True):
