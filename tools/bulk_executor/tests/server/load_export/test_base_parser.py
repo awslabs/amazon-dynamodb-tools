@@ -100,6 +100,33 @@ class TestBaseExportParser(unittest.TestCase):
         }
         self.assertEqual(result, expected)
 
+    def test_deserialize_item_with_nested_binary(self):
+        """Test deserializing DDB-JSON with binary values nested inside lists and maps."""
+        ddb_item = {
+            'bin': {'B': 'fecabeba'},
+            'bins': {'BS': ['beba', 'feca']},
+            'mylist': {'L': [
+                {'S': 'xx'},
+                {'B': 'feca'},
+                {'L': [{'B': 'deadbeef'}]},
+            ]},
+            'mymap': {'M': {
+                'inner_bin': {'B': 'cafe'},
+                'nested': {'M': {'deep_bin': {'B': 'abcd'}}},
+            }},
+        }
+
+        result = self.parser.deserialize_item(ddb_item)
+
+        import base64
+        self.assertEqual(result['bin'], base64.b64decode('fecabeba'))
+        self.assertEqual(result['bins'], {base64.b64decode('beba'), base64.b64decode('feca')})
+        self.assertEqual(result['mylist'][0], 'xx')
+        self.assertEqual(result['mylist'][1], base64.b64decode('feca'))
+        self.assertEqual(result['mylist'][2], [base64.b64decode('deadbeef')])
+        self.assertEqual(result['mymap']['inner_bin'], base64.b64decode('cafe'))
+        self.assertEqual(result['mymap']['nested']['deep_bin'], base64.b64decode('abcd'))
+
 
 if __name__ == '__main__':
     unittest.main()

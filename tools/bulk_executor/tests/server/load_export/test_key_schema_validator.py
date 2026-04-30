@@ -73,6 +73,33 @@ class TestKeySchemaValidatorFullExport:
         assert result == {'validated_count': 0, 'sampled_rows': 0, 'failed_rows': []}
 
 
+class TestKeySchemaValidatorEmptyFiles:
+
+    def test_first_file_empty_should_skip_to_nonempty_file(self):
+        """When the first verified file has 0 items (empty gzip), the validator
+        should skip it and sample from a file that actually contains data."""
+        valid_line = json.dumps({"Item": {"pk": {"S": "a"}, "sk": {"N": "1"}, "data": {"S": "x"}}})
+
+        mock_file_loader = Mock()
+        mock_file_loader.join_path.side_effect = lambda base, key: f"{base}/{key}"
+
+        def read_file(path):
+            if 'empty' in path:
+                return gzip.compress(b'')
+            return gzip.compress(valid_line.encode('utf-8'))
+
+        mock_file_loader.read_file.side_effect = read_file
+
+        verified_files = [
+            {'dataFileS3Key': 'data/empty.json.gz', 'md5Checksum': 'abc', 'itemCount': 0},
+            {'dataFileS3Key': 'data/has_data.json.gz', 'md5Checksum': 'def', 'itemCount': 1},
+        ]
+
+        validator = KeySchemaValidator(mock_file_loader)
+        result = validator.validate(verified_files, 's3://bucket', PK_SK_SCHEMA, 'FULL_EXPORT')
+        assert result['validated_count'] == 1
+
+
 class TestKeySchemaValidatorIncrementalExport:
 
     def test_pk_only(self):

@@ -30,7 +30,14 @@ class KeySchemaValidator:
         expected_keys = [(key_schema[k]['name'], key_schema[k]['type']) for k in ('pk', 'sk') if k in key_schema]
         is_incremental = export_type == 'INCREMENTAL_EXPORT'
 
-        data_file_key = verified_files[0].get('dataFileS3Key')
+        # Skip files explicitly marked as empty (itemCount: 0). Default to 1
+        # when itemCount is absent so we still attempt files from manifests that
+        # don't include the field.
+        data_file_key = None
+        for vf in verified_files:
+            if vf.get('itemCount', 1) > 0:
+                data_file_key = vf.get('dataFileS3Key')
+                break
         if not data_file_key:
             return {'validated_count': 0, 'sampled_rows': 0, 'failed_rows': []}
 
