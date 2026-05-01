@@ -46,7 +46,8 @@ class KeySchemaValidator:
         try:
             raw = self.file_loader.read_file(data_file_path)
             content = gzip.decompress(raw) if data_file_path.endswith('.gz') else raw
-            lines = content.decode('utf-8').strip().split('\n')
+            # Filter empty lines to avoid false "Malformed JSON" failures
+            lines = [l for l in content.decode('utf-8').strip().split('\n') if l]
         except Exception as e:
             log.warning(f"Key validation: could not read data file: {e}")
             return {'validated_count': 0, 'sampled_rows': 0, 'failed_rows': []}
@@ -92,7 +93,7 @@ class KeySchemaValidator:
             raise ValueError(f"{error_summary}. See CloudWatch logs for details.")
 
         avg_item_size = total_item_size // validated_count if validated_count > 0 else 0
-        log.info(f"Key validation completed: {validated_count}/{len(rows_to_check)} sampled rows verified (avg item size: {avg_item_size:,} bytes)")
+        log.debug(f"Key validation completed: {validated_count}/{len(rows_to_check)} sampled rows verified (avg item size: {avg_item_size:,} bytes)")
         return {'validated_count': validated_count, 'sampled_rows': len(rows_to_check), 'failed_rows': [], 'avg_item_size': avg_item_size}
 
     def _check_incremental_keys(self, data: Dict, expected_keys: List, row_idx: int) -> Dict | None:

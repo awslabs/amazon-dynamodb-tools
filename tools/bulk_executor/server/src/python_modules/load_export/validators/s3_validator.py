@@ -64,7 +64,7 @@ class S3Validator:
             
             # Path exists and contains objects
             success_msg = f"S3 path validation successful: {s3_path}"
-            log.info(success_msg)
+            log.debug(success_msg)
             return True
             
         except ValueError:

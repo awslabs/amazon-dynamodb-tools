@@ -30,36 +30,36 @@ def _validate(path_resolver, table_name, step):
     s3_validator = S3Validator(s3_client)
 
     step += 1
-    log.info(f"Step {step}: Validating S3 export path exists...")
+    log.debug(f"Step {step}: Validating S3 export path exists...")
     s3_validator.validate_path_exists(path_resolver)
 
     step += 1
-    log.info(f"Step {step}: Validating destination table exists...")
+    log.debug(f"Step {step}: Validating destination table exists...")
     table_info = get_and_print_dynamodb_table_info(table_name, quiet=True)
     key_schema = table_info['key_schema']
-    log.info(f"Destination table validation completed successfully: {key_schema}")
+    log.debug(f"Destination table validation completed successfully: {key_schema}")
 
     step += 1
-    log.info(f"Step {step}: Validating and parsing manifest files...")
+    log.debug(f"Step {step}: Validating and parsing manifest files...")
     manifest_validator = ManifestValidator(file_loader)
     manifest_data = manifest_validator.validate_and_parse_manifests(path_resolver)
-    log.info(f"Step {step}: Manifest validation completed successfully")
+    log.debug(f"Step {step}: Manifest validation completed successfully")
 
     if manifest_data['total_item_count'] == 0:
         log.info("Export contains 0 items, nothing to load. Exiting.")
         return None
 
     step += 1
-    log.info(f"Step {step}: Validating data file checksums...")
+    log.debug(f"Step {step}: Validating data file checksums...")
     data_file_validator = DataFileValidator(file_loader)
     checksum_result = data_file_validator.validate(
         data_files=manifest_data['data_files'],
         base_path=path_resolver.get_base_path()
     )
-    log.info(f"Step {step}: Data file checksum validation completed successfully")
+    log.debug(f"Step {step}: Data file checksum validation completed successfully")
 
     step += 1
-    log.info(f"Step {step}: Validating key schema against verified data files...")
+    log.debug(f"Step {step}: Validating key schema against verified data files...")
     key_schema_validator = KeySchemaValidator(file_loader)
     key_schema_result = key_schema_validator.validate(
         verified_files=checksum_result['verified_files'],
@@ -67,17 +67,11 @@ def _validate(path_resolver, table_name, step):
         key_schema=key_schema,
         export_type=manifest_data['export_type']
     )
-    log.info(f"Step {step}: Key schema validation completed successfully")
+    log.debug(f"Step {step}: Key schema validation completed successfully")
 
     step += 1
-    log.info("=" * 80)
-    log.info(f"Step {step}: Validation Summary:")
-    log.info(f"  - Total items to load: {manifest_data['total_item_count']:,}")
-    log.info(f"  - Number of data files: {len(manifest_data['data_files']):,}")
-    log.info(f"  - Output format: {manifest_data['output_format']}")
-    log.info(f"  - Export format: {manifest_data['export_type']}")
-    log.info("=" * 80)
-    log.info("All validations passed successfully")
+    log.info(f"S3 export: {manifest_data['total_item_count']:,} items across {len(manifest_data['data_files']):,} files ({manifest_data['export_type']}, {manifest_data['output_format']})")
+    log.debug("All validations passed successfully")
 
     return {
         'table_info': table_info,
@@ -91,7 +85,7 @@ def _validate(path_resolver, table_name, step):
 def _estimate_cost(table_info, manifest_data, key_schema_result, step):
     """Estimate and log DynamoDB write costs."""
     step += 1
-    log.info(f"Step {step}: Estimating DynamoDB write costs...")
+    log.debug(f"Step {step}: Estimating DynamoDB write costs...")
     avg_item_size = key_schema_result.get('avg_item_size', 0)
     estimated_size_bytes = avg_item_size * manifest_data['total_item_count']
     get_and_print_table_write_cost(table_info, manifest_data['total_item_count'], estimated_size_bytes)
@@ -101,20 +95,20 @@ def _estimate_cost(table_info, manifest_data, key_schema_result, step):
 def _read_and_parse(spark_context, manifest_data, path_resolver, key_schema, step):
     """Read export files into record RDD. Returns records_rdd, export_load_type, parser, total_expected_items, step."""
     step += 1
-    log.info(f"Step {step}: Resolving export file paths...")
+    log.debug(f"Step {step}: Resolving export file paths...")
     file_paths, total_expected_items = get_export_file_paths(
         data_files=manifest_data['data_files'],
         file_base_path=path_resolver.get_base_path()
     )
 
     step += 1
-    log.info(f"Step {step}: Reading and parsing export files with Spark...")
+    log.debug(f"Step {step}: Reading and parsing export files with Spark...")
     all_lines_rdd = spark_context.textFile(",".join(file_paths))
 
     export_type = manifest_data['export_type']
     export_load_type = ExportLoadType.INCREMENTAL if export_type == 'INCREMENTAL_EXPORT' else ExportLoadType.FULL
     parser = ParserFactory.get_parser(export_load_type, key_schema)
-    log.info(f"Parser of type {type(parser).__name__} returned successfully...")
+    log.debug(f"Parser of type {type(parser).__name__} returned successfully...")
 
     records_rdd = all_lines_rdd.map(parser.parse_to_record)
     return records_rdd, export_load_type, parser, total_expected_items, step
@@ -130,7 +124,7 @@ def _apply_transform_stage(spark_context, records_rdd, export_load_type, parser,
     transformed_modified_or_included_accumulator = spark_context.accumulator(0) if transform_active else None
 
     if transform_active:
-        log.info(f"Loading transform module: {transform_name}")
+        log.debug(f"Loading transform module: {transform_name}")
         transform_module = load_transform_module(transform_name)
 
         if export_load_type == ExportLoadType.FULL:
@@ -138,7 +132,7 @@ def _apply_transform_stage(spark_context, records_rdd, export_load_type, parser,
         else:
             transform_fn = transform_module.transform_incremental_record
 
-        log.info(f"Applying transform: {transform_name}.{transform_fn.__name__}")
+        log.debug(f"Applying transform: {transform_name}.{transform_fn.__name__}")
         def _apply_transform(record):
             try:
                 result = transform_fn(record)
@@ -157,9 +151,9 @@ def _apply_transform_stage(spark_context, records_rdd, export_load_type, parser,
             return result
 
         records_rdd = records_rdd.flatMap(_apply_transform)
-        log.info("Transform applied (counts will be determined during processing)")
+        log.debug("Transform applied (counts will be determined during processing)")
     else:
-        log.info("No transform specified, processing all records")
+        log.debug("No transform specified, processing all records")
 
     # Resolve records into {"operation", "data"} and validate keys
     expected_keys = {key_schema[k]['name'] for k in ('pk', 'sk') if k in key_schema}
@@ -197,17 +191,17 @@ def _write(spark_context, items_rdd, export_load_type, table_name, rate_limiter_
     """
     num_partitions = min(items_rdd.getNumPartitions(), spark_context.defaultParallelism * 2)
 
-    log.info(f"Step {step}: Using {num_partitions:,} partitions (based on mins of #gz files {items_rdd.getNumPartitions():,} and defaultParallelism {spark_context.defaultParallelism:,})")
+    log.debug(f"Step {step}: Using {num_partitions:,} partitions (based on mins of #gz files {items_rdd.getNumPartitions():,} and defaultParallelism {spark_context.defaultParallelism:,})")
     items_rdd = items_rdd.repartition(num_partitions)
-    log.info(f"Step {step}: Repartitioned to {num_partitions:,} partitions")
+    log.debug(f"Step {step}: Repartitioned to {num_partitions:,} partitions")
 
     step += 1
-    log.info(f"Step {step}: Writing items to DynamoDB in parallel...")
+    log.info(f"Writing items to DynamoDB...")
     writer = WriterFactory.create_writer()
-    log.info(f"Using batch writer for {export_load_type.value} load")
+    log.debug(f"Using batch writer for {export_load_type.value} load")
 
     written_items_accumulator = spark_context.accumulator(0)
-    log.info("Writing items to DynamoDB...")
+    log.debug("Writing items to DynamoDB...")
 
     items_rdd.foreachPartition(
         lambda partition: writer.write_partition_to_dynamodb(
@@ -233,31 +227,25 @@ def _report(manifest_data, total_expected_items, written_items_accumulator, tran
     total_item_count = manifest_data['total_item_count']
     written_count = written_items_accumulator.value
 
-    log.info(f"Successfully wrote {written_count:,} items to DynamoDB")
+    log.debug(f"Successfully wrote {written_count:,} items to DynamoDB")
     if transform_active:
         log.info(f"Transform '{transform_name}': {transformed_modified_or_included_accumulator.value:,} items produced, {transformed_excluded_accumulator.value:,} items excluded out of {total_item_count:,} total")
-    log.info("Data processing and writing completed")
+    log.debug("Data processing and writing completed")
 
-    log.info("=" * 80)
-    log.info("Data Processing Summary:")
-    log.info(f"  - Manifest items: {total_item_count:,}")
-    log.info(f"  - Expected items: {total_expected_items:,}")
-    log.info(f"  - Parsed items: {total_item_count:,}")
-    log.info("=" * 80)
+    log.debug(f"  - Manifest items: {total_item_count:,}")
+    log.debug(f"  - Expected items: {total_expected_items:,}")
+    log.debug(f"  - Parsed items: {total_item_count:,}")
 
     execution_time = time.time() - start_time
 
     log.info("=" * 80)
     log.info("JOB COMPLETED SUCCESSFULLY")
-    log.info("=" * 80)
-    log.info("Success Summary:")
     log.info(f"  - Total items in export: {total_item_count:,}")
     if transform_active:
         log.info(f"  - Items excluded by transform: {transformed_excluded_accumulator.value:,}")
         log.info(f"  - Items produced by transform: {transformed_modified_or_included_accumulator.value:,}")
     log.info(f"  - Total items written: {written_count:,}")
     log.info(f"  - Execution time: {execution_time:.1f} seconds")
-    log.info(f"  - All validations passed")
     log.info("=" * 80)
 
 
@@ -273,7 +261,7 @@ def run(job, spark_context, glue_context, parsed_args):
     rate_limiter_aggregator = RateLimiterAggregator(shared_config=rate_limiter_shared_config)
 
     monitor_options = get_dynamodb_throughput_configs(parsed_args, table_name, modes=["write"], format="monitor")
-    log.info(f"monitor_options {monitor_options}")
+    log.debug(f"monitor_options {monitor_options}")
 
     debug_enabled = parsed_args.get('XDebug', 'false').lower() == 'true'
     error_accumulator = spark_context.accumulator([], ListAccumulator())
@@ -282,17 +270,17 @@ def run(job, spark_context, glue_context, parsed_args):
     start_time = time.time()
     path_resolver = ExportPathResolver(s3_path)
 
-    log.info(f"S3 Source Bucket: {path_resolver.get_bucket()}")
-    log.info(f"S3 Source Bucket Prefix: {path_resolver.get_prefix()}")
-    log.info(f"S3 Source Bucket Export ID: {path_resolver.get_export_id()}")
-    log.info(f"Export Path: {path_resolver.get_data_base_path()}")
+    log.debug(f"S3 Source Bucket: {path_resolver.get_bucket()}")
+    log.debug(f"S3 Source Bucket Prefix: {path_resolver.get_prefix()}")
+    log.debug(f"S3 Source Bucket Export ID: {path_resolver.get_export_id()}")
+    log.debug(f"Export Path: {path_resolver.get_data_base_path()}")
 
     current_phase = "initialization"
     try:
-        log.info("=" * 80)
-        log.info("DynamoDB Export Importer - Job Started")
+        log.debug("=" * 80)
+        log.debug("DynamoDB Export Loader - Job Started")
         log.info(f"Destination Table: {table_name}")
-        log.info("=" * 80)
+        log.debug("=" * 80)
 
         # Validate
         current_phase = "validation"

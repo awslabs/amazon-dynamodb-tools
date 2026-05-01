@@ -32,7 +32,7 @@ class DataFileValidator:
             files_to_validate = data_files[:actual_sample_size]
             validation_mode = 'sample'
 
-        log.info(f"Validating MD5 checksums for {len(files_to_validate):,} of {total_count:,} data files ({validation_mode} mode)...")
+        log.debug(f"Validating MD5 checksums for {len(files_to_validate):,} of {total_count:,} data files ({validation_mode} mode)...")
 
         validated_count = 0
         failed_files = []
@@ -67,5 +67,5 @@ class DataFileValidator:
                 log.error(f"  - {failure['file']}: {failure['error']}")
             raise ValueError(f"{error_summary}. See CloudWatch logs for details.")
 
-        log.info(f"Data file MD5 validation completed: {validated_count}/{len(files_to_validate)} files ({validation_mode} mode)")
+        log.debug(f"Data file MD5 validation completed: {validated_count}/{len(files_to_validate)} files ({validation_mode} mode)")
         return {'validated_count': validated_count, 'total_count': total_count, 'validation_mode': validation_mode, 'failed_files': [], 'verified_files': verified_files}

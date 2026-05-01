@@ -34,7 +34,7 @@ class BatchWriter(DynamoDBWriter):
         
         try:
             # Initialize rate limiter
-            log.info("Rate limiter worker started...")
+            log.debug("Rate limiter worker started...")
             if debug_accumulator: debug_accumulator.add(["Rate limiter worker started"])
             rate_limiter_worker = RateLimiterWorker(
                 shared_config=rate_limiter_shared_config,
@@ -66,7 +66,7 @@ class BatchWriter(DynamoDBWriter):
                     local_count += 1
 
                     if local_count % 1000 == 0:
-                        log.info(f"Batch writer progress: {local_count:,} operations processed")
+                        log.debug(f"Batch writer progress: {local_count:,} operations processed")
             
             log.info(f"Batch writer completed: {local_count:,} operations processed on '{table_name}'")
             if debug_accumulator: debug_accumulator.add([f"Batch writer completed: {local_count} operations processed"])
