@@ -56,7 +56,8 @@ class BatchWriter(DynamoDBWriter):
                 for operation_data in partition_data:
                     operation, data = operation_data["operation"], operation_data["data"]
 
-                    if debug_accumulator: debug_accumulator.add([f"Operation: {operation}, Data: {data}"])
+                    # This will write excessive information to the accumulator, only for debugging small loads
+                    #if debug_accumulator: debug_accumulator.add([f"Operation: {operation}, Data: {data}"])
                     
                     if operation == Operation.PUT:
                         batch.put_item(Item=data)
