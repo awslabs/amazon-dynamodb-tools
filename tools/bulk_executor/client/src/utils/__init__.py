@@ -100,10 +100,12 @@ def glue_job_arguments():
     parser.add_argument("--XNumberOfWorkers", type=int, default=argparse.SUPPRESS, help="The number of Glue workers (default 220).")
     parser.add_argument("--XWorkerType", type=str, default=argparse.SUPPRESS, help="The Glue worker type. ex. G.1X", choices=SUPPORTED_WORKER_TYPES)
     parser.add_argument("--XWaitForDPU", action='store_true', default=argparse.SUPPRESS, help="Causes execution to wait 40 seconds at the end of execution for DPU metrics to be available.")
+    parser.add_argument("--XContinuousLogging", action='store_true', default=argparse.SUPPRESS, help="Enables continuous logging to leverage default Glue logging over Log4J.")
 
     # DynamoDB Read/Write Overrides
     parser.add_argument("--XMaxWriteRate", type=int, default=argparse.SUPPRESS, help="Maximum amount of write units to consume per second.")
     parser.add_argument("--XMaxReadRate", type=int, default=argparse.SUPPRESS, help="Maximum amount of read units to consume per second.")
+
     return parser
 
 def environment_arguments():
@@ -243,6 +245,27 @@ def validate_tables(env_configs, parser, *tables, index=None, pitr_enabled=False
                 for name in shared:
                     if lsi_a[name] != lsi_b[name]:
                         warn(f"LSI '{name}' differs between '{reference_table}' and '{table_name}'")
+
+
+def sanitize_arg(value, pattern, replacement=''):
+    """Apply a regex substitution to sanitize a CLI argument value."""
+    return re.sub(pattern, replacement, value)
+
+
+def validate_s3_path(s3_path):
+    """Validate basic S3 path format."""
+    if not s3_path.startswith('s3://'):
+        sys.exit(f"Invalid S3 path: '{s3_path}'. Must start with 's3://'")
+    without_prefix = s3_path[5:]
+    if '/' not in without_prefix or without_prefix.index('/') == 0:
+        sys.exit(f"Invalid S3 path: '{s3_path}'. Expected: s3://bucket-name/path")
+
+
+def validate_s3_export_path(s3_path):
+    """Validate S3 path format for a DynamoDB export."""
+    validate_s3_path(s3_path)
+    if 'AWSDynamoDB/' not in s3_path[5:]:
+        sys.exit(f"Invalid S3 path: '{s3_path}'. Path must contain 'AWSDynamoDB/' segment")
 
 
 # The below is also in the server codebase
