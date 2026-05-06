@@ -109,6 +109,9 @@ Here are some example use cases:
 # If going cross-account, you need a resource-based policy on the table to allow access.
 ./bulk copy --source source --target target
 ./bulk copy --source arn:aws:dynamodb:us-east-1:123456789012:table/source --target arn:aws:dynamodb:us-west-2:987654321098:table/target
+
+# Load a DynamoDB export into an existing DynamoDB table
+./bulk load-export --table target --s3-path "s3://<bucket-name>/prefix/AWSDynamoDB/01716790307109-5f9d6aaa" [--transform example]
 ```
 
 ## Quick start
@@ -469,14 +472,14 @@ If you ever want to stop execution early, you can hit Control-C. The interrupt w
     * `blockSize`: Specifies the size in bytes of a row group being buffered in memory. You use this for tuning performance. Size should divide exactly into a number of megabytes. Default: `134217728` (equal to 128 MB).
     * `pageSize`: Specifies the size in bytes of a page. You use this for tuning performance. A page is the smallest unit that must be read fully to access a single record. Default: `1048576` (equal to 1 MB).
 
-**`sql`**
+#### `sql`**
 
 * Performs a scan-driven execution of arbitrary Spark SQL against a table, useful for aggregates.
 * Requires `table` and `query` parameters
 * Optional `limit` parameter to limit the number of output items
 * Only `SELECT` queries are supported
 
-**`copy`**
+#### `copy`**
 
 * Performs a copy from one table to another using a parallel tight scan/write loops (doesn't bring full table into memory).
 * Requires `source` and `target` parameters
@@ -504,6 +507,20 @@ If doing cross-account, you need a resource-based policy to enable access. The f
 }
 ```
 
+#### `load-export`**
+
+* Does a full/incremental load of a DynamoDB table which was exported to S3 (i.e. currently only supports DDB-JSON format)
+* Requires `table` and `s3-path`
+* Validates manifest files to ensure integrity of the exported files and data
+* Supports loading a full export into an empty table or table with data (will overwrite existing data if keys match)
+* Supports loading an incremental export, will add new data and only update/delete data if keys match
+* Best used with:
+  * `--XMaxWriteRate N` where _N_ is the max aggregate write units per second to consume on the destination table
+  * `--transform` where you specify the python module used to transform items during load
+  * `--XTimeout` for large loads, set this appropriately to ensure Glue job doesn't time out, with a maximum of 10080 minutes (7 days)
+* Note: If there is an updated item in an incremental export and that item does not exist in the destination table, the command will insert this item
+
+
 ## Glue execution parameters
 
 A few parameters, each starting with `X` to differentiate them from regular script parameters, can be used to influence the Glue execution behavior:
@@ -514,7 +531,7 @@ A few parameters, each starting with `X` to differentiate them from regular scri
     * FLEX run: `Job duration: 0:11:34.849592 (7.57 DPU hours)`
 * `XNumberOfWorkers`: Controls how many Glue workers to use, default 220. Small tables or jobs could set this lower.
 * `XWorkerType`: Controls the worker type. Can be `G.1X` (default), `G.2X`, `G.4X`, `G.8X`, `G.12X`, `G.16X`, `R.1X`, `R.2X`, `R.4X`, or `R.8X`. Using a larger type provides more compute, memory, and storage for jobs that require a single worker to gather data locally, for example an `orderby` applied to a large set of matching items.
-* `XRetries`: Controls the max number of Glue Job retries. Defaults to zero to fail a misconfigured Glue Job quickly. It's unlikely you'll need to need to change this.
+* `XRetries`: Controls the max number of Glue Job retries. Defaults to zero to fail a misconfigured Glue Job quickly. It's unlikely you'll need to change this.
 * `XTimeout`: Controls the Glue Job timeout (in minutes). Default is 60 minutes.
 * `XWaitForDPU`: If present, causes the execution to wait 40 seconds at the end of execution in order for the DPU metrics to arrive so they can be reported. Default is off.
 
