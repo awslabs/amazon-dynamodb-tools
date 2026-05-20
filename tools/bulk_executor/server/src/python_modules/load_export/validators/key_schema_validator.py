@@ -1,7 +1,7 @@
 """Key schema validation for DynamoDB export data files."""
 import gzip
 import json
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from ...shared.logger import log
 
@@ -96,7 +96,7 @@ class KeySchemaValidator:
         log.debug(f"Key validation completed: {validated_count}/{len(rows_to_check)} sampled rows verified (avg item size: {avg_item_size:,} bytes)")
         return {'validated_count': validated_count, 'sampled_rows': len(rows_to_check), 'failed_rows': [], 'avg_item_size': avg_item_size}
 
-    def _check_incremental_keys(self, data: Dict, expected_keys: List, row_idx: int) -> Dict | None:
+    def _check_incremental_keys(self, data: Dict, expected_keys: List, row_idx: int) -> Optional[Dict]:
         keys = data.get('Keys')
         if not keys:
             return {'row': row_idx, 'error': "Missing 'Keys' field"}
@@ -111,7 +111,7 @@ class KeySchemaValidator:
             return {'row': row_idx, 'error': f"Unexpected key attributes in Keys: {extra}"}
         return None
 
-    def _check_full_keys(self, data: Dict, expected_keys: List, row_idx: int) -> Dict | None:
+    def _check_full_keys(self, data: Dict, expected_keys: List, row_idx: int) -> Optional[Dict]:
         item = data.get('Item')
         if not item:
             return {'row': row_idx, 'error': "Missing 'Item' field"}

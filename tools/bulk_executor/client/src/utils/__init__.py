@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+from typing import Optional
 
 import boto3
 import botocore
@@ -298,7 +299,7 @@ def _parse_arn(arn: str) -> dict:
         "resource": resource,
     }
 
-def _region_from_table_ref(table_ref: str) -> str | None:
+def _region_from_table_ref(table_ref: str) -> Optional[str]:
     if not table_ref or not table_ref.startswith("arn:"):
         return None
     arn = _parse_arn(table_ref)

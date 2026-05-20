@@ -34,7 +34,7 @@ for prefix in ['shared', 'python_modules.shared']:
 import importlib.util
 _spec = importlib.util.spec_from_file_location(
     "python_modules.shared.bulk_executor_error",
-    str(__import__('pathlib').Path(__file__).resolve().parents[3] / "server/src/python_modules/shared/bulk_executor_error.py")
+    str(__import__('pathlib').Path(__file__).resolve().parents[2] / "server/src/python_modules/shared/bulk_executor_error.py")
 )
 _be_module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_be_module)
