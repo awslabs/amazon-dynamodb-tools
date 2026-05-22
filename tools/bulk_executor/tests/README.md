@@ -1,26 +1,39 @@
 # Testing
+
 Ensure all integration tests and unit tests are placed in the `tests` folder. This ensures that no non-production code is pushed to Glue when we bootstrap the solution.
 
-## Client testing
+## Quick start
 
-### Setup
-1. Activate the python virtual environment `source .venv/bin/activate`
-2. Install top-level python requirements `pip install -r requirements.txt`
-3. Move to the client test directory `cd tests/client`
-4. Running tests (Bash only)
-   1. Run all tests `./run_tests.sh -v --tb=short`
-   2. Run specific test for example `./run_tests.sh test_validate_s3_path.py -v`
+From `tools/bulk_executor/`:
 
-## Server testing
-Note that this is testing the server side code and does not use any AWS resources.
+```
+make install     # one-time: create .venv and install dependencies
+make test        # run all tests (client + server)
+```
 
-### DynamoDB Load-Export Unit Testing
+That's the whole flow. No `source .venv/bin/activate` to remember, no `PYTHONPATH=` exports, no AWS env vars.
 
-#### Setup
-1. Activate the python virtual environment `source .venv/bin/activate`
-2. Install top-level python requirements `pip install -r requirements.txt`
-3. Move to the DynamoDB Load-Export (load_export) directory `cd tests/server/load_export`
-4. Install the module's test requirements `pip install -r requirements-test.txt`
-5. Running tests (Bash only)
-   1. Run all tests `./run_tests.sh -v --tb=short`
-   2. Run specific test for example `./run_tests.sh test_s3_validator.py -v`
+## Other targets
+
+```
+make test-client     # client tests only
+make test-server     # server tests only
+make coverage        # tests with coverage report
+make clean           # remove .venv and caches
+make help            # list available targets
+```
+
+## Without make (power users)
+
+If you'd rather drive pytest directly, activate the venv and call it:
+
+```
+source .venv/bin/activate
+pytest                                                       # all tests
+pytest tests/client                                          # client only
+pytest tests/server/load_export                              # server only
+pytest tests/client/test_validate_s3_path.py -v              # a single file
+pytest --cov=python_modules.load_export --cov-report=term-missing
+```
+
+Test configuration lives in `pytest.ini` at the project root. It sets `pythonpath` to cover both `client/src` and `server/src`, so any subset of tests can be invoked from `tools/bulk_executor/`. The mock bootstrap for `awsglue` and `pyspark` (used by the server-side tests) lives in `tests/server/load_export/conftest.py` and runs automatically at pytest collection time.

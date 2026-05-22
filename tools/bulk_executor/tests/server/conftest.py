@@ -2,11 +2,26 @@
 import sys
 from unittest.mock import Mock
 
-# Mock AWS Glue and PySpark modules before any imports
+# Mock AWS Glue and PySpark modules before any imports.
+# AccumulatorParam is used as a base class in some verbs (e.g., copy.py),
+# so it must be a real class — Mock() doesn't support subclass override
+# semantics. Substitute `object` as the base.
+class _AccumulatorParamStub:
+    """Minimal stand-in for pyspark's AccumulatorParam base class.
+
+    Real AccumulatorParam requires zero() and addInPlace() — subclasses
+    override both. We use a plain class so subclass.zero() / addInPlace()
+    actually run.
+    """
+    pass
+
+
+_pyspark = Mock()
+_pyspark.AccumulatorParam = _AccumulatorParamStub
 sys.modules['awsglue'] = Mock()
 sys.modules['awsglue.context'] = Mock()
 sys.modules['awsglue.job'] = Mock()
-sys.modules['pyspark'] = Mock()
+sys.modules['pyspark'] = _pyspark
 sys.modules['pyspark.context'] = Mock()
 sys.modules['pyspark.accumulators'] = Mock()
 
@@ -34,7 +49,7 @@ for prefix in ['shared', 'python_modules.shared']:
 import importlib.util
 _spec = importlib.util.spec_from_file_location(
     "python_modules.shared.bulk_executor_error",
-    str(__import__('pathlib').Path(__file__).resolve().parents[3] / "server/src/python_modules/shared/bulk_executor_error.py")
+    str(__import__('pathlib').Path(__file__).resolve().parents[2] / "server/src/python_modules/shared/bulk_executor_error.py")
 )
 _be_module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_be_module)
