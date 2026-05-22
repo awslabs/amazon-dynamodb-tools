@@ -1,3 +1,4 @@
+import base64
 import json
 import random
 import sys
@@ -21,6 +22,13 @@ from python_modules.shared.rate_limiter import (
 )
 
 PRINT_LIMIT = 100
+
+class BinaryAwareEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles bytes objects by converting them to base64-encoded strings."""
+    def default(self, obj):
+        if isinstance(obj, bytes):
+            return base64.b64encode(obj).decode('utf-8')
+        return super().default(obj)
 
 class SegmentStream:
     def __init__(self, session, table_name, segment, total_segments, consistent_read, pk, sk):
@@ -117,7 +125,7 @@ class SegmentStream:
             del self.items[0]
 
 def item_matches(stream_a_item, stream_b_item):
-    a, b = json.dumps(stream_a_item, sort_keys=True), json.dumps(stream_b_item, sort_keys=True)
+    a, b = json.dumps(stream_a_item, sort_keys=True, cls=BinaryAwareEncoder), json.dumps(stream_b_item, sort_keys=True, cls=BinaryAwareEncoder)
     return a == b
 
 def format_item_with_keys_first(item, pk, sk=None):
@@ -140,10 +148,10 @@ def log_diff(symbol, stream, concise_format):
     if item is None:
         return ''
     if concise_format:
-        return f"{symbol} {json.dumps(stream.head_key(), separators=(',', ': '))}"
+        return f"{symbol} {json.dumps(stream.head_key(), separators=(',', ': '), cls=BinaryAwareEncoder)}"
     else:
         ordered = format_item_with_keys_first(item, stream.pk, stream.sk)
-        return f"{symbol} {json.dumps(ordered, separators=(',', ': '))}"
+        return f"{symbol} {json.dumps(ordered, separators=(',', ': '), cls=BinaryAwareEncoder)}"
 
 
 def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_options_b, segment, total_segments, consistent_read, concise_format, job_id, use_s3, bucket, schema_broadcast, rate_limiter_shared_config):
