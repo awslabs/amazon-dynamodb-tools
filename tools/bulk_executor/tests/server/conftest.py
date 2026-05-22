@@ -1,6 +1,14 @@
 """Conftest that mocks external dependencies before any test collection."""
+import os
 import sys
 from unittest.mock import Mock
+
+# boto3 is imported at test-collection time by some modules under test.
+# Set fake AWS creds before any of those imports so collection doesn't
+# fall through to the host's real credentials (or fail without any).
+os.environ.setdefault("AWS_ACCESS_KEY_ID", "fake")
+os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "fake")
+os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 
 # Mock AWS Glue and PySpark modules before any imports
 sys.modules['awsglue'] = Mock()

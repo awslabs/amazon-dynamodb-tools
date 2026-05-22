@@ -5,3 +5,7 @@ tmp
 *.swp
 venv
 .hypothesis
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
