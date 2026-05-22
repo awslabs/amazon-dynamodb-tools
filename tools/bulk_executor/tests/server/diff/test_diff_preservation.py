@@ -21,48 +21,10 @@ Preservation Requirements:
 
 import json
 import unittest
-import base64
+
 from hypothesis import given, strategies as st
 
-
-# Inline implementations of the functions being tested
-# These are the FIXED versions with BinaryAwareEncoder support
-
-class BinaryAwareEncoder(json.JSONEncoder):
-    """Custom JSON encoder that handles bytes objects by converting them to base64-encoded strings."""
-    def default(self, obj):
-        if isinstance(obj, bytes):
-            return base64.b64encode(obj).decode('utf-8')
-        return super().default(obj)
-
-def item_matches(stream_a_item, stream_b_item):
-    """Fixed implementation from diff.py - handles binary attributes."""
-    a, b = json.dumps(stream_a_item, sort_keys=True, cls=BinaryAwareEncoder), json.dumps(stream_b_item, sort_keys=True, cls=BinaryAwareEncoder)
-    return a == b
-
-
-def format_item_with_keys_first(item, pk, sk=None):
-    """Original implementation from diff.py."""
-    ordered = {}
-    ordered[pk] = item[pk]
-    if sk:
-        ordered[sk] = item[sk]
-    for k in sorted(item):
-        if k not in ordered:
-            ordered[k] = item[k]
-    return ordered
-
-
-def log_diff(symbol, stream, concise_format):
-    """Fixed implementation from diff.py - handles binary attributes."""
-    item = stream.head()
-    if item is None:
-        return ''
-    if concise_format:
-        return f"{symbol} {json.dumps(stream.head_key(), separators=(',', ': '), cls=BinaryAwareEncoder)}"
-    else:
-        ordered = format_item_with_keys_first(item, stream.pk, stream.sk)
-        return f"{symbol} {json.dumps(ordered, separators=(',', ': '), cls=BinaryAwareEncoder)}"
+from python_modules.diff import item_matches, log_diff
 
 
 class MockStream:
