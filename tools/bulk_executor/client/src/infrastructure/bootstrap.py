@@ -199,9 +199,12 @@ class BootstrapInfrastructure:
 
         default_arguments = {}
 
-        # Add XEnvironmentArguments to be used by the Glue Job
+        # Add XEnvironmentArguments to be used by the Glue Job.
+        # XRole and XRegion are bootstrap-time concerns (used here for role
+        # selection and client config) and are not needed at job runtime,
+        # so they are excluded from DefaultArguments. See issue #85.
         for key, value in args.items():
-            if key.startswith('X'):
+            if key.startswith('X') and key not in ('XRole', 'XRegion'):
                 default_arguments[f'--{key}'] = str(value)
 
         default_arguments.update({ # Update last intentional.
