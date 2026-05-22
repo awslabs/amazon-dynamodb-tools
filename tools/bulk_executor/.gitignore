@@ -5,3 +5,8 @@ tmp
 *.swp
 venv
 .hypothesis
+.pytest_cache
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
