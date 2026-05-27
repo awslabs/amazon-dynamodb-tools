@@ -1,0 +1,95 @@
+{
+  "StreamReplayLambda": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "ReadSourceStream",
+        "Effect": "Allow",
+        "Action": [
+          "dynamodb:GetRecords",
+          "dynamodb:GetShardIterator",
+          "dynamodb:DescribeStream",
+          "dynamodb:ListStreams"
+        ],
+        "Resource": "arn:aws:dynamodb:REGION:ACCOUNT:table/SOURCE_TABLE/stream/*"
+      },
+      {
+        "Sid": "WriteTarget",
+        "Effect": "Allow",
+        "Action": ["dynamodb:PutItem"],
+        "Resource": "arn:aws:dynamodb:REGION:ACCOUNT:table/TARGET_TABLE"
+      },
+      {
+        "Sid": "Logs",
+        "Effect": "Allow",
+        "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+        "Resource": "arn:aws:logs:REGION:ACCOUNT:log-group:/aws/lambda/migration-stream-replay:*"
+      }
+    ]
+  },
+  "BackfillScript": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "ReadExport",
+        "Effect": "Allow",
+        "Action": ["s3:GetObject", "s3:ListBucket"],
+        "Resource": ["arn:aws:s3:::EXPORT_BUCKET", "arn:aws:s3:::EXPORT_BUCKET/*"]
+      },
+      {
+        "Sid": "WriteTarget",
+        "Effect": "Allow",
+        "Action": ["dynamodb:PutItem", "dynamodb:DescribeTable"],
+        "Resource": "arn:aws:dynamodb:REGION:ACCOUNT:table/TARGET_TABLE"
+      },
+      {
+        "Sid": "MonitorIteratorAge",
+        "Effect": "Allow",
+        "Action": ["cloudwatch:GetMetricStatistics"],
+        "Resource": "*"
+      }
+    ]
+  },
+  "CrossAccountTarget": {
+    "Description": "Resource-based policy on the TARGET table for cross-account migration",
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowSourceAccountWrite",
+        "Effect": "Allow",
+        "Principal": {"AWS": "arn:aws:iam::SOURCE_ACCOUNT:role/migration-stream-replay-role"},
+        "Action": ["dynamodb:PutItem", "dynamodb:DeleteItem"],
+        "Resource": "arn:aws:dynamodb:REGION:TARGET_ACCOUNT:table/TARGET_TABLE"
+      }
+    ]
+  },
+  "GlueJob": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "ReadExport",
+        "Effect": "Allow",
+        "Action": ["s3:GetObject", "s3:ListBucket"],
+        "Resource": ["arn:aws:s3:::EXPORT_BUCKET", "arn:aws:s3:::EXPORT_BUCKET/*"]
+      },
+      {
+        "Sid": "WriteTarget",
+        "Effect": "Allow",
+        "Action": ["dynamodb:PutItem", "dynamodb:DescribeTable"],
+        "Resource": "arn:aws:dynamodb:REGION:ACCOUNT:table/TARGET_TABLE"
+      },
+      {
+        "Sid": "MonitorIteratorAge",
+        "Effect": "Allow",
+        "Action": ["cloudwatch:GetMetricStatistics"],
+        "Resource": "*"
+      },
+      {
+        "Sid": "GlueBaseline",
+        "Effect": "Allow",
+        "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+        "Resource": "arn:aws:logs:REGION:ACCOUNT:log-group:/aws-glue/*"
+      }
+    ]
+  }
+}
