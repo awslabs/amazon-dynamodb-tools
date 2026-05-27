@@ -81,5 +81,42 @@ class TestExportPathResolver:
         """Test data base path without prefix."""
         path = "s3://my-bucket//AWSDynamoDB/export-id"
         resolver = ExportPathResolver(path)
-        
+
         assert resolver.get_data_base_path() == "s3://my-bucket"
+
+    def test_get_base_path_returns_bucket_only(self):
+        """get_base_path returns just s3://<bucket>, ignoring prefix and export id."""
+        path = "s3://my-bucket/some/prefix/AWSDynamoDB/01716790307109-5f9d6aaa"
+        resolver = ExportPathResolver(path)
+
+        assert resolver.get_base_path() == "s3://my-bucket"
+
+    def test_get_base_path_no_prefix(self):
+        """get_base_path returns s3://<bucket> even when no prefix is present."""
+        path = "s3://only-bucket/AWSDynamoDB/01716790307109-5f9d6aaa"
+        resolver = ExportPathResolver(path)
+
+        assert resolver.get_base_path() == "s3://only-bucket"
+
+    def test_str_repr_includes_bucket_prefix_export_id(self):
+        """__str__ should produce a debug-friendly summary of all three fields."""
+        path = "s3://my-bucket/prod/data/AWSDynamoDB/01716790307109-5f9d6aaa"
+        resolver = ExportPathResolver(path)
+
+        rendered = str(resolver)
+
+        assert "ExportPathResolver(" in rendered
+        assert "bucket='my-bucket'" in rendered
+        assert "prefix='prod/data'" in rendered
+        assert "export_id='01716790307109-5f9d6aaa'" in rendered
+
+    def test_str_repr_no_prefix(self):
+        """__str__ shows empty prefix when none was supplied."""
+        path = "s3://only-bucket/AWSDynamoDB/01716790307109-5f9d6aaa"
+        resolver = ExportPathResolver(path)
+
+        rendered = str(resolver)
+
+        assert "bucket='only-bucket'" in rendered
+        assert "prefix=''" in rendered
+        assert "export_id='01716790307109-5f9d6aaa'" in rendered

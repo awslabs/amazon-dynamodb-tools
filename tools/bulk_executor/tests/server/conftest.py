@@ -2,11 +2,26 @@
 import sys
 from unittest.mock import Mock
 
-# Mock AWS Glue and PySpark modules before any imports
+# Mock AWS Glue and PySpark modules before any imports.
+# AccumulatorParam is used as a base class in some verbs (e.g., copy.py),
+# so it must be a real class — Mock() doesn't support subclass override
+# semantics. Substitute `object` as the base.
+class _AccumulatorParamStub:
+    """Minimal stand-in for pyspark's AccumulatorParam base class.
+
+    Real AccumulatorParam requires zero() and addInPlace() — subclasses
+    override both. We use a plain class so subclass.zero() / addInPlace()
+    actually run.
+    """
+    pass
+
+
+_pyspark = Mock()
+_pyspark.AccumulatorParam = _AccumulatorParamStub
 sys.modules['awsglue'] = Mock()
 sys.modules['awsglue.context'] = Mock()
 sys.modules['awsglue.job'] = Mock()
-sys.modules['pyspark'] = Mock()
+sys.modules['pyspark'] = _pyspark
 sys.modules['pyspark.context'] = Mock()
 sys.modules['pyspark.accumulators'] = Mock()
 

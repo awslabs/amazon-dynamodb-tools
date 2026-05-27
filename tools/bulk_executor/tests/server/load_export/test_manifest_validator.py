@@ -538,3 +538,170 @@ class TestManifestValidator:
                 validator.validate_and_parse_manifests(path_resolver)
             
             assert "manifest-files.md5" in str(exc_info.value)
+
+    def test_missing_table_arn(self, mock_path_resolver):
+        """Test missing tableArn in manifest-summary.json raises ValueError."""
+        mock_file_loader = Mock()
+
+        manifest_summary_content = b'''{
+            "itemCount": 100,
+            "outputFormat": "DYNAMODB_JSON",
+            "manifestFilesS3Key": "manifest-files.json"
+        }'''
+        manifest_summary_md5 = b"fake_md5"
+
+        def mock_read_file(path):
+            if 'manifest-summary.json' in path:
+                return manifest_summary_content
+            elif 'manifest-summary.md5' in path:
+                return manifest_summary_md5
+            raise ValueError(f"Unexpected path: {path}")
+
+        mock_file_loader.read_file.side_effect = mock_read_file
+        mock_file_loader.join_path.side_effect = lambda base, *parts: f"{base}/{'/'.join(parts)}"
+
+        with patch('python_modules.load_export.validators.manifest_validator.MD5Validator') as mock_md5:
+            mock_md5.validate_file_checksum.return_value = True
+
+            validator = ManifestValidator(mock_file_loader)
+            path_resolver = mock_path_resolver('test-bucket', 'export-id')
+
+            with pytest.raises(ValueError, match="Missing tableArn"):
+                validator.validate_and_parse_manifests(path_resolver)
+
+    def test_invalid_table_arn_not_dynamodb(self, mock_path_resolver):
+        """Test tableArn that doesn't contain :dynamodb: raises ValueError."""
+        mock_file_loader = Mock()
+
+        manifest_summary_content = b'''{
+            "itemCount": 100,
+            "tableArn": "arn:aws:s3:::my-bucket",
+            "outputFormat": "DYNAMODB_JSON",
+            "manifestFilesS3Key": "manifest-files.json"
+        }'''
+        manifest_summary_md5 = b"fake_md5"
+
+        def mock_read_file(path):
+            if 'manifest-summary.json' in path:
+                return manifest_summary_content
+            elif 'manifest-summary.md5' in path:
+                return manifest_summary_md5
+            raise ValueError(f"Unexpected path: {path}")
+
+        mock_file_loader.read_file.side_effect = mock_read_file
+        mock_file_loader.join_path.side_effect = lambda base, *parts: f"{base}/{'/'.join(parts)}"
+
+        with patch('python_modules.load_export.validators.manifest_validator.MD5Validator') as mock_md5:
+            mock_md5.validate_file_checksum.return_value = True
+
+            validator = ManifestValidator(mock_file_loader)
+            path_resolver = mock_path_resolver('test-bucket', 'export-id')
+
+            with pytest.raises(ValueError, match="Invalid tableArn format"):
+                validator.validate_and_parse_manifests(path_resolver)
+
+    def test_invalid_table_arn_not_arn_prefix(self, mock_path_resolver):
+        """Test tableArn that doesn't start with arn: raises ValueError."""
+        mock_file_loader = Mock()
+
+        manifest_summary_content = b'''{
+            "itemCount": 100,
+            "tableArn": "not-an-arn:dynamodb:us-west-1:123:table/test",
+            "outputFormat": "DYNAMODB_JSON",
+            "manifestFilesS3Key": "manifest-files.json"
+        }'''
+        manifest_summary_md5 = b"fake_md5"
+
+        def mock_read_file(path):
+            if 'manifest-summary.json' in path:
+                return manifest_summary_content
+            elif 'manifest-summary.md5' in path:
+                return manifest_summary_md5
+            raise ValueError(f"Unexpected path: {path}")
+
+        mock_file_loader.read_file.side_effect = mock_read_file
+        mock_file_loader.join_path.side_effect = lambda base, *parts: f"{base}/{'/'.join(parts)}"
+
+        with patch('python_modules.load_export.validators.manifest_validator.MD5Validator') as mock_md5:
+            mock_md5.validate_file_checksum.return_value = True
+
+            validator = ManifestValidator(mock_file_loader)
+            path_resolver = mock_path_resolver('test-bucket', 'export-id')
+
+            with pytest.raises(ValueError, match="Invalid tableArn format"):
+                validator.validate_and_parse_manifests(path_resolver)
+
+    def test_malformed_json_line_in_manifest_files_with_valid_summary(self, mock_path_resolver):
+        """Test malformed JSON line in manifest-files.json when summary is valid."""
+        mock_file_loader = Mock()
+
+        manifest_summary_content = b'''{
+            "itemCount": 100,
+            "tableArn": "arn:aws:dynamodb:us-west-1:123456789:table/test_table",
+            "outputFormat": "DYNAMODB_JSON",
+            "manifestFilesS3Key": "AWSDynamoDB/export-id/manifest-files.json"
+        }'''
+        manifest_files_content = b'{"itemCount":50,"md5Checksum":"abc==","dataFileS3Key":"file1.gz"}\n{bad json here}'
+        manifest_summary_md5 = b"fake_md5"
+        manifest_files_md5 = b"fake_md5"
+
+        def mock_read_file(path):
+            if 'manifest-summary.json' in path:
+                return manifest_summary_content
+            elif 'manifest-summary.md5' in path:
+                return manifest_summary_md5
+            elif 'manifest-files.json' in path:
+                return manifest_files_content
+            elif 'manifest-files.md5' in path:
+                return manifest_files_md5
+            raise ValueError(f"Unexpected path: {path}")
+
+        mock_file_loader.read_file.side_effect = mock_read_file
+        mock_file_loader.join_path.side_effect = lambda base, *parts: f"{base}/{'/'.join(parts)}"
+
+        with patch('python_modules.load_export.validators.manifest_validator.MD5Validator') as mock_md5:
+            mock_md5.validate_file_checksum.return_value = True
+
+            validator = ManifestValidator(mock_file_loader)
+            path_resolver = mock_path_resolver('test-bucket', 'export-id')
+
+            with pytest.raises(ValueError, match="Invalid JSON at line 2"):
+                validator.validate_and_parse_manifests(path_resolver)
+
+    def test_manifest_files_empty_lines_skipped(self, mock_path_resolver):
+        """Test that empty lines in manifest-files.json are safely skipped."""
+        mock_file_loader = Mock()
+
+        manifest_summary_content = b'''{
+            "itemCount": 50,
+            "tableArn": "arn:aws:dynamodb:us-west-1:123456789:table/test_table",
+            "outputFormat": "DYNAMODB_JSON",
+            "manifestFilesS3Key": "AWSDynamoDB/export-id/manifest-files.json"
+        }'''
+        manifest_files_content = b'{"itemCount":50,"md5Checksum":"abc==","dataFileS3Key":"data/file.json.gz"}\n\n'
+        manifest_summary_md5 = b"fake_md5"
+        manifest_files_md5 = b"fake_md5"
+
+        def mock_read_file(path):
+            if 'manifest-summary.json' in path:
+                return manifest_summary_content
+            elif 'manifest-summary.md5' in path:
+                return manifest_summary_md5
+            elif 'manifest-files.json' in path:
+                return manifest_files_content
+            elif 'manifest-files.md5' in path:
+                return manifest_files_md5
+            raise ValueError(f"Unexpected path: {path}")
+
+        mock_file_loader.read_file.side_effect = mock_read_file
+        mock_file_loader.join_path.side_effect = lambda base, *parts: f"{base}/{'/'.join(parts)}"
+
+        with patch('python_modules.load_export.validators.manifest_validator.MD5Validator') as mock_md5:
+            mock_md5.validate_file_checksum.return_value = True
+
+            validator = ManifestValidator(mock_file_loader)
+            path_resolver = mock_path_resolver('test-bucket', 'export-id')
+            result = validator.validate_and_parse_manifests(path_resolver)
+
+            assert result['total_item_count'] == 50
+            assert len(result['data_files']) == 1

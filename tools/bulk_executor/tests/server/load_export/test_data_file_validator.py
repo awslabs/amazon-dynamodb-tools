@@ -82,3 +82,14 @@ class TestDataFileValidatorChecksums:
         assert result['validated_count'] == 2
         assert result['validation_mode'] == 'sample'
         assert len(result['verified_files']) == 2
+
+    def test_validate_generic_exception_on_file_read(self):
+        """Non-ValueError exceptions (e.g. IOError) on file read are captured as failures."""
+        mock_file_loader = Mock()
+        validator = self._make_validator(mock_file_loader)
+        data_files = [{'dataFileS3Key': 'data/file1.gz', 'md5Checksum': 'checksum1'}]
+        mock_file_loader.join_path.side_effect = lambda base, key: f"{base}/{key}"
+        mock_file_loader.read_file.side_effect = IOError("Network timeout")
+
+        with pytest.raises(ValueError, match="Data file validation failed"):
+            validator.validate(data_files, 's3://bucket', validate_all=True)

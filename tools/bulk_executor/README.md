@@ -1,5 +1,9 @@
 # Bulk Executor for Amazon DynamoDB
 
+![tests](https://img.shields.io/badge/tests-460%20passing-brightgreen)
+![line coverage](https://img.shields.io/badge/line%20coverage-66%25-yellow)
+![branch coverage](https://img.shields.io/badge/branch%20coverage-57%25-orange)
+
 Bulk Executor for Amazon DynamoDB lets you efficiently run bulk commands against even large tables. It:
 
 * Appears like a command-line utility

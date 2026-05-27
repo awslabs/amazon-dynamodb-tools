@@ -157,3 +157,40 @@ class TestFileLoader:
 
         with pytest.raises(BulkExecutorError, match="File not found.*ensure the path depth"):
             loader.read_file('s3://my-bucket/wrong/path/manifest-files.json')
+
+    def test_read_file_non_nosuchkey_client_error_propagates(self):
+        """ClientError with code != NoSuchKey is re-raised unchanged (line 119).
+
+        The NoSuchKey path wraps the error in BulkExecutorError; other codes
+        (e.g. AccessDenied) bypass the wrapping and bubble up as-is so the
+        caller sees the real boto3 error.
+        """
+        from botocore.exceptions import ClientError
+        mock_s3_client = Mock()
+        error_response = {
+            'Error': {'Code': 'AccessDenied', 'Message': 'Access Denied'}
+        }
+        original_error = ClientError(error_response, 'GetObject')
+        mock_s3_client.get_object.side_effect = original_error
+
+        loader = FileLoader(s3_client=mock_s3_client)
+
+        with pytest.raises(ClientError) as exc_info:
+            loader.read_file('s3://my-bucket/forbidden/key.json')
+        # The original ClientError is propagated unchanged.
+        assert exc_info.value is original_error
+        assert exc_info.value.response['Error']['Code'] == 'AccessDenied'
+
+    def test_read_file_throttling_client_error_propagates(self):
+        """A throttling-style ClientError also bypasses the NoSuchKey wrapping."""
+        from botocore.exceptions import ClientError
+        mock_s3_client = Mock()
+        error_response = {
+            'Error': {'Code': 'SlowDown', 'Message': 'Please reduce your request rate.'}
+        }
+        mock_s3_client.get_object.side_effect = ClientError(error_response, 'GetObject')
+
+        loader = FileLoader(s3_client=mock_s3_client)
+
+        with pytest.raises(ClientError, match='SlowDown'):
+            loader.read_file('s3://my-bucket/some/key.json')

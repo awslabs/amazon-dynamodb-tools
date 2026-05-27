@@ -128,5 +128,78 @@ class TestBaseExportParser(unittest.TestCase):
         self.assertEqual(result['mymap']['nested']['deep_bin'], base64.b64decode('abcd'))
 
 
+    def test_decode_binary_values_non_dict_node(self):
+        """_decode_binary_values should return non-dict nodes unchanged."""
+        result = self.parser._decode_binary_values("just a string")
+        self.assertEqual(result, "just a string")
+
+        result = self.parser._decode_binary_values(42)
+        self.assertEqual(result, 42)
+
+        result = self.parser._decode_binary_values(None)
+        self.assertIsNone(result)
+
+    def test_decode_binary_values_list_with_non_dict_items(self):
+        """L-type lists containing non-dict items should pass through unchanged."""
+        ddb_item = {
+            'data': {'L': [{'S': 'hello'}, {'N': '42'}]}
+        }
+        # _decode_binary_values processes the L list; each item is a dict but
+        # contains no B/BS/L/M keys, so the else branch (isinstance(v, dict))
+        # recurses and the items pass through as-is
+        result = self.parser.deserialize_item(ddb_item)
+        self.assertEqual(result['data'], ['hello', 42])
+
+    def test_decode_binary_values_dict_with_plain_value(self):
+        """Dict values that are not themselves dicts should pass through unchanged."""
+        node = {'someKey': 'plain_string', 'anotherKey': 123}
+        result = self.parser._decode_binary_values(node)
+        self.assertEqual(result, {'someKey': 'plain_string', 'anotherKey': 123})
+
+
+class _SuperCallingParser(BaseExportParser):
+    """Concrete parser that delegates to super() before doing its own work.
+
+    This is the only way to execute the `pass` bodies of the @abstractmethod
+    methods on BaseExportParser (lines 18 and 23): a subclass overrides and
+    calls super().parse_to_record / super().resolve. The super call runs the
+    abstract body (which is just `pass`) and returns None; the override then
+    returns its own value so callers get something usable.
+    """
+
+    def parse_to_record(self, line):
+        # Run the abstract body (pass) for coverage of line 18.
+        super_result = super().parse_to_record(line)
+        return super_result  # None — caller asserts on it
+
+    def resolve(self, record):
+        # Run the abstract body (pass) for coverage of line 23.
+        super_result = super().resolve(record)
+        return super_result  # None — caller asserts on it
+
+
+class TestBaseExportParserAbstractMethodBodies(unittest.TestCase):
+    """Ensure the @abstractmethod `pass` bodies are exercised via super() calls.
+
+    The abstract methods are required to be overridden, so they cannot be
+    invoked by directly instantiating BaseExportParser. The standard pattern
+    for covering an abstract `pass` body is to override in a subclass and
+    have the override call `super().the_method(...)` first.
+    """
+
+    def setUp(self):
+        self.parser = _SuperCallingParser()
+
+    def test_super_parse_to_record_returns_none(self):
+        """Calling super().parse_to_record runs the abstract `pass` body."""
+        result = self.parser.parse_to_record('{"some": "json"}')
+        self.assertIsNone(result)
+
+    def test_super_resolve_returns_none(self):
+        """Calling super().resolve runs the abstract `pass` body."""
+        result = self.parser.resolve(MagicMock(name='AnyRecord'))
+        self.assertIsNone(result)
+
+
 if __name__ == '__main__':
     unittest.main()
