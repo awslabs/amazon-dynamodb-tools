@@ -73,12 +73,14 @@ class TestAssertVersionParity:
     """Behavior of assert_version_parity around the persisted version arg."""
 
     def test_no_op_when_versions_match(self):
+        from __version__ import __version__ as VERSION
+
         glue = MagicMock()
         glue.get_job.return_value = {
-            'Job': {'DefaultArguments': {'--bulk-dynamodb-version': '0'}}
+            'Job': {'DefaultArguments': {'--bulk-dynamodb-version': VERSION}}
         }
-        # __version__ in this repo resolves to '0'; matching should return
-        # cleanly without raising.
+        # Matching local and remote versions should return cleanly without
+        # raising. Bumping __version__ shouldn't break this test.
         assert assert_version_parity(glue, MagicMock()) is None
 
     def test_raises_when_remote_higher(self):
