@@ -11,3 +11,5 @@ venv
 .coverage.*
 htmlcov/
 coverage.xml
+tests/e2e/.e2e-config
+tests/e2e/results/
