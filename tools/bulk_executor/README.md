@@ -261,6 +261,19 @@ The bootstrap must be performed by a role with this policy at minimum:
             ]
         },
         {
+            "Sid": "glueConnection",
+            "Effect": "Allow",
+            "Action": [
+                "glue:CreateConnection",
+                "glue:GetConnection",
+                "glue:DeleteConnection"
+            ],
+            "Resource": [
+                "arn:aws:glue:*:*:catalog",
+                "arn:aws:glue:*:*:connection/bulk-dynamodb-connection"
+            ]
+        },
+        {
             "Sid": "logs",
             "Effect": "Allow",
             "Action": [
