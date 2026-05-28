@@ -6,6 +6,7 @@ from infrastructure.verifier import is_existing_glue_job
 from utils.logger import log
 
 from .constants import (
+    GLUE_DYNAMODB_CONNECTION_NAME,
     GLUE_JOB_NAME,
     GLUE_JOB_ROOT_ROLE_NAME,
     READ_ONLY_ROLE_ID,
@@ -200,8 +201,27 @@ class TeardownInfrastructure:
                 log.error(f'Unexpected error deleting bucket {bucket_name}: {e}')
                 exit(1)
 
+    def _delete_dynamodb_glue_connection(self):
+        """Delete the Glue connection bootstrap created for the DataFrame
+        DynamoDB source. Idempotent: a missing connection is a no-op
+        because teardown may have run twice or the connection may have
+        been created out-of-band."""
+        try:
+            self.glue_client.delete_connection(
+                ConnectionName=GLUE_DYNAMODB_CONNECTION_NAME
+            )
+            log.info(f"Deleted Glue connection '{GLUE_DYNAMODB_CONNECTION_NAME}'.")
+        except self.glue_client.exceptions.EntityNotFoundException:
+            log.debug(f"Glue connection '{GLUE_DYNAMODB_CONNECTION_NAME}' does not exist; skipping.")
+        except Exception as e:
+            log.error(f"Error deleting Glue connection '{GLUE_DYNAMODB_CONNECTION_NAME}': {e}")
+            exit(1)
+
     def teardown(self):
         # Deletion order intentional
         self._delete_glue_job_bucket_and_server_objects()
         self._delete_glue_job_role()
         self._delete_glue_job()
+        # Connection deletion must come after job deletion — Glue refuses
+        # to delete a connection that's still attached to an existing job.
+        self._delete_dynamodb_glue_connection()
