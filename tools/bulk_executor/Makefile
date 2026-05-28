@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install test test-client test-server coverage clean
+.PHONY: help install test test-client test-server coverage clean test-e2e test-e2e-connector test-e2e-cleanup
 
 VENV := .venv
 PIP := $(VENV)/bin/pip
@@ -10,13 +10,18 @@ PYTEST := $(VENV)/bin/pytest
 PYTHON := $(shell command -v python3.11 || command -v python3.10 || command -v python3)
 
 help:
-	@echo "Targets:"
-	@echo "  make install      Create venv and install dependencies (run this first)"
-	@echo "  make test         Run all tests (client + server)"
-	@echo "  make test-client  Run client tests only"
-	@echo "  make test-server  Run server tests only"
-	@echo "  make coverage     Run tests with coverage report"
-	@echo "  make clean        Remove venv and caches"
+	@echo "Unit tests (offline, free, fast):"
+	@echo "  make install              Create venv and install dependencies (run this first)"
+	@echo "  make test                 Run all unit tests (client + server) with coverage"
+	@echo "  make test-client          Run client unit tests only"
+	@echo "  make test-server          Run server unit tests only"
+	@echo "  make coverage             Unit tests with term-missing coverage report"
+	@echo "  make clean                Remove venv and caches"
+	@echo ""
+	@echo "End-to-end tests (real AWS, costs money, ~10-15 min per suite):"
+	@echo "  make test-e2e             List available e2e suites"
+	@echo "  make test-e2e-connector   Connector smoke: count/find/sql/load via dataframe"
+	@echo "  make test-e2e-cleanup     Delete orphaned items left by a crashed e2e run"
 
 install:
 	$(PYTHON) -m venv $(VENV)
@@ -45,3 +50,22 @@ clean:
 	rm -rf $(VENV) .pytest_cache
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name .coverage -delete
+
+# --- e2e targets -------------------------------------------------------------
+# Each e2e suite is opt-in; 'make test' never runs them. They prompt for AWS
+# config on first run and persist answers to tests/e2e/.e2e-config (gitignored).
+
+test-e2e:
+	@echo "Available e2e suites:"
+	@echo "  make test-e2e-connector   Connector smoke: count/find/sql/load via dataframe"
+	@echo ""
+	@echo "First run prompts for account, region, and test tables."
+	@echo "Subsequent runs use tests/e2e/.e2e-config (delete to re-prompt)."
+
+test-e2e-connector:
+	$(PYTEST) tests/e2e/connector -s -v --tb=short --no-cov \
+	  --override-ini="testpaths=tests/e2e" \
+	  --e2e-suite="connector smoke"
+
+test-e2e-cleanup:
+	$(VENV)/bin/python -m tests.e2e.helpers.cleanup
