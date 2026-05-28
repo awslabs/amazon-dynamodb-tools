@@ -23,6 +23,8 @@ from python_modules.shared.rate_limiter import (
 from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info, get_and_print_table_scan_cost,
     get_dynamodb_throughput_configs)
+from python_modules.shared.glue_connector import (
+    count_dynamodb_table, read_dynamodb_dataframe)
 
 
 def print_dynamodb_table_info(table_name, is_delete, **kwargs):
@@ -100,29 +102,20 @@ def run(job, spark_context, glue_context, parsed_args):
     if ORDERBY:
         ORDERBY = parse_sort_order(ORDERBY)
 
-    connection_options = {
-        "dynamodb.input.tableName": DYNAMO_DB_TABLE_NAME,
-        "dynamodb.splits": str(DYNAMO_DB_NUMBER_OF_SPLITS),
-        "dynamodb.consistentRead": "false",
-        **get_dynamodb_throughput_configs(parsed_args, DYNAMO_DB_TABLE_NAME, modes=["read"])
-    }
-    #print(f"Connection options: {connection_options}...")
-
-    # Create a DynamoDB data source
-    dynamo_data_source = glue_context.create_dynamic_frame.from_options(
-        connection_type="dynamodb",
-        connection_options=connection_options
-    )
-
     # Shortcut: if it's a simple full table count we don't need to convert to a DataFrame, just count directly
     if DO_COUNT and not (WHERE or ORDERBY or LIMIT):
-        print(f"Count of matching items: {dynamo_data_source.count():,}")
+        count = count_dynamodb_table(
+            glue_context, DYNAMO_DB_TABLE_NAME, parsed_args,
+            splits=DYNAMO_DB_NUMBER_OF_SPLITS)
+        print(f"Count of matching items: {count:,}")
 
     # OK, we're gonna convert the DynamicFrame to a DataFrame for processing
     else:
         # Suppress dataframe.py warning that might confuse users
         warnings.filterwarnings("ignore", message="DataFrame constructor is internal. Do not directly use it.")
-        records = dynamo_data_source.toDF()
+        records = read_dynamodb_dataframe(
+            glue_context, DYNAMO_DB_TABLE_NAME, parsed_args,
+            splits=DYNAMO_DB_NUMBER_OF_SPLITS)
 
         needsRepartitioning = False
 
