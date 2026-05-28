@@ -10,6 +10,7 @@ from python_modules.shared.logger import log
 from python_modules.shared.pricing import PricingUtility
 from python_modules.shared.table_info import get_dynamodb_throughput_configs
 from python_modules.shared.table_info import get_and_print_dynamodb_table_info
+from python_modules.shared.glue_connector import write_dynamodb_dataframe
 
 
 def read_data(glueContext, path, parsed_args):
@@ -80,10 +81,6 @@ def run(job, spark_context, glue_context, parsed_args):
         log.error("The S3 uri provided doesn't exist / is not a file")
         return
 
-    # Get throughput configuration (put this early so any output prints ahead of work)
-    connection_options = get_dynamodb_throughput_configs(parsed_args, table_name, modes=["write"])
-    connection_options["dynamodb.output.tableName"] = table_name
-
     dynamicFrame = read_data(glue_context, s3_path, parsed_args)
 
     count = 0
@@ -108,11 +105,8 @@ def run(job, spark_context, glue_context, parsed_args):
         print_dynamodb_table_info(session, table_name, count, check_dynamic_frame_avg_size(dynamicFrame))
 
         dynamicFrame = dynamicFrame.repartition(30)
-        glue_context.write_dynamic_frame_from_options(
-            frame=dynamicFrame,
-            connection_type="dynamodb",
-            connection_options=connection_options
-        )
+        write_dynamodb_dataframe(
+            glue_context, dynamicFrame, table_name, parsed_args)
         log.info(f"Wrote {count} items to '{table_name}'")
     except Exception as e:
         raise Exception(f"Error in writing to table: {get_error_message(e)}") from None
