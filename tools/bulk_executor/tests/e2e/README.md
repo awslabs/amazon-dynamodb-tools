@@ -51,6 +51,25 @@ DPU-seconds (from `glue.get_job_run`). A Connector Smoke Report appears at the
 end of the run and also lands in
 `tests/e2e/results/connector-smoke-<timestamp>.md`.
 
+### Coverage gaps (followup PR)
+
+The connector wrapper is exercised end-to-end on every code path it exposes
+(read, write, count). What's **not** covered yet is verb-specific
+orchestration on top of the wrapper:
+
+- `delete` — read + scoped DDB writes (delete-by-key, delete-by-where, delete-by-orderby+limit)
+- `copy` — cross-region/cross-account read+write
+- `fill` — pure-write via generators (write_dynamodb_dataframe path)
+- `update` — read + transformed-write via generators
+- `load-export` — DynamoDB-export S3 prefix parsing + write
+- `diff` — segmented reads across two tables
+
+Each of these is a *combination* of the three primitives we already smoke-test,
+so the wrapper's correctness against the new DataFrame source is verified
+transitively. The gap is regression coverage for the verb-specific Spark
+orchestration, particularly important after the Glue 4.0→5.0 jump (PR #162).
+Tracked as a followup suite (`make test-e2e-verbs`) in a separate PR.
+
 ## Cleanup
 
 The load smoke step writes 10 items per run with a unique partition-key
