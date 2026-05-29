@@ -1,8 +1,8 @@
 # Bulk Executor for Amazon DynamoDB
 
-![tests](https://img.shields.io/badge/tests-1273%20passing-brightgreen)
-![line coverage](https://img.shields.io/badge/line%20coverage-99.7%25-brightgreen)
-![branch coverage](https://img.shields.io/badge/branch%20coverage-96.8%25-brightgreen)
+![tests](https://img.shields.io/badge/tests-1219%20passing-brightgreen)
+![line coverage](https://img.shields.io/badge/line%20coverage-95.4%25-brightgreen)
+![branch coverage](https://img.shields.io/badge/branch%20coverage-92.2%25-brightgreen)
 
 Bulk Executor for Amazon DynamoDB lets you efficiently run bulk commands against even large tables. It:
 
@@ -205,17 +205,20 @@ The bootstrap must be performed by a role with this policy at minimum:
     "Version": "2012-10-17",
     "Statement": [
         {
-            "Sid": "wildcards",
+            "Sid": "glueRoleAdmin",
             "Effect": "Allow",
             "Action": [
-                "iam:ListAttachedRolePolicies",
                 "iam:GetRole",
                 "iam:CreateRole",
                 "iam:DeleteRole",
                 "iam:AttachRolePolicy",
-                "iam:DetachRolePolicy"
+                "iam:DetachRolePolicy",
+                "iam:ListAttachedRolePolicies",
+                "iam:PutRolePolicy",
+                "iam:DeleteRolePolicy",
+                "iam:ListRolePolicies"
             ],
-            "Resource": "*"
+            "Resource": "arn:aws:iam::*:role/AWSGlueServiceRole*"
         },
         {
             "Sid": "passrole",
@@ -258,6 +261,19 @@ The bootstrap must be performed by a role with this policy at minimum:
             ],
             "Resource": [
                 "arn:aws:glue:*:*:job/bulk_dynamodb"
+            ]
+        },
+        {
+            "Sid": "glueConnection",
+            "Effect": "Allow",
+            "Action": [
+                "glue:CreateConnection",
+                "glue:GetConnection",
+                "glue:DeleteConnection"
+            ],
+            "Resource": [
+                "arn:aws:glue:*:*:catalog",
+                "arn:aws:glue:*:*:connection/bulk-dynamodb-connection"
             ]
         },
         {

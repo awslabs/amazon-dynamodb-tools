@@ -50,7 +50,7 @@ WARN_LOG_MESSAGE_KEYS = [
 
 _ENV_OR_SCRIPT_KEYS = set([
     'XMaxWriteRate',
-    'XMaxReadRate'
+    'XMaxReadRate',
 ])
 
 # We can perhaps move this somewhere else later

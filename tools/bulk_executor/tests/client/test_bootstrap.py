@@ -665,6 +665,7 @@ class TestBootstrapOrchestrator:
     def test_bootstrap_calls_each_step_in_order(self, bootstrap):
         bootstrap._add_glue_job_role = MagicMock()
         bootstrap._create_glue_log_groups = MagicMock()
+        bootstrap._ensure_dynamodb_glue_connection = MagicMock()
         bootstrap._create_or_update_glue_job = MagicMock()
         bootstrap._upload_job_root_to_s3 = MagicMock()
         bootstrap.update_python_modules_in_s3 = MagicMock()
@@ -673,6 +674,7 @@ class TestBootstrapOrchestrator:
         manager = MagicMock()
         manager.attach_mock(bootstrap._add_glue_job_role, 'add_role')
         manager.attach_mock(bootstrap._create_glue_log_groups, 'log_groups')
+        manager.attach_mock(bootstrap._ensure_dynamodb_glue_connection, 'connection')
         manager.attach_mock(bootstrap._create_or_update_glue_job, 'create_job')
         manager.attach_mock(bootstrap._upload_job_root_to_s3, 'upload_root')
         manager.attach_mock(bootstrap.update_python_modules_in_s3, 'modules')
@@ -681,14 +683,91 @@ class TestBootstrapOrchestrator:
         args = {'XRole': 'READ-ONLY'}
         bootstrap.bootstrap(args)
 
+        # Connection MUST come before create_job — Glue requires the
+        # connection to exist before a job can be created with it
+        # attached via Connections={'Connections': [name]}.
         assert manager.mock_calls == [
             call.add_role(args),
             call.log_groups(),
+            call.connection(),
             call.create_job(args),
             call.upload_root(),
             call.modules(),
             call.props(),
         ]
+
+
+class TestEnsureDynamodbGlueConnection:
+    """The DataFrame-based DynamoDB connector requires this connection."""
+
+    def test_existing_connection_is_a_noop(self, bootstrap):
+        # get_connection succeeds → no create_connection call.
+        bootstrap.glue_client.get_connection.return_value = {'Connection': {}}
+
+        bootstrap._ensure_dynamodb_glue_connection()
+
+        from infrastructure.constants import GLUE_DYNAMODB_CONNECTION_NAME
+        bootstrap.glue_client.get_connection.assert_called_once_with(
+            Name=GLUE_DYNAMODB_CONNECTION_NAME
+        )
+        bootstrap.glue_client.create_connection.assert_not_called()
+
+    def test_missing_connection_is_created(self, bootstrap):
+        from infrastructure.constants import GLUE_DYNAMODB_CONNECTION_NAME
+
+        class _ENF(Exception):
+            pass
+
+        bootstrap.glue_client.exceptions.EntityNotFoundException = _ENF
+        bootstrap.glue_client.get_connection.side_effect = _ENF()
+
+        bootstrap._ensure_dynamodb_glue_connection()
+
+        bootstrap.glue_client.create_connection.assert_called_once()
+        ci = bootstrap.glue_client.create_connection.call_args.kwargs['ConnectionInput']
+        assert ci['Name'] == GLUE_DYNAMODB_CONNECTION_NAME
+        assert ci['ConnectionType'] == 'DYNAMODB'
+        assert ci['ConnectionProperties'] == {}
+        # ValidateForComputeEnvironments must include SPARK so Glue loads
+        # the DynamoDB DataFrame connector library.
+        assert 'SPARK' in ci['ValidateForComputeEnvironments']
+
+    def test_create_failure_exits(self, bootstrap):
+        class _ENF(Exception):
+            pass
+
+        bootstrap.glue_client.exceptions.EntityNotFoundException = _ENF
+        bootstrap.glue_client.get_connection.side_effect = _ENF()
+        bootstrap.glue_client.create_connection.side_effect = RuntimeError('boom')
+
+        with pytest.raises(SystemExit):
+            bootstrap._ensure_dynamodb_glue_connection()
+
+
+class TestCreateJobAttachesConnection:
+    """Both job-creation paths must wire the DYNAMODB connection."""
+
+    def test_update_path_includes_connections(self, bootstrap):
+        from infrastructure.constants import GLUE_DYNAMODB_CONNECTION_NAME
+
+        with patch('infrastructure.bootstrap.is_existing_glue_job', return_value=True):
+            bootstrap._create_or_update_glue_job({})
+
+        kwargs = bootstrap.glue_client.update_job.call_args.kwargs['JobUpdate']
+        assert kwargs['Connections'] == {
+            'Connections': [GLUE_DYNAMODB_CONNECTION_NAME]
+        }
+
+    def test_create_path_includes_connections(self, bootstrap):
+        from infrastructure.constants import GLUE_DYNAMODB_CONNECTION_NAME
+
+        with patch('infrastructure.bootstrap.is_existing_glue_job', return_value=False):
+            bootstrap._create_or_update_glue_job({})
+
+        kwargs = bootstrap.glue_client.create_job.call_args.kwargs
+        assert kwargs['Connections'] == {
+            'Connections': [GLUE_DYNAMODB_CONNECTION_NAME]
+        }
 
 
 # -- __init__ wiring ----------------------------------------------------
