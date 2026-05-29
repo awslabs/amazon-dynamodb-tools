@@ -205,17 +205,20 @@ The bootstrap must be performed by a role with this policy at minimum:
     "Version": "2012-10-17",
     "Statement": [
         {
-            "Sid": "wildcards",
+            "Sid": "glueRoleAdmin",
             "Effect": "Allow",
             "Action": [
-                "iam:ListAttachedRolePolicies",
                 "iam:GetRole",
                 "iam:CreateRole",
                 "iam:DeleteRole",
                 "iam:AttachRolePolicy",
-                "iam:DetachRolePolicy"
+                "iam:DetachRolePolicy",
+                "iam:ListAttachedRolePolicies",
+                "iam:PutRolePolicy",
+                "iam:DeleteRolePolicy",
+                "iam:ListRolePolicies"
             ],
-            "Resource": "*"
+            "Resource": "arn:aws:iam::*:role/AWSGlueServiceRole*"
         },
         {
             "Sid": "passrole",
