@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install test test-client test-server coverage clean test-e2e test-e2e-connector test-e2e-cleanup
+.PHONY: help install test test-client test-server coverage clean test-e2e test-e2e-connector test-e2e-cleanup test-e2e-security test-e2e-security-simulator test-e2e-security-real
 
 VENV := .venv
 PIP := $(VENV)/bin/pip
@@ -19,9 +19,12 @@ help:
 	@echo "  make clean                Remove venv and caches"
 	@echo ""
 	@echo "End-to-end tests (real AWS, costs money, ~10-15 min per suite):"
-	@echo "  make test-e2e             List available e2e suites"
-	@echo "  make test-e2e-connector   Connector smoke: count/find/sql/load via dataframe"
-	@echo "  make test-e2e-cleanup     Delete orphaned items left by a crashed e2e run"
+	@echo "  make test-e2e                       List available e2e suites"
+	@echo "  make test-e2e-connector             Connector smoke: count/find/sql/load via dataframe"
+	@echo "  make test-e2e-security              Security: simulator + real-bootstrap (~3 min, ~\$$0)"
+	@echo "  make test-e2e-security-simulator    Security tier 1 only: iam:SimulateCustomPolicy"
+	@echo "  make test-e2e-security-real         Security tier 2 only: real temp IAM user + bootstrap"
+	@echo "  make test-e2e-cleanup               Delete orphaned items left by a crashed e2e run"
 
 install:
 	$(PYTHON) -m venv $(VENV)
@@ -58,6 +61,7 @@ clean:
 test-e2e:
 	@echo "Available e2e suites:"
 	@echo "  make test-e2e-connector   Connector smoke: count/find/sql/load via dataframe"
+	@echo "  make test-e2e-security    IAM doc validation: simulator + real bootstrap"
 	@echo ""
 	@echo "First run prompts for account, region, and test tables."
 	@echo "Subsequent runs use tests/e2e/.e2e-config (delete to re-prompt)."
@@ -66,6 +70,23 @@ test-e2e-connector:
 	$(PYTEST) tests/e2e/connector -s -v --tb=short --no-cov \
 	  --override-ini="testpaths=tests/e2e" \
 	  --e2e-suite="connector smoke"
+
+# Security suite: simulator runs first so the real IAM-creating tier
+# auto-skips if the documented policy already fails simulation.
+test-e2e-security:
+	$(PYTEST) tests/e2e/security -s -v --tb=short --no-cov \
+	  --override-ini="testpaths=tests/e2e" \
+	  --e2e-suite="security (IAM doc validation)"
+
+test-e2e-security-simulator:
+	$(PYTEST) tests/e2e/security/test_simulator.py -s -v --tb=short --no-cov \
+	  --override-ini="testpaths=tests/e2e" \
+	  --e2e-suite="security simulator"
+
+test-e2e-security-real:
+	$(PYTEST) tests/e2e/security/test_real_bootstrap.py -s -v --tb=short --no-cov \
+	  --override-ini="testpaths=tests/e2e" \
+	  --e2e-suite="security real-bootstrap"
 
 test-e2e-cleanup:
 	$(VENV)/bin/python -m tests.e2e.helpers.cleanup
