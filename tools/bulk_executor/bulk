@@ -29,7 +29,7 @@ def _show_missing_module(action):
         import os
         files = os.listdir(path)
         modules = [
-            f[:-3] for f in files
+            f[:-3].replace('_', '-') for f in files
             if f.endswith('.py') and not f.startswith('__')
         ]
         for module in sorted(modules):
