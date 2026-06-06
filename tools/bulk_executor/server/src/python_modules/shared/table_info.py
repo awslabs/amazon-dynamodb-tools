@@ -318,14 +318,14 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
         billing_mode = table_desc.get('BillingModeSummary', {}).get('BillingMode', 'PROVISIONED')
         is_on_demand_table = billing_mode == 'PAY_PER_REQUEST'
     except Exception as e:
-        log.info(f"Warning: Could not retrieve table information: {str(e)}")
+        log.info(f"[{table_name}] Warning: Could not retrieve table information: {str(e)}")
         is_on_demand_table = False
         table_desc = {}
 
     # Handle read throughput
     if "read" in modes:
         if read_rate:
-            log.info(f"Max read rate set to specified limit: {read_rate}")
+            log.info(f"[{table_name}] Max read rate set to specified limit: {read_rate}")
         elif is_on_demand_table:
             # Check for table-specific limit
             on_demand_throughput = table_desc.get('OnDemandThroughput', {})
@@ -336,29 +336,29 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
                 quota_read_limit = get_quota_value("Table-level read throughput limit", region_name)
                 if quota_read_limit is not None:
                     read_rate = quota_read_limit
-                    log.info(f"Max read rate set to account quota limit: {read_rate}")
+                    log.info(f"[{table_name}] Max read rate set to account quota limit: {read_rate}")
                 else:
                     # Default for on-demand tables
                     read_rate = DEFAULT_ON_DEMAND_CAPACITY
-                    log.info(f"Max read rate set to default on-demand limit: {read_rate}")
+                    log.info(f"[{table_name}] Max read rate set to default on-demand limit: {read_rate}")
             else:
                 read_rate = table_read_limit
-                log.info(f"Max read rate set to table-specific on-demand limit: {read_rate}")
+                log.info(f"[{table_name}] Max read rate set to table-specific on-demand limit: {read_rate}")
         else:
             provisioned_read = table_desc.get('ProvisionedThroughput', {}).get('ReadCapacityUnits')
             if provisioned_read:
                 read_rate = provisioned_read
-                log.info(f"Max read rate set to {read_rate} RCUs (based on provisioned capacity)")
+                log.info(f"[{table_name}] Max read rate set to {read_rate} RCUs (based on provisioned capacity)")
             else:
-                log.info(f"Max read rate set internally by Glue (no provisioned level found)") # shouldn't happen
+                log.info(f"[{table_name}] Max read rate set internally by Glue (no provisioned level found)") # shouldn't happen
 
         if int(read_rate) < MIN_RECOMMENDED_READ_RATE:
-            log.warn(f"Read rate {read_rate} less than recommended value of {MIN_RECOMMENDED_READ_RATE}.")
+            log.warn(f"[{table_name}] Read rate {read_rate} less than recommended value of {MIN_RECOMMENDED_READ_RATE}.")
 
     # Handle write throughput
     if "write" in modes:
         if write_rate:
-            log.info(f"Max write rate set to specified limit: {write_rate}")
+            log.info(f"[{table_name}] Max write rate set to specified limit: {write_rate}")
         elif is_on_demand_table:
             # Check for table-specific limit
             on_demand_throughput = table_desc.get('OnDemandThroughput', {})
@@ -369,25 +369,25 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
                 quota_write_limit = get_quota_value("Table-level write throughput limit", region_name)
                 if quota_write_limit is not None:
                     write_rate = quota_write_limit
-                    log.info(f"Max write rate set to account quota limit: {write_rate}")
+                    log.info(f"[{table_name}] Max write rate set to account quota limit: {write_rate}")
                 else:
                     # Default for on-demand tables
                     write_rate = DEFAULT_ON_DEMAND_CAPACITY
-                    log.info(f"Max write rate set to default on-demand limit: {write_rate}")
+                    log.info(f"[{table_name}] Max write rate set to default on-demand limit: {write_rate}")
             else:
                 write_rate = table_write_limit
-                log.info(f"Max write rate set to table-specific on-demand limit: {write_rate}")
+                log.info(f"[{table_name}] Max write rate set to table-specific on-demand limit: {write_rate}")
         else:
             # For provisioned tables, use the percentage approach
             provisioned_write = table_desc.get('ProvisionedThroughput', {}).get('WriteCapacityUnits')
             if provisioned_write:
                 write_rate = provisioned_write
-                log.info(f"Max write rate set to {write_rate} WCUs (based on provisioned capacity)")
+                log.info(f"[{table_name}] Max write rate set to {write_rate} WCUs (based on provisioned capacity)")
             else:
-                log.info(f"Max write rate set internally by Glue (no provisioned level found)") # shouldn't happen
+                log.info(f"[{table_name}] Max write rate set internally by Glue (no provisioned level found)") # shouldn't happen
 
         if int(write_rate) < MIN_RECOMMENDED_WRITE_RATE:
-            log.warn(f"Write rate {write_rate} less than recommended value of {MIN_RECOMMENDED_WRITE_RATE}.")
+            log.warn(f"[{table_name}] Write rate {write_rate} less than recommended value of {MIN_RECOMMENDED_WRITE_RATE}.")
 
     if format == "connector":
         # Now let's convert the read_rate and write_rate into connection_options
