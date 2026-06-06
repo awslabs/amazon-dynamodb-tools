@@ -37,8 +37,23 @@ _logger_module = types.ModuleType('shared.logger')
 _logger_module.log = _real_logger
 _logger_module.init = Mock()
 
-for prefix in ['shared', 'python_modules.shared']:
-    sys.modules[prefix] = Mock()
+import pathlib as _pathlib
+
+_server_src = _pathlib.Path(__file__).resolve().parents[2] / "server" / "src"
+
+# Register python_modules.shared as a real package with filesystem path
+# so that shared.export and its submodules resolve naturally
+import types as _types_mod
+
+for prefix, fs_path in [
+    ('shared', str(_server_src / "python_modules" / "shared")),
+    ('python_modules.shared', str(_server_src / "python_modules" / "shared")),
+]:
+    _shared_pkg = _types_mod.ModuleType(prefix)
+    _shared_pkg.__path__ = [fs_path]
+    sys.modules[prefix] = _shared_pkg
+
+    # Mock the non-export shared modules
     sys.modules[f'{prefix}.rate_limiter'] = Mock()
     sys.modules[f'{prefix}.logger'] = _logger_module
     sys.modules[f'{prefix}.errors'] = Mock()

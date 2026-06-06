@@ -21,7 +21,7 @@ help:
 install:
 	$(PYTHON) -m venv $(VENV)
 	$(PIP) install -r requirements.txt
-	$(PIP) install -r tests/server/load_export/requirements-test.txt
+	$(PIP) install -r tests/requirements-test.txt
 
 test:
 	@$(PYTEST) -q --tb=short --cov=server/src --cov=client/src --cov-branch --cov-report= 2>&1 | tail -8
