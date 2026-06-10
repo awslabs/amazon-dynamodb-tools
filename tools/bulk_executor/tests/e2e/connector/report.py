@@ -28,12 +28,12 @@ def render_report(rows: Iterable[PerfRow]) -> None:
         print("\n(no perf rows captured — every test failed before reporting)")
         return
 
-    header = f"{'verb':<10} {'wall':>10} {'dpu_s':>10} {'items':>12}"
+    header = f"{'command':<10} {'wall':>10} {'dpu_s':>10} {'items':>12}"
     sep = "=" * len(header)
     body_lines = []
     for row in rows:
         body_lines.append(
-            f"{row.verb:<10} "
+            f"{row.command:<10} "
             f"{_fmt_seconds(row.wall_seconds):>10} "
             f"{_fmt_dpu(row.dpu_seconds):>10} "
             f"{_fmt_items(row.items):>12}"

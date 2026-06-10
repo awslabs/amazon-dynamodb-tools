@@ -17,19 +17,30 @@ GLUE_JOB_NAME = "bulk_dynamodb"  # the job name created by `bulk bootstrap`
 class JobRunPerf:
     job_run_id: str
     execution_time_s: int          # seconds the job actually billed for
-    max_capacity_dpu: float        # DPUs allocated
-    dpu_seconds: float             # execution_time_s * max_capacity_dpu
+    max_capacity_dpu: float        # DPUs allocated (worker ceiling, not consumption)
+    dpu_seconds: float             # actual DPU-seconds consumed
+    job_run_state: str             # terminal Glue state: SUCCEEDED / FAILED / ...
 
     @classmethod
     def from_response(cls, run_id: str, response: dict) -> "JobRunPerf":
         run = response["JobRun"]
         exec_time = int(run.get("ExecutionTime", 0))
         capacity = float(run.get("MaxCapacity", 0))
+        # Glue reports actual consumption in DPUSeconds directly. Prefer it.
+        # MaxCapacity is the allocated worker *ceiling* (e.g. 220 for G.1X x
+        # 220 workers) — multiplying it by ExecutionTime wildly overstates
+        # cost under auto-scaling, where most workers sit idle. Fall back to
+        # that estimate only when DPUSeconds is absent (older Glue versions /
+        # incomplete runs).
+        dpu_seconds = run.get("DPUSeconds")
+        if dpu_seconds is None:
+            dpu_seconds = exec_time * capacity
         return cls(
             job_run_id=run_id,
             execution_time_s=exec_time,
             max_capacity_dpu=capacity,
-            dpu_seconds=exec_time * capacity,
+            dpu_seconds=float(dpu_seconds),
+            job_run_state=run.get("JobRunState", "UNKNOWN"),
         )
 
 
