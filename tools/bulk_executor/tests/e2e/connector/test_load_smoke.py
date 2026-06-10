@@ -17,9 +17,9 @@ import boto3
 import pytest
 
 from tests.e2e.connector.conftest import PerfRow
+from tests.e2e.helpers.assertions import assert_glue_succeeded
 from tests.e2e.helpers.glue_bucket import discover_bucket
-from tests.e2e.helpers.perf import fetch_perf
-from tests.e2e.helpers.verb_runner import run_verb
+from tests.e2e.helpers.command_runner import run_command
 
 NUM_SMOKE_ITEMS = 10
 PK_PREFIX = "e2e-load-smoke"
@@ -95,19 +95,17 @@ class TestLoadSmoke:
         s3_path = _upload_fixture(bucket, s3_key, body, e2e_config.aws_region)
 
         try:
-            result = run_verb(
+            result = run_command(
                 "load",
                 table=e2e_config.write_table,
                 extra_args=["--format", "csv", "--s3-path", s3_path],
             )
-            assert result.succeeded, (
-                f"load failed (exit {result.exit_code}). "
-                f"Last 500 chars of stderr:\n{result.stderr[-500:]}"
-            )
+            # ./bulk exits 0 even on a failed Glue job, so assert on the
+            # authoritative JobRunState, not the CLI exit code.
+            perf = assert_glue_succeeded("load", result, e2e_config.aws_region)
 
-            perf = fetch_perf(result.job_run_id, e2e_config.aws_region)
             perf_collector.add(PerfRow(
-                verb="load",
+                command="load",
                 wall_seconds=result.wall_seconds,
                 dpu_seconds=perf.dpu_seconds if perf else None,
                 items=NUM_SMOKE_ITEMS,

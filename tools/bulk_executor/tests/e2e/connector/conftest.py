@@ -8,7 +8,7 @@ import pytest
 
 @dataclass
 class PerfRow:
-    verb: str
+    command: str
     wall_seconds: float | None
     dpu_seconds: float | None
     items: int | None = None
