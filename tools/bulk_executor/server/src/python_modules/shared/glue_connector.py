@@ -74,6 +74,16 @@ def write_dynamodb_dataframe(
         df = _ensure_dataframe(frame)
         writer = (
             df.write.format("dynamodb")
+            # Spark's default save mode is ErrorIfExists, which the Glue 5.0
+            # DataFrame-based DynamoDB connector rejects ("TableProvider
+            # implementation dynamodb cannot be written with ErrorIfExists
+            # mode, please use Append or Overwrite modes instead"). DynamoDB
+            # writes are upserts (PutItem semantics), so Append is the
+            # correct mode -- Overwrite would imply truncating the table,
+            # which is not the write contract. The legacy DynamicFrame
+            # writer had no such mode requirement; this is a Glue 4.0->5.0
+            # migration gap.
+            .mode("append")
             .option("dynamodb.output.tableName", table_name)
         )
         rates = _resolve_direct_rates(parsed_args, modes=["write"])
@@ -122,17 +132,27 @@ def _ensure_dataframe(frame):
     Lets call sites pass whatever they already have without forcing each
     one to add a defensive toDF() — the wrapper owns that detail.
     """
-    if hasattr(frame, "toDF") and not _looks_like_dataframe(frame):
+    if _is_dynamic_frame(frame):
         return frame.toDF()
     return frame
 
 
-def _looks_like_dataframe(frame) -> bool:
-    """A DataFrame has .write; a DynamicFrame does not (it has
-    .toDF and .write_dynamic_frame). This avoids importing pyspark.sql
-    just for an isinstance check, which would couple the wrapper to a
-    specific Spark version at import time."""
-    return hasattr(frame, "write") and hasattr(frame, "schema")
+def _is_dynamic_frame(frame) -> bool:
+    """Detect a Glue DynamicFrame positively, by its distinguishing API.
+
+    A Glue ``DynamicFrame`` exposes ``toDF()`` (the conversion to a Spark
+    DataFrame) and ``write_dynamic_frame``; a Spark ``DataFrame`` has
+    neither — so ``toDF`` is the clean discriminator. We detect the
+    DynamicFrame rather than the DataFrame because both types carry
+    ``write`` and ``schema`` attributes (a DynamicFrame's ``.write`` is a
+    *method*, a DataFrame's is a property) — the earlier "has write+schema
+    ⇒ DataFrame" heuristic misclassified DynamicFrames and skipped the
+    needed toDF(), causing ``'function' object has no attribute 'format'``
+    when ``df.write.format(...)`` ran against a DynamicFrame (issue: load
+    on Glue 5.0). Using ``toDF`` avoids importing pyspark/awsglue just for
+    an isinstance check, which would couple this module to a specific Spark
+    version at import time."""
+    return hasattr(frame, "toDF")
 
 
 def _resolve_direct_rates(parsed_args, modes):
