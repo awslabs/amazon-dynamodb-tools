@@ -29,8 +29,8 @@ _JOB_RUN_LINE = re.compile(r"Job run id:\s*(?P<run_id>jr_[0-9a-f]+)", re.IGNOREC
 
 
 @dataclass
-class VerbResult:
-    verb: str
+class CommandResult:
+    command: str
     exit_code: int
     stdout: str
     stderr: str
@@ -42,23 +42,39 @@ class VerbResult:
         return self.exit_code == 0
 
 
-def run_verb(
-    verb: str,
+def run_command(
+    command: str,
     *,
     table: str,
     extra_args: list[str] | None = None,
     timeout_s: int = 1800,
-) -> VerbResult:
-    """Invoke `./bulk <verb> --table <table> ...`.
+) -> CommandResult:
+    """Invoke `./bulk <command> --table <table> ...`.
 
     Returns when the Glue job finishes (success or failure). Raises
     subprocess.TimeoutExpired only if the entire run exceeds ``timeout_s``
     (default 30 min — covers worst-case Glue cold start + runtime).
     """
-    cmd = [
-        str(VENV_PYTHON), str(BULK_CLI), verb,
-        "--table", table,
-    ] + (extra_args or [])
+    return run_command_raw(
+        command,
+        args=["--table", table] + (extra_args or []),
+        timeout_s=timeout_s,
+    )
+
+
+def run_command_raw(
+    command: str,
+    *,
+    args: list[str],
+    timeout_s: int = 1800,
+) -> CommandResult:
+    """Invoke `./bulk <command> <args...>` without auto-adding --table.
+
+    Use this for commands whose argument shape doesn't match the standard
+    `--table <name>` pattern (e.g. `copy`, which takes `--source` /
+    `--target`).
+    """
+    cmd = [str(VENV_PYTHON), str(BULK_CLI), command] + args
 
     proc = subprocess.run(
         cmd,
@@ -76,8 +92,8 @@ def run_verb(
     sys.stdout.write(proc.stdout)
     sys.stderr.write(proc.stderr)
 
-    return VerbResult(
-        verb=verb,
+    return CommandResult(
+        command=command,
         exit_code=proc.returncode,
         stdout=proc.stdout,
         stderr=proc.stderr,
