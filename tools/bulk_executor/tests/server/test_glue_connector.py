@@ -97,10 +97,14 @@ class TestReadDataFrame:
 
 class TestWriteDataFrame:
     def test_uses_dataframe_write_format_dynamodb(self):
-        df = MagicMock()
+        # Realistic Spark DataFrame: has write/schema but NO toDF() (that's
+        # a DynamicFrame method). spec= enforces the absence so the wrapper
+        # uses the frame directly without attempting a conversion.
+        df = MagicMock(spec=['write', 'schema'])
         df.schema = MagicMock()
         writer = MagicMock()
         writer.option.return_value = writer
+        writer.mode.return_value = writer
         df.write.format.return_value = writer
 
         glue_connector.write_dynamodb_dataframe(
@@ -110,6 +114,10 @@ class TestWriteDataFrame:
             parsed_args={},
         )
         df.write.format.assert_called_with('dynamodb')
+        # Glue 5.0 connector rejects the default ErrorIfExists save mode;
+        # DynamoDB upserts require Append. Regression guard for the
+        # "cannot be written with ErrorIfExists mode" failure.
+        writer.mode.assert_called_with('append')
         writer.save.assert_called_once()
         opts = {args[0]: args[1] for args, _ in writer.option.call_args_list}
         assert opts['dynamodb.output.tableName'] == 'out-tbl'
@@ -118,10 +126,11 @@ class TestWriteDataFrame:
         assert 'dynamodb.throughput.write' not in opts
 
     def test_xmax_write_rate_passes_through_as_direct_int(self):
-        df = MagicMock()
+        df = MagicMock(spec=['write', 'schema'])
         df.schema = MagicMock()
         writer = MagicMock()
         writer.option.return_value = writer
+        writer.mode.return_value = writer
         df.write.format.return_value = writer
 
         glue_connector.write_dynamodb_dataframe(
@@ -137,14 +146,30 @@ class TestWriteDataFrame:
         assert opts['dynamodb.throughput.write'] == '75000'
 
     def test_dynamic_frame_input_is_converted_to_dataframe(self):
-        # If a caller hands us a DynamicFrame (anything with .toDF and
-        # without .write/.schema), the wrapper toDF()s it once before
-        # writing.
-        dynamic_frame = MagicMock(spec=['toDF'])
+        # A *realistic* Glue DynamicFrame: it exposes toDF() AND carries
+        # write/schema/write_dynamic_frame attributes (its .write is a
+        # method, not a DataFrameWriter property). The wrapper must detect
+        # it by toDF() and convert before writing — regression guard for
+        # the Glue 5.0 load failure "'function' object has no attribute
+        # 'format'", where a DynamicFrame was misclassified as a DataFrame
+        # and df.write.format(...) blew up. We give .write a side effect
+        # that raises if .format is accessed, so a missed conversion fails
+        # loudly here instead of only at real Glue runtime.
+        dynamic_frame = MagicMock()
+        dynamic_frame.toDF = MagicMock()
+        dynamic_frame.write = MagicMock()
+        dynamic_frame.write.format.side_effect = AssertionError(
+            "df.write.format called on the DynamicFrame — it was not "
+            "converted via toDF() first"
+        )
+        dynamic_frame.write_dynamic_frame = MagicMock()
+        dynamic_frame.schema = MagicMock()
+
         df = MagicMock()
         df.schema = MagicMock()
         writer = MagicMock()
         writer.option.return_value = writer
+        writer.mode.return_value = writer
         df.write.format.return_value = writer
         dynamic_frame.toDF.return_value = df
 
@@ -156,6 +181,26 @@ class TestWriteDataFrame:
         )
         dynamic_frame.toDF.assert_called_once()
         df.write.format.assert_called_with('dynamodb')
+
+    def test_real_dataframe_is_not_converted(self):
+        # A Spark DataFrame has no toDF(); the wrapper must use it directly
+        # and NOT attempt a conversion. spec= without 'toDF' makes hasattr
+        # (frame, 'toDF') False, matching a real DataFrame.
+        df = MagicMock(spec=['write', 'schema'])
+        df.schema = MagicMock()
+        writer = MagicMock()
+        writer.option.return_value = writer
+        writer.mode.return_value = writer
+        df.write.format.return_value = writer
+
+        glue_connector.write_dynamodb_dataframe(
+            glue_context=MagicMock(),
+            frame=df,
+            table_name='tbl',
+            parsed_args={},
+        )
+        df.write.format.assert_called_with('dynamodb')
+        writer.save.assert_called_once()
 
 
 # --- count_dynamodb_table -------------------------------------------------
@@ -203,10 +248,11 @@ class TestLogging:
         assert 's' in msgs
 
     def test_write_logs_table_and_elapsed(self, caplog):
-        df = MagicMock()
+        df = MagicMock(spec=['write', 'schema'])
         df.schema = MagicMock()
         writer = MagicMock()
         writer.option.return_value = writer
+        writer.mode.return_value = writer
         df.write.format.return_value = writer
 
         caplog.set_level(logging.INFO)
