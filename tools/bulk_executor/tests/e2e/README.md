@@ -6,14 +6,14 @@ account. They are opt-in. `make test` will never invoke them.
 ## When to run
 
 - Before merging a source-side PR that touches the Glue connector wrapper, the
-  verb dispatchers, or anything that affects how `bulk` produces Spark jobs.
+  command dispatchers, or anything that affects how `bulk` produces Spark jobs.
 - When verifying that a new bootstrap of `bulk` deploys correctly to a new
   account.
 - When investigating a suspected regression in connector behavior.
 
 ## Cost
 
-Each `make test-e2e-connector` run launches one Glue job per verb (4 total).
+Each `make test-e2e-connector` run launches one Glue job per command (4 total).
 On the smallest Glue capacity, that's a few dollars and ~5-10 minutes of wall
 time. **Don't run it in tight loops.**
 
@@ -39,7 +39,7 @@ Delete that file to be re-prompted.
 
 ## What gets verified
 
-| Verb    | Coverage                                                              |
+| Command | Coverage                                                              |
 |---------|-----------------------------------------------------------------------|
 | `count` | Run on read table; assert returned count is non-negative.             |
 | `find`  | Run with `--limit 100`; assert at least one item came back inline.    |
@@ -51,24 +51,25 @@ DPU-seconds (from `glue.get_job_run`). A Connector Smoke Report appears at the
 end of the run and also lands in
 `tests/e2e/results/connector-smoke-<timestamp>.md`.
 
-### Coverage gaps (followup PR)
+### Command-orchestration coverage
 
-The connector wrapper is exercised end-to-end on every code path it exposes
-(read, write, count). What's **not** covered yet is verb-specific
-orchestration on top of the wrapper:
+The connector suite exercises the wrapper's read/write/count primitives. The
+command suite (`make test-e2e-commands`) covers the command-specific Spark
+orchestration layered on top — particularly important after the Glue 4.0→5.0
+jump (PR #162):
 
-- `delete` — read + scoped DDB writes (delete-by-key, delete-by-where, delete-by-orderby+limit)
-- `copy` — cross-region/cross-account read+write
 - `fill` — pure-write via generators (write_dynamodb_dataframe path)
 - `update` — read + transformed-write via generators
-- `load-export` — DynamoDB-export S3 prefix parsing + write
-- `diff` — segmented reads across two tables
+- `delete` — read + filter + scoped delete via where-predicate
+- `copy` — read-A-write-B in one Spark job (same-region)
+- `diff` — segmented scans + join across two tables
 
-Each of these is a *combination* of the three primitives we already smoke-test,
-so the wrapper's correctness against the new DataFrame source is verified
-transitively. The gap is regression coverage for the verb-specific Spark
-orchestration, particularly important after the Glue 4.0→5.0 jump (PR #162).
-Tracked as a followup suite (`make test-e2e-verbs`) in a separate PR.
+Each command smoke creates its own transient table, asserts exit 0, and tears
+down on exit. See `tests/e2e/commands/README.md` and `specs/e2e-commands.md`.
+
+Still uncovered (followup PRs): `load-export` (needs an export S3 prefix),
+cross-region/cross-account `copy`/`diff`, and `scancount` (bypasses the
+connector by design).
 
 ## Cleanup
 
