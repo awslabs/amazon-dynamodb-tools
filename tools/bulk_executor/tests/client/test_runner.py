@@ -207,6 +207,22 @@ class TestJsonifyMessage:
         expected = 'ERROR something bad \n{\n  "key": "value"\n}'
         assert result == expected
 
+    def test_json_array_payload_is_pretty_printed(self, bulk_runner):
+        # Exercises the second alternation branch of the regex (\[...\]),
+        # confirming array payloads are detected and pretty-printed too.
+        msg = 'ERROR bad list [1, 2, 3]'
+        result = bulk_runner._jsonify_message(msg)
+        expected = 'ERROR bad list \n[\n  1,\n  2,\n  3\n]'
+        assert result == expected
+
+    def test_nested_braces_json_is_pretty_printed(self, bulk_runner):
+        # Nested objects must round-trip through json.loads/json.dumps so the
+        # greedy brace match in the regex captures the full payload.
+        msg = 'WARN nested {"a": {"b": 1}}'
+        result = bulk_runner._jsonify_message(msg)
+        expected = 'WARN nested \n{\n  "a": {\n    "b": 1\n  }\n}'
+        assert result == expected
+
 
 # --- _pretty_print_log_event ------------------------------------------------
 
