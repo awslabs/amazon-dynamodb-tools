@@ -201,14 +201,11 @@ class TestJsonifyMessage:
         # Falls through to fix_newlines (no escapes → identity).
         assert result == 'INFO log message {"a":1}'
 
-    def test_message_matching_error_pattern_falls_back_on_decode_error(self, bulk_runner):
-        # Even a message that matches the regex falls back to _fix_newlines
-        # because the implementation parses group(1) which is the prefix,
-        # not the JSON. This is a known quirk; tests pin current behavior.
+    def test_message_matching_error_pattern_pretty_prints_json(self, bulk_runner):
         msg = 'ERROR something bad {"key": "value"}'
         result = bulk_runner._jsonify_message(msg)
-        # Whatever the result, it should equal _fix_newlines(msg) on fallback.
-        assert result == msg.replace('\\n', '\n').replace('\\t', '\t')
+        expected = 'ERROR something bad \n{\n  "key": "value"\n}'
+        assert result == expected
 
 
 # --- _pretty_print_log_event ------------------------------------------------
