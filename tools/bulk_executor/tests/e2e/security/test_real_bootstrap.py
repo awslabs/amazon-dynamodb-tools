@@ -138,6 +138,15 @@ _NEGATIVE_TEST_SKIP_ACTIONS = {
     "glue:DeleteConnection",
     "s3:DeleteBucket",
     "s3:DeleteObject",
+    # glue:UpdateJob is exercised only on re-bootstrap, when a Glue job
+    # already exists (bootstrap branches: existing job -> update_job, no
+    # job -> create_job; see infrastructure/bootstrap.py). This test always
+    # runs against a fresh temp-IAM-user environment with no pre-existing
+    # job, so it takes the create_job path and removing UpdateJob can never
+    # break it -- a guaranteed false negative. UpdateJob remains genuinely
+    # required (and documented in the README policy) for the re-bootstrap
+    # path; it's just not reachable from this test's first-bootstrap flow.
+    "glue:UpdateJob",
 }
 
 
