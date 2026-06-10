@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install test test-client test-server coverage clean test-e2e test-e2e-connector test-e2e-cleanup test-e2e-security test-e2e-security-simulator test-e2e-security-real
+.PHONY: help install test test-client test-server coverage clean test-e2e test-e2e-connector test-e2e-cleanup test-e2e-security test-e2e-security-simulator test-e2e-security-real test-e2e-commands
 
 VENV := .venv
 PIP := $(VENV)/bin/pip
@@ -24,6 +24,7 @@ help:
 	@echo "  make test-e2e-security              Security: simulator + real-bootstrap (~3 min, ~\$$0)"
 	@echo "  make test-e2e-security-simulator    Security tier 1 only: iam:SimulateCustomPolicy"
 	@echo "  make test-e2e-security-real         Security tier 2 only: real temp IAM user + bootstrap"
+	@echo "  make test-e2e-commands              Bulk-command smokes against transient tables"
 	@echo "  make test-e2e-cleanup               Delete orphaned items left by a crashed e2e run"
 
 install:
@@ -62,6 +63,7 @@ test-e2e:
 	@echo "Available e2e suites:"
 	@echo "  make test-e2e-connector   Connector smoke: count/find/sql/load via dataframe"
 	@echo "  make test-e2e-security    IAM doc validation: simulator + real bootstrap"
+	@echo "  make test-e2e-commands    Bulk-command smokes (fill/update/delete/copy/diff)"
 	@echo ""
 	@echo "First run prompts for account, region, and test tables."
 	@echo "Subsequent runs use tests/e2e/.e2e-config (delete to re-prompt)."
@@ -87,6 +89,14 @@ test-e2e-security-real:
 	$(PYTEST) tests/e2e/security/test_real_bootstrap.py -s -v --tb=short --no-cov \
 	  --override-ini="testpaths=tests/e2e" \
 	  --e2e-suite="security real-bootstrap"
+
+# Commands suite: exercises bulk commands (fill/update/delete/copy/diff)
+# against transient tables created+torn-down per test. No pre-existing
+# tables required.
+test-e2e-commands:
+	$(PYTEST) tests/e2e/commands -s -v --tb=short --no-cov \
+	  --override-ini="testpaths=tests/e2e" \
+	  --e2e-suite="bulk commands"
 
 test-e2e-cleanup:
 	$(VENV)/bin/python -m tests.e2e.helpers.cleanup
