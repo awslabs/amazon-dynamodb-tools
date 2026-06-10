@@ -65,9 +65,14 @@ def base_parsed_args():
 
 # --- read_data --------------------------------------------------------------
 
-@pytest.mark.skip(reason="Asserts against legacy DynamicFrame code path; verb now goes through python_modules.shared.glue_connector wrapper. Tracked in followup: rewrite to assert against wrapper boundary.")
 class TestReadDataCsvFormat:
-    """read_data with format='csv' wires bool and str options correctly."""
+    """read_data with format='csv' wires bool and str options correctly.
+
+    The CSV/JSON/parquet READ path was NOT migrated to the glue_connector
+    wrapper — read_data() still builds a DynamicFrame via
+    glueContext.create_dynamic_frame.from_options. These tests assert against
+    that current read path and pass unchanged.
+    """
 
     def test_csv_defaults_withHeader_true(self, glue_context):
         """Line 45: csv sets withHeader default to True."""
@@ -332,15 +337,24 @@ class TestRunRemoveEmptyStrings:
         map_mock.assert_not_called()
 
 
-@pytest.mark.skip(reason="Asserts against legacy DynamicFrame code path; verb now goes through python_modules.shared.glue_connector wrapper. Followup: rewrite to assert against the wrapper boundary.")
 class TestRunWritePath:
-    """run() repartitions and writes to DynamoDB."""
+    """run() repartitions and writes to DynamoDB via the glue_connector wrapper.
+
+    The write path was migrated from a direct
+    glueContext.write_dynamic_frame_from_options(connection_type='dynamodb', ...)
+    call to write_dynamodb_dataframe(glue_context, dynamicFrame, table_name,
+    parsed_args) from python_modules.shared.glue_connector. These tests assert
+    against that wrapper boundary: load is responsible for repartition(30),
+    calling the wrapper with the right arguments, and wrapping any failure with
+    get_error_message. The wrapper's own behavior (DynamicFrame->DataFrame
+    conversion, dynamodb.output.tableName, XMaxWriteRate throughput) is covered
+    in tests/server/test_glue_connector.py.
+    """
 
     def test_repartition_30_and_write(self, monkeypatch):
-        """Lines 110-115: repartitions to 30 and writes with connection_options."""
+        """Lines 107-110: repartitions to 30 and calls the wrapper with the
+        repartitioned frame, glue_context, table name, and parsed_args."""
         monkeypatch.setattr(load_module, 'check_s3_file_exists', lambda uri: True)
-        monkeypatch.setattr(load_module, 'get_dynamodb_throughput_configs',
-                            lambda *a, **kw: {'dynamodb.throughput': '100'})
         df = MagicMock()
         df.count.return_value = 10
         repartitioned = MagicMock()
@@ -349,23 +363,19 @@ class TestRunWritePath:
         monkeypatch.setattr(load_module, 'print_dynamodb_table_info', lambda *a: None)
         monkeypatch.setattr(load_module, 'check_dynamic_frame_avg_size', lambda df: 50.0)
         monkeypatch.setattr(load_module, 'boto3', MagicMock())
+        write_mock = MagicMock()
+        monkeypatch.setattr(load_module, 'write_dynamodb_dataframe', write_mock)
 
         glue_ctx = MagicMock()
         args = {'table': 'my-tbl', 's3_path': 's3://b/k', 'format': 'json'}
         load_module.run(MagicMock(), MagicMock(), glue_ctx, args)
 
         df.repartition.assert_called_once_with(30)
-        write_call = glue_ctx.write_dynamic_frame_from_options.call_args.kwargs
-        assert write_call['frame'] is repartitioned
-        assert write_call['connection_type'] == 'dynamodb'
-        assert write_call['connection_options']['dynamodb.output.tableName'] == 'my-tbl'
-        assert write_call['connection_options']['dynamodb.throughput'] == '100'
+        write_mock.assert_called_once_with(glue_ctx, repartitioned, 'my-tbl', args)
 
     def test_write_error_wraps_with_get_error_message(self, monkeypatch):
-        """Line 117-118: write exception is wrapped via get_error_message."""
+        """Lines 111-112: wrapper exception is wrapped via get_error_message."""
         monkeypatch.setattr(load_module, 'check_s3_file_exists', lambda uri: True)
-        monkeypatch.setattr(load_module, 'get_dynamodb_throughput_configs',
-                            lambda *a, **kw: {})
         df = MagicMock()
         df.count.return_value = 5
         df.repartition.return_value = df
@@ -375,65 +385,40 @@ class TestRunWritePath:
         monkeypatch.setattr(load_module, 'boto3', MagicMock())
         monkeypatch.setattr(load_module, 'get_error_message',
                             lambda e: f"wrapped:{e}")
+        write_mock = MagicMock(side_effect=RuntimeError('write fail'))
+        monkeypatch.setattr(load_module, 'write_dynamodb_dataframe', write_mock)
 
         glue_ctx = MagicMock()
-        glue_ctx.write_dynamic_frame_from_options.side_effect = RuntimeError('write fail')
         args = {'table': 't', 's3_path': 's3://b/k', 'format': 'json'}
 
         with pytest.raises(Exception, match="Error in writing to table: wrapped:write fail"):
             load_module.run(MagicMock(), MagicMock(), glue_ctx, args)
 
-    def test_connection_options_include_table_name(self, monkeypatch):
-        """Line 85: connection_options gets dynamodb.output.tableName set."""
-        monkeypatch.setattr(load_module, 'check_s3_file_exists', lambda uri: True)
-        monkeypatch.setattr(load_module, 'get_dynamodb_throughput_configs',
-                            lambda *a, **kw: {'key': 'val'})
-        df = MagicMock()
-        df.count.return_value = 1
-        df.repartition.return_value = df
-        monkeypatch.setattr(load_module, 'read_data', lambda *a: df)
-        monkeypatch.setattr(load_module, 'print_dynamodb_table_info', lambda *a: None)
-        monkeypatch.setattr(load_module, 'check_dynamic_frame_avg_size', lambda df: 10.0)
-        monkeypatch.setattr(load_module, 'boto3', MagicMock())
-
-        glue_ctx = MagicMock()
-        args = {'table': 'target-table', 's3_path': 's3://b/k', 'format': 'csv'}
-        load_module.run(MagicMock(), MagicMock(), glue_ctx, args)
-
-        conn_opts = glue_ctx.write_dynamic_frame_from_options.call_args.kwargs['connection_options']
-        assert conn_opts['dynamodb.output.tableName'] == 'target-table'
-        assert conn_opts['key'] == 'val'
+    # DELETED: test_connection_options_include_table_name.
+    # It asserted that load directly built a connection_options dict with
+    # dynamodb.output.tableName for glueContext.write_dynamic_frame_from_options.
+    # That legacy connection-options construction no longer exists in load — the
+    # Glue 5.0 wrapper write_dynamodb_dataframe now owns setting
+    # dynamodb.output.tableName internally. Coverage for that behavior lives in
+    # tests/server/test_glue_connector.py::TestWriteDataFrame
+    # ::test_uses_dataframe_write_format_dynamodb (asserts
+    # opts['dynamodb.output.tableName'] == 'out-tbl'). The remaining contract
+    # load still owns — passing the table name through to the wrapper — is
+    # verified by test_repartition_30_and_write above.
 
 
-@pytest.mark.skip(reason="Asserts against legacy DynamicFrame code path; verb now goes through python_modules.shared.glue_connector wrapper. Followup: rewrite to assert against the wrapper boundary.")
-class TestRunThroughputConfigs:
-    """run() calls get_dynamodb_throughput_configs with write mode."""
-
-    def test_throughput_configs_called_with_write_modes(self, monkeypatch):
-        """Line 84: get_dynamodb_throughput_configs called with modes=['write']."""
-        captured = {}
-        def fake_throughput(args, table, modes):
-            captured['args'] = args
-            captured['table'] = table
-            captured['modes'] = modes
-            return {}
-
-        monkeypatch.setattr(load_module, 'check_s3_file_exists', lambda uri: True)
-        monkeypatch.setattr(load_module, 'get_dynamodb_throughput_configs', fake_throughput)
-        df = MagicMock()
-        df.count.return_value = 1
-        df.repartition.return_value = df
-        monkeypatch.setattr(load_module, 'read_data', lambda *a: df)
-        monkeypatch.setattr(load_module, 'print_dynamodb_table_info', lambda *a: None)
-        monkeypatch.setattr(load_module, 'check_dynamic_frame_avg_size', lambda df: 10.0)
-        monkeypatch.setattr(load_module, 'boto3', MagicMock())
-
-        glue_ctx = MagicMock()
-        args = {'table': 'tbl', 's3_path': 's3://b/k', 'format': 'csv'}
-        load_module.run(MagicMock(), MagicMock(), glue_ctx, args)
-
-        assert captured['table'] == 'tbl'
-        assert captured['modes'] == ['write']
+# DELETED: TestRunThroughputConfigs::test_throughput_configs_called_with_write_modes.
+# It asserted that run() called get_dynamodb_throughput_configs(args, table,
+# modes=['write']) to compute write throughput options before handing them to
+# the legacy DynamicFrame writer. After the Glue 5.0 migration, run() no longer
+# computes or passes throughput configs — write_dynamodb_dataframe resolves
+# write throughput internally from XMaxWriteRate (parsed_args), setting
+# dynamodb.throughput.write on the DataFrame writer. run() does not call
+# get_dynamodb_throughput_configs anymore (the import is now vestigial), so this
+# behavior is genuinely gone from load. Coverage for write-throughput resolution
+# now lives in tests/server/test_glue_connector.py::TestWriteDataFrame
+# ::test_xmax_write_rate_passes_through_as_direct_int (asserts
+# opts['dynamodb.throughput.write'] == '75000' from XMaxWriteRate).
 
 
 # --- check_s3_file_exists ---------------------------------------------------
