@@ -73,7 +73,7 @@ class BulkDynamoDbRunner:
         if json_match:
             try:
                 # Get the JSON part
-                json_str = json_match.group(1)
+                json_str = json_match.group(3)
                 parsed_json = json.loads(json_str)
 
                 # Print the prefix (non-JSON part)
