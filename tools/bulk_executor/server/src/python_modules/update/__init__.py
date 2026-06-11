@@ -115,7 +115,6 @@ def _update_data(monitor_options, table_name, generate, segment, total_segments,
     skipped_count = 0
     failed_count = 0
     scan_kwargs = {
-        "TableName": table_name,
         "Segment": segment,
         "TotalSegments": total_segments
     }
