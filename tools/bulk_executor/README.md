@@ -611,6 +611,23 @@ You can run the script with the --XWaitForDPU parameter in order to print the us
 
 Note that commands that use the DynamoDB connector (`count`, `find`, `delete`, `sql`) will sometimes perform two scans when running against large tables. The cost estimate takes this into account.
 
+## Testing
+
+Bulk Executor has two test layers, both driven from the Makefile in `tools/bulk_executor/`:
+
+* **Unit tests** (`make test`) — fast, offline, no AWS. `awsglue` and `pyspark` are mocked, so the full client + server suite runs in seconds. This is what CI and most development relies on. See [`tests/README.md`](tests/README.md).
+* **End-to-end tests** (`make test-e2e-*`) — opt-in, run **real Glue jobs against real DynamoDB tables** in your own account. These verify the pieces unit tests can't: the live Glue connector, real bootstrap IAM, and the command orchestration end to end (important after a Glue runtime upgrade). They never run as part of `make test`. See [`tests/e2e/README.md`](tests/e2e/README.md).
+
+The e2e harness has three suites:
+
+| Suite | Command | What it checks |
+|-------|---------|----------------|
+| Connector | `make test-e2e-connector` | `count`/`find`/`sql`/`load` against the live DynamoDB DataFrame connector |
+| Commands  | `make test-e2e-commands`  | `fill`/`update`/`delete`/`copy`/`diff` orchestration, each against its own transient table |
+| Security  | `make test-e2e-security`  | the documented bootstrap IAM policy actually bootstraps (and is minimal) |
+
+Each command/connector smoke creates its own short-lived table (`bulk-e2e-<command>-<random>`, tagged `ephemeral=true`) and **tears it down in a `finally` block** even on failure — the suite never touches your existing tables. If a run is hard-killed mid-test, sweep any orphans with `make test-e2e-cleanup`. The first e2e run prompts once for account/region/test-table config and caches it in `tests/e2e/.e2e-config` (gitignored, per-developer).
+
 ## Extensibility (writing custom command scripts)
 
 There are two parts to the bulk executor: the harness and the individual command scripts (the verbs). The core commands are each just Python scripts called by the harness and leveraging the parallelization abilities of Glue Spark. There's a client-side component to each command (a chance to do quick parameter validation, check for table existence, etc) and a server-side component (to perform the bulk execution).
