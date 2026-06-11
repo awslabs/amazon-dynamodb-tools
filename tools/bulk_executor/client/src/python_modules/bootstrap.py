@@ -40,6 +40,7 @@ def run(env_configs):
     parser.add_argument("--XRole", type=validate_role, default=argparse.SUPPRESS, help="The AWS Role to use for executing the action. Specify a custom role name, or use the special keywords READ-ONLY or READ-WRITE to generate a managed role.")
     parser.add_argument("--XMaxConcurrentRuns", type=int, default=argparse.SUPPRESS, help="The maximum number of concurrent runs to allow for the single Glue Job (default is 20).")
     parser.add_argument("--XRetries", type=int, default=argparse.SUPPRESS, help="The max number of Glue Job retries. Defaults to zero to fail a misconfigured Glue Job quickly.")
+    parser.add_argument("--XExistingBucket", type=str, default=argparse.SUPPRESS, help="Use an existing S3 bucket instead of creating a new one. The bucket must exist and be accessible. It should follow the Glue naming prefix convention (aws-glue-*).")
 
     #result = {k: v for k, v in vars(args).items() if v is not None}
     result = parser.parse_args().__dict__
