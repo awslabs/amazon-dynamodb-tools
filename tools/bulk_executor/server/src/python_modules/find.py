@@ -175,7 +175,7 @@ def run(job, spark_context, glue_context, parsed_args):
         elif DO_DELETE:
             keys = get_table_keys(DYNAMO_DB_TABLE_NAME)
 
-            def delete_partition(monitor_options, partition, shared_config, pp_config):
+            def delete_partition(monitor_options, partition, pp_config):
                 poison_pill = PoisonPillWorker(pp_config)
                 rate_limiter_worker = RateLimiterWorker(
                     shared_config=rate_limiter_shared_config,
@@ -237,7 +237,7 @@ def run(job, spark_context, glue_context, parsed_args):
             monitor_options = get_dynamodb_throughput_configs(parsed_args, DYNAMO_DB_TABLE_NAME, modes=["write"], format="monitor")
             try:
                 records.toJSON().foreachPartition(
-                    lambda partition: delete_partition(monitor_options, partition, rate_limiter_shared_config, poison_pill_config)
+                    lambda partition: delete_partition(monitor_options, partition, poison_pill_config)
                 )
             finally:
                 rate_limiter_aggregator.shutdown()
