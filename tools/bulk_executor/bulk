@@ -4,6 +4,7 @@ import importlib
 import sys
 
 sys.path.append('./client/src/')
+import botocore.exceptions
 import utils
 from env_configs import EnvConfigs
 from infrastructure import BootstrapInfrastructure
@@ -83,19 +84,31 @@ action_script_function = _get_action_script_function(action)
 if(action_script_function is None):
     exit(1) # No verb to take additional action on.
 
-env_configs = _get_env_configs()
+try:
+    env_configs = _get_env_configs()
 
-# Run client side verb script
-is_client_and_server_action, processed_args = action_script_function(env_configs)  # Run the client side verb function
+    # Run client side verb script
+    is_client_and_server_action, processed_args = action_script_function(env_configs)  # Run the client side verb function
 
-if(is_client_and_server_action): # Only run the server if the client script DNE or verifies the server script should also be run.
-    # Run server side verb script
-    args = utils.get_args_from_processed_args(processed_args)
-    script_args = utils.convert_client_dict_to_script_args(processed_args)
+    if(is_client_and_server_action): # Only run the server if the client script DNE or verifies the server script should also be run.
+        # Run server side verb script
+        args = utils.get_args_from_processed_args(processed_args)
+        script_args = utils.convert_client_dict_to_script_args(processed_args)
 
-    # Dev Mode - Push new code to S3 without a full bootstrap
-    if(args.get('XDev')):
-        BootstrapInfrastructure(env_configs).update_python_modules_in_s3()
+        # Dev Mode - Push new code to S3 without a full bootstrap
+        if(args.get('XDev')):
+            BootstrapInfrastructure(env_configs).update_python_modules_in_s3()
 
-    # Run the server side verb function (Glue Job)
-    BulkDynamoDbRunner(env_configs).run(args, script_args)
+        # Run the server side verb function (Glue Job)
+        BulkDynamoDbRunner(env_configs).run(args, script_args)
+
+except botocore.exceptions.ClientError as e:
+    error_code = e.response['Error']['Code']
+    error_message = e.response['Error']['Message']
+    print(f"\nError: {error_code} — {error_message}", file=sys.stderr)
+    print("Job failed.", file=sys.stderr)
+    exit(1)
+except botocore.exceptions.BotoCoreError as e:
+    print(f"\nError: {e}", file=sys.stderr)
+    print("Job failed.", file=sys.stderr)
+    exit(1)
