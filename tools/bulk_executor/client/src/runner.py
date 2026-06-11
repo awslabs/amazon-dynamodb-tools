@@ -287,7 +287,7 @@ class BulkDynamoDbRunner:
             job_run_state = response['JobRun']['JobRunState']
             return job_run_state
         except Exception as e:
-            log.error('Error getting job run state!', e)
+            log.error(f'Error getting job run state! {e}')
             exit(f"Error getting job run state! {e}")
 
     def _get_job_run_error_message(self, job_run_id):
@@ -298,7 +298,7 @@ class BulkDynamoDbRunner:
             )
             return response['JobRun'].get('ErrorMessage', None)
         except Exception as e:
-            log.error('Error getting job run ErrorMessage!', e)
+            log.error(f'Error getting job run ErrorMessage! {e}')
             exit(f"Error getting job run ErrorMessage {e}")
 
     def _get_job_run_dpu(self, job_run_id, args):
@@ -314,7 +314,7 @@ class BulkDynamoDbRunner:
             return response['JobRun'].get('DPUSeconds', 0)
 
         except Exception as e:
-            log.error('Error getting job DPU seconds!', e)
+            log.error(f'Error getting job DPU seconds! {e}')
             return -1
 
     def _get_glue_job_arguments(self, args, script_args):
