@@ -1374,3 +1374,67 @@ class TestGetThroughputConfigsReadRateFalsyConnector:
         # but the read percent key is always set.
         assert 'dynamodb.throughput.read' not in opts
         assert opts['dynamodb.throughput.read.percent'] == '1.0'
+
+
+# --- warn_if_timeout_insufficient --------------------------------------------
+
+
+class TestWarnIfTimeoutInsufficient:
+    """Tests for the timeout sufficiency warning."""
+
+    def test_warns_when_duration_exceeds_timeout(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            table_info.warn_if_timeout_insufficient(
+                item_count=6_000_000, read_rate=1000, timeout_minutes=60
+            )
+        assert 'exceeds the configured timeout' in caplog.text
+        assert '60 minutes' in caplog.text
+
+    def test_no_warning_when_within_timeout(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            table_info.warn_if_timeout_insufficient(
+                item_count=1000, read_rate=1000, timeout_minutes=60
+            )
+        assert 'exceeds' not in caplog.text
+
+    def test_no_warning_when_item_count_zero(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            table_info.warn_if_timeout_insufficient(
+                item_count=0, read_rate=1000, timeout_minutes=60
+            )
+        assert 'exceeds' not in caplog.text
+
+    def test_no_warning_when_read_rate_none(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            table_info.warn_if_timeout_insufficient(
+                item_count=1_000_000, read_rate=None, timeout_minutes=60
+            )
+        assert 'exceeds' not in caplog.text
+
+    def test_no_warning_when_timeout_none(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            table_info.warn_if_timeout_insufficient(
+                item_count=1_000_000, read_rate=1000, timeout_minutes=None
+            )
+        assert 'exceeds' not in caplog.text
+
+    def test_shows_hours_for_large_durations(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            table_info.warn_if_timeout_insufficient(
+                item_count=2_000_000_000, read_rate=10000, timeout_minutes=60
+            )
+        assert 'hours' in caplog.text
+
+    def test_handles_string_inputs(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            table_info.warn_if_timeout_insufficient(
+                item_count=6_000_000, read_rate='1000', timeout_minutes='60'
+            )
+        assert 'exceeds the configured timeout' in caplog.text

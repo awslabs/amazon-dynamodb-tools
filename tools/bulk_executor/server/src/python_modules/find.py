@@ -22,7 +22,7 @@ from python_modules.shared.rate_limiter import (
 
 from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info, get_and_print_table_scan_cost,
-    get_dynamodb_throughput_configs)
+    get_dynamodb_throughput_configs, warn_if_timeout_insufficient)
 from python_modules.shared.glue_connector import read_dynamodb_dataframe
 
 
@@ -34,7 +34,7 @@ def print_dynamodb_table_info(table_name, is_delete, **kwargs):
     # If a delete, print how much a delete would likely cost
     if is_delete:
         # Wait for the scan to get the count, then we'll resume here to say what the deletes will cost
-        delete_count = yield
+        delete_count = yield table_info['item_count']
 
         avg_size = math.ceil(table_info['size_bytes'] / (table_info['item_count'] + 1)) # avoid any division by 0
         avg_write_units_per_item = math.ceil(avg_size / 1024)
@@ -55,6 +55,8 @@ def print_dynamodb_table_info(table_name, is_delete, **kwargs):
         elif table_info['billing_mode'] == "PAY_PER_REQUEST":
             print(f"Approx DynamoDB cost for On-demand delete consuming {write_units:,} WRUs (using {region_name} prices): ${od_cost:,.2f}")
         print()
+    else:
+        yield table_info['item_count']
     yield  # to avoid a StopIteration exception
 
 
@@ -71,8 +73,8 @@ def run(job, spark_context, glue_context, parsed_args):
     DO_FIND = glue_job_action == 'find'
 
     # Print the table info, and use a generator in case we need to resume for the deletes
-    print_pricing_generator = print_dynamodb_table_info(DYNAMO_DB_TABLE_NAME, DO_DELETE)
-    table_desc = next(print_pricing_generator)
+    print_pricing_generator = print_dynamodb_table_info(DYNAMO_DB_TABLE_NAME, DO_DELETE, **kwargs)
+    item_count = next(print_pricing_generator)
 
     # We want to convert a string like "foo asc, bar desc" into an object array [asc(foo), desc(bar)]
     def parse_sort_order(sort_order_str):
@@ -96,7 +98,15 @@ def run(job, spark_context, glue_context, parsed_args):
     if ORDERBY:
         ORDERBY = parse_sort_order(ORDERBY)
 
-    # Shortcut: simple full-table count reads once and counts directly
+    throughput_configs = get_dynamodb_throughput_configs(parsed_args, DYNAMO_DB_TABLE_NAME, modes=["read"])
+
+    warn_if_timeout_insufficient(
+        item_count=item_count,
+        read_rate=throughput_configs.get("dynamodb.throughput.read"),
+        timeout_minutes=parsed_args.get('XTimeout')
+    )
+
+    # Shortcut: if it's a simple full table count we don't need to convert to a DataFrame, just count directly
     if DO_COUNT and not (WHERE or ORDERBY or LIMIT):
         df = read_dynamodb_dataframe(
             glue_context, DYNAMO_DB_TABLE_NAME, parsed_args,

@@ -122,16 +122,16 @@ def base_args():
 class TestPrintDynamodbTableInfo:
     """Generator that prints table info and optionally computes delete costs."""
 
-    def test_non_delete_yields_table_info_and_completes(
+    def test_non_delete_yields_item_count_and_completes(
         self, table_info_mocks, boto3_session_mock
     ):
-        """Lines 28-31, 57: non-delete path calls info/cost helpers then yields."""
+        """Non-delete path calls info/cost helpers then yields item_count."""
         gen = find_module.print_dynamodb_table_info('my-table', False)
         result = next(gen)
 
         table_info_mocks.get_and_print_dynamodb_table_info.assert_called_once_with('my-table')
         table_info_mocks.get_and_print_table_scan_cost.assert_called_once()
-        assert result is None or result == table_info_mocks.get_and_print_dynamodb_table_info.return_value
+        assert result == table_info_mocks.get_and_print_dynamodb_table_info.return_value['item_count']
 
     def test_non_delete_second_next_returns_stop_iteration(
         self, table_info_mocks, boto3_session_mock

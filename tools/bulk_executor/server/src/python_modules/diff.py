@@ -12,7 +12,8 @@ from python_modules.shared.errors import get_error_message
 from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info,
     get_and_print_table_scan_cost,
-    get_dynamodb_throughput_configs
+    get_dynamodb_throughput_configs,
+    warn_if_timeout_insufficient
 )
 
 from python_modules.shared.rate_limiter import (
@@ -290,7 +291,8 @@ def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_option
 def print_dynamodb_table_info(table_name, fraction=1.0):
     region_name = boto3.Session().region_name
     table_info = get_and_print_dynamodb_table_info(table_name)
-    return get_and_print_table_scan_cost(table_info, region_name, fraction=fraction)
+    cost = get_and_print_table_scan_cost(table_info, region_name, fraction=fraction)
+    return cost, table_info['item_count']
 
 def run(job, spark_context, glue_context, parsed_args):
     splits = int(parsed_args.get('splits', '400'))
@@ -314,9 +316,9 @@ def run(job, spark_context, glue_context, parsed_args):
         print(f"Sampling {percent} of segments ({sample_size} of {splits} total): {segment_indices}")
         print()
 
-    table1_cost = print_dynamodb_table_info(table1, fraction=true_fraction)
+    table1_cost, table1_item_count = print_dynamodb_table_info(table1, fraction=true_fraction)
     print()
-    table2_cost = print_dynamodb_table_info(table2, fraction=true_fraction)
+    table2_cost, table2_item_count = print_dynamodb_table_info(table2, fraction=true_fraction)
     total_cost = table1_cost + table2_cost
     print()
     print(f"TOTAL DynamoDB cost for scanning both tables (approx): ${total_cost:,.2f}")
@@ -353,6 +355,17 @@ def run(job, spark_context, glue_context, parsed_args):
 
     monitor_options_1 = get_dynamodb_throughput_configs(parsed_args, table1, modes=("read"), format="monitor")
     monitor_options_2 = get_dynamodb_throughput_configs(parsed_args, table2, modes=("read"), format="monitor")
+
+    total_items = table1_item_count + table2_item_count
+    min_read_rate = min(
+        monitor_options_1.get("aggregate_max_read_rate", float('inf')),
+        monitor_options_2.get("aggregate_max_read_rate", float('inf'))
+    )
+    warn_if_timeout_insufficient(
+        item_count=total_items,
+        read_rate=min_read_rate if min_read_rate != float('inf') else None,
+        timeout_minutes=parsed_args.get('XTimeout')
+    )
 
     try:
         rdd2 = rdd.map(lambda worker_id: diff_segment(table1, table2, monitor_options_1, monitor_options_2, worker_id, splits, False, diff_type == 'keys', job_id, use_s3, bucket, broadcast_schema, rate_limiter_shared_config)).collect()

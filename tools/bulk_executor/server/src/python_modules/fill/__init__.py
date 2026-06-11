@@ -21,7 +21,7 @@ from python_modules.shared.rate_limiter import (
     RateLimiterSharedConfig,
     RateLimiterWorker
 )
-from python_modules.shared.table_info import get_dynamodb_throughput_configs
+from python_modules.shared.table_info import get_dynamodb_throughput_configs, warn_if_timeout_insufficient
 
 
 DYNAMO_DB_THROTTLE_EXCEPTION = 'ProvisionedThroughputExceededException'
@@ -111,6 +111,12 @@ def run(job, spark_context, glue_context, parsed_args):
     rate_limiter_aggregator = RateLimiterAggregator(shared_config=rate_limiter_shared_config)
 
     monitor_options = get_dynamodb_throughput_configs(parsed_args, table_name, modes=["write"], format="monitor")
+
+    warn_if_timeout_insufficient(
+        item_count=num_items,
+        read_rate=monitor_options.get("aggregate_max_write_rate"),
+        timeout_minutes=parsed_args.get('XTimeout')
+    )
 
     # Distribute work among partitions, each told how many items to load
     # Handle exceptions (raised or in accumulator) here so we process once instead of once per worker

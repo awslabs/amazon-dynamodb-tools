@@ -12,6 +12,7 @@ from python_modules.shared.table_info import (
     get_and_print_table_scan_cost,
     get_and_print_table_copy_write_cost,
     get_dynamodb_throughput_configs,
+    warn_if_timeout_insufficient,
     _region_from_table_ref
 )
 
@@ -39,6 +40,7 @@ def print_dynamodb_table_info(source_table, target_table):
     total_cost = scan_cost + write_cost
     print(f"TOTAL DynamoDB cost for scanning '{source_table}' and writing to '{target_table}' (approx): ${total_cost:,.2f}")
     print()
+    return source_table_info['item_count']
 
 def run(job, spark_context, glue_context, parsed_args):
     source_table = parsed_args.get('source')
@@ -48,7 +50,7 @@ def run(job, spark_context, glue_context, parsed_args):
     bucket_name = parsed_args.get('s3-bucket-name')
     job_run_id = parsed_args.get("JOB_RUN_ID")
 
-    print_dynamodb_table_info(source_table, target_table)
+    item_count = print_dynamodb_table_info(source_table, target_table)
 
     source_rate_limiter_shared_config = RateLimiterSharedConfig(
         bucket=bucket_name,
@@ -66,6 +68,12 @@ def run(job, spark_context, glue_context, parsed_args):
     # Get monitor options for rate limiting
     source_monitor_options = get_dynamodb_throughput_configs(parsed_args, source_table, modes=["read"], format="monitor")
     target_monitor_options = get_dynamodb_throughput_configs(parsed_args, target_table, modes=["write"], format="monitor")
+
+    warn_if_timeout_insufficient(
+        item_count=item_count,
+        read_rate=source_monitor_options.get("aggregate_max_read_rate"),
+        timeout_minutes=parsed_args.get('XTimeout')
+    )
 
     total_matched_accumulator = spark_context.accumulator(0)
 

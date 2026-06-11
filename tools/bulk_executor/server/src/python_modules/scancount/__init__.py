@@ -31,7 +31,7 @@ from python_modules.shared.rate_limiter import (
 )
 from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info, get_and_print_table_scan_cost,
-    get_dynamodb_throughput_configs)
+    get_dynamodb_throughput_configs, warn_if_timeout_insufficient)
 
 class ListAccumulator(AccumulatorParam):
     def zero(self, initialValue):
@@ -48,6 +48,7 @@ def print_dynamodb_table_info(table_name, index_name=None):
     region_name = boto3.Session().region_name
     table_info = get_and_print_dynamodb_table_info(table_name, index_name)
     _ = get_and_print_table_scan_cost(table_info, region_name)
+    return table_info['item_count']
 
 def run(job, spark_context, glue_context, parsed_args):
     table_name = parsed_args.get('table')
@@ -60,7 +61,7 @@ def run(job, spark_context, glue_context, parsed_args):
     bucket_name = parsed_args.get('s3-bucket-name')
     job_run_id = parsed_args.get("JOB_RUN_ID")
 
-    print_dynamodb_table_info(table_name, index_name)
+    item_count = print_dynamodb_table_info(table_name, index_name)
 
     rate_limiter_shared_config = RateLimiterSharedConfig(
         bucket=bucket_name,
@@ -71,6 +72,12 @@ def run(job, spark_context, glue_context, parsed_args):
 
     # Get monitor options for rate limiting
     monitor_options = get_dynamodb_throughput_configs(parsed_args, table_name, modes=["read"], format="monitor")
+
+    warn_if_timeout_insufficient(
+        item_count=item_count,
+        read_rate=monitor_options.get("aggregate_max_read_rate"),
+        timeout_minutes=parsed_args.get('XTimeout')
+    )
 
     total_matched_accumulator = spark_context.accumulator(0)
 

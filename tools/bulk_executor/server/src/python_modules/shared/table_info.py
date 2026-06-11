@@ -298,6 +298,28 @@ def get_and_print_table_copy_write_cost(source_info, target_info):
         return od_cost
     return 0
 
+def warn_if_timeout_insufficient(item_count, read_rate, timeout_minutes):
+    if not item_count or not read_rate or not timeout_minutes:
+        return
+    read_rate = int(read_rate)
+    if read_rate <= 0:
+        return
+    estimated_seconds = item_count / read_rate
+    estimated_minutes = math.ceil(estimated_seconds / 60)
+    timeout_minutes = int(timeout_minutes)
+    if estimated_minutes > timeout_minutes:
+        hours = estimated_minutes / 60
+        if hours >= 1:
+            duration_str = f"{hours:.1f} hours"
+        else:
+            duration_str = f"{estimated_minutes} minutes"
+        log.warn(
+            f"Estimated job duration (~{duration_str}) exceeds the configured timeout ({timeout_minutes} minutes). "
+            f"The job will likely time out before completing. "
+            f"Consider increasing --XTimeout or reducing the table size / increasing --XMaxReadRate."
+        )
+
+
 def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connector"):
     region_name = _region_from_table_ref(table_name) or _default_region()
     if not region_name:

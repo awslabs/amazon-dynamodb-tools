@@ -841,6 +841,14 @@ class TestGetGlueJobArguments:
         result = bulk_runner._get_glue_job_arguments({}, ['--key', None])
         assert '--key' not in result
 
+    def test_xtimeout_forwarded_from_args(self, bulk_runner):
+        result = bulk_runner._get_glue_job_arguments({'XTimeout': 120}, [])
+        assert result['--XTimeout'] == '120'
+
+    def test_xtimeout_defaults_to_60(self, bulk_runner):
+        result = bulk_runner._get_glue_job_arguments({}, [])
+        assert result['--XTimeout'] == '60'
+
 
 # --- _assert_expected_script_args -------------------------------------------
 

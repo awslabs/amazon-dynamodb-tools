@@ -321,6 +321,7 @@ class BulkDynamoDbRunner:
         arguments = {}
         if args.get('XDebug'):
             arguments['--XDebug'] = str(True)
+        arguments['--XTimeout'] = str(args.get('XTimeout', GlueJobDefaults.Timeout.value))
 
         # Add Unknown Arguments
         for i in range(0, len(script_args), 2):

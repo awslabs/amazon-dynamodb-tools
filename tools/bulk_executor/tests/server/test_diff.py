@@ -853,12 +853,12 @@ class TestPrintDynamodbTableInfo:
     @patch.object(diff_module, 'get_and_print_dynamodb_table_info')
     @patch.object(diff_module, 'get_and_print_table_scan_cost', return_value=1.50)
     @patch.object(diff_module, 'boto3')
-    def test_returns_scan_cost(self, mock_boto3, mock_scan_cost, mock_table_info):
+    def test_returns_scan_cost_and_item_count(self, mock_boto3, mock_scan_cost, mock_table_info):
         mock_boto3.Session.return_value.region_name = 'us-east-1'
         mock_table_info.return_value = {'item_count': 100}
 
         result = diff_module.print_dynamodb_table_info('my-table')
-        assert result == 1.50
+        assert result == (1.50, 100)
         mock_table_info.assert_called_once_with('my-table')
 
     @patch.object(diff_module, 'get_and_print_dynamodb_table_info')
@@ -866,7 +866,7 @@ class TestPrintDynamodbTableInfo:
     @patch.object(diff_module, 'boto3')
     def test_passes_fraction(self, mock_boto3, mock_scan_cost, mock_table_info):
         mock_boto3.Session.return_value.region_name = 'us-west-2'
-        mock_table_info.return_value = {}
+        mock_table_info.return_value = {'item_count': 50}
 
         diff_module.print_dynamodb_table_info('tbl', fraction=0.5)
         call_kwargs = mock_scan_cost.call_args
@@ -890,7 +890,7 @@ class TestRun:
         }
 
     def _setup_run_mocks(self, monkeypatch):
-        monkeypatch.setattr(diff_module, 'print_dynamodb_table_info', MagicMock(return_value=0.10))
+        monkeypatch.setattr(diff_module, 'print_dynamodb_table_info', MagicMock(return_value=(0.10, 1000)))
 
         client_mock = MagicMock()
         client_mock.describe_table.side_effect = [
@@ -1078,7 +1078,7 @@ class TestRun:
         })
 
     def test_total_cost_printed(self, monkeypatch, capsys):
-        monkeypatch.setattr(diff_module, 'print_dynamodb_table_info', MagicMock(return_value=1.25))
+        monkeypatch.setattr(diff_module, 'print_dynamodb_table_info', MagicMock(return_value=(1.25, 1000)))
 
         client_mock = MagicMock()
         client_mock.describe_table.return_value = {

@@ -23,7 +23,7 @@ from python_modules.shared.rate_limiter import (
 )
 from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info, get_and_print_table_scan_cost,
-    get_dynamodb_throughput_configs)
+    get_dynamodb_throughput_configs, warn_if_timeout_insufficient)
 
 class ListAccumulator(AccumulatorParam):
     def zero(self, initialValue):
@@ -42,6 +42,7 @@ def print_dynamodb_table_info(table_name):
     table_info = get_and_print_dynamodb_table_info(table_name)
     _ = get_and_print_table_scan_cost(table_info, region_name)
     print("Cost for writes depends on how many items will be updated!")
+    return table_info['item_count']
 
 def run(job, spark_context, glue_context, parsed_args):
     table_name = parsed_args.get('table')
@@ -56,7 +57,7 @@ def run(job, spark_context, glue_context, parsed_args):
     module = importlib.import_module(f"python_modules.update.{generator_name}")
     generate = getattr(module, generator_function_name)
 
-    print_dynamodb_table_info(table_name)
+    item_count = print_dynamodb_table_info(table_name)
 
     rate_limiter_shared_config = RateLimiterSharedConfig(
         bucket=bucket_name,
@@ -67,6 +68,12 @@ def run(job, spark_context, glue_context, parsed_args):
 
     # Get monitor options for rate limiting
     monitor_options = get_dynamodb_throughput_configs(parsed_args, table_name, modes=["read", "write"], format="monitor")
+
+    warn_if_timeout_insufficient(
+        item_count=item_count,
+        read_rate=monitor_options.get("aggregate_max_read_rate"),
+        timeout_minutes=parsed_args.get('XTimeout')
+    )
 
     updated_accumulator = spark_context.accumulator(0)
     skipped_accumulator = spark_context.accumulator(0)
