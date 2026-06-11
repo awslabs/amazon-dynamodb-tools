@@ -243,6 +243,21 @@ class TestGlueJobArguments:
         with pytest.raises(SystemExit):
             parser.parse_known_args(['--XTimeout', '99999'])
 
+    def test_parses_idle_timeout_via_validator(self):
+        parser = glue_job_arguments()
+        ns, _ = parser.parse_known_args(['--XIdleTimeout', '10'])
+        assert ns.XIdleTimeout == 10
+
+    def test_idle_timeout_validation_rejects_out_of_range(self, capsys):
+        parser = glue_job_arguments()
+        with pytest.raises(SystemExit):
+            parser.parse_known_args(['--XIdleTimeout', '99999'])
+
+    def test_idle_timeout_validation_rejects_zero(self, capsys):
+        parser = glue_job_arguments()
+        with pytest.raises(SystemExit):
+            parser.parse_known_args(['--XIdleTimeout', '0'])
+
     def test_parses_number_of_workers(self):
         parser = glue_job_arguments()
         ns, _ = parser.parse_known_args(['--XNumberOfWorkers', '50'])

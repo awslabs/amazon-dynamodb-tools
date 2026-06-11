@@ -374,6 +374,7 @@ class BulkDynamoDbRunner:
                 NumberOfWorkers=args.get('XNumberOfWorkers', GlueJobDefaults.NumberOfWorkers.value),
                 Timeout=args.get('XTimeout', GlueJobDefaults.Timeout.value),
                 WorkerType=args.get('XWorkerType', GlueJobDefaults.WorkerType.value),
+                IdleTimeout=args.get('XIdleTimeout', GlueJobDefaults.IdleTimeout.value),
             )
             return response['JobRunId']
         except Exception as e:
