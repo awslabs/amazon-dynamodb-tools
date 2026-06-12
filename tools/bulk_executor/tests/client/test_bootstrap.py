@@ -151,6 +151,74 @@ class TestGetRoleName:
         assert 'NoSuchRole' in out
 
 
+# -- _check_custom_role_permissions -------------------------------------
+
+class TestCheckCustomRolePermissions:
+    """Coverage for the custom role minimum-permissions warning."""
+
+    def test_all_permissions_allowed_no_warning(self, bootstrap, caplog):
+        import logging
+        bootstrap.iam_client.simulate_principal_policy.return_value = {
+            'EvaluationResults': [
+                {'EvalActionName': action, 'EvalDecision': 'allowed'}
+                for action in bootstrap.REQUIRED_ACTIONS
+            ]
+        }
+        with caplog.at_level(logging.WARNING):
+            bootstrap._check_custom_role_permissions('GoodRole')
+        assert 'missing required permissions' not in caplog.text
+
+    def test_some_permissions_denied_emits_warning(self, bootstrap, caplog):
+        import logging
+        results = [
+            {'EvalActionName': 'dynamodb:DescribeTable', 'EvalDecision': 'allowed'},
+            {'EvalActionName': 'dynamodb:Scan', 'EvalDecision': 'allowed'},
+            {'EvalActionName': 's3:GetObject', 'EvalDecision': 'implicitDeny'},
+            {'EvalActionName': 's3:PutObject', 'EvalDecision': 'allowed'},
+            {'EvalActionName': 'logs:CreateLogGroup', 'EvalDecision': 'allowed'},
+            {'EvalActionName': 'logs:PutLogEvents', 'EvalDecision': 'allowed'},
+            {'EvalActionName': 'pricing:GetProducts', 'EvalDecision': 'explicitDeny'},
+            {'EvalActionName': 'servicequotas:GetServiceQuota', 'EvalDecision': 'allowed'},
+        ]
+        bootstrap.iam_client.simulate_principal_policy.return_value = {
+            'EvaluationResults': results
+        }
+        with caplog.at_level(logging.WARNING):
+            bootstrap._check_custom_role_permissions('PartialRole')
+        assert 'missing required permissions' in caplog.text
+        assert 's3:GetObject' in caplog.text
+        assert 'pricing:GetProducts' in caplog.text
+        assert 'dynamodb:DescribeTable' not in caplog.text
+
+    def test_simulate_api_error_does_not_block(self, bootstrap, caplog):
+        import logging
+        bootstrap.iam_client.simulate_principal_policy.side_effect = RuntimeError('access denied')
+        with caplog.at_level(logging.DEBUG):
+            bootstrap._check_custom_role_permissions('AnyRole')
+        assert 'Unable to verify permissions' in caplog.text
+
+    def test_constructs_correct_arn(self, bootstrap):
+        bootstrap.iam_client.simulate_principal_policy.return_value = {
+            'EvaluationResults': []
+        }
+        bootstrap._check_custom_role_permissions('MyRole')
+        call_kwargs = bootstrap.iam_client.simulate_principal_policy.call_args.kwargs
+        assert call_kwargs['PolicySourceArn'] == 'arn:aws:iam::123456789012:role/MyRole'
+        assert call_kwargs['ActionNames'] == bootstrap.REQUIRED_ACTIONS
+
+    def test_get_role_name_calls_check_for_custom_role(self, bootstrap):
+        bootstrap._is_existing_role = MagicMock(return_value=True)
+        bootstrap._check_custom_role_permissions = MagicMock()
+        bootstrap._get_role_name({'XRole': 'CustomRole'})
+        bootstrap._check_custom_role_permissions.assert_called_once_with('CustomRole')
+
+    def test_get_role_name_skips_check_for_standard_roles(self, bootstrap):
+        from infrastructure.constants import ROLE_TYPE_READ_ONLY
+        bootstrap._check_custom_role_permissions = MagicMock()
+        bootstrap._get_role_name({'XRole': ROLE_TYPE_READ_ONLY})
+        bootstrap._check_custom_role_permissions.assert_not_called()
+
+
 # -- _is_existing_role --------------------------------------------------
 
 class TestIsExistingRole:
