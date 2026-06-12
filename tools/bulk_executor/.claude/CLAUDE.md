@@ -11,7 +11,7 @@ All python commands must activate the local virtual environment first.
 From the `tools/bulk_executor/` directory:
 
 ```bash
-cd /Users/dantrard/Code/github/amazon-dynamodb-tools/tools/bulk_executor && source .venv/bin/activate && make install && make test
+source .venv/bin/activate && make install && make test
 ```
 
 ### When to run
