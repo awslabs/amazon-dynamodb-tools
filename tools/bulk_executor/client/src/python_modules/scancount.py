@@ -13,6 +13,7 @@ help_text = f"""
         Optional --filter-expression parameter to specify a push-down FilterExpression predicate
         Optional --expression-names parameter to specify the expression names used in the filter-expression
         Optional --expression-values parameter to specify the expression values used in the filter-expression
+        Optional --per-segment flag to print item counts per segment (reveals data skew)
 
     Examples:
         # Count all items in a table
@@ -20,6 +21,9 @@ help_text = f"""
 
         # Count using a filter expression (uses DynamoDB FilterExpression syntax)
         bulk scancount --table audit --filter-expression "#touched > :touched" --expression-names '{{"#touched": "touched"}}' --expression-values '{{":touched":1742359403.0}}'
+
+        # Show per-segment counts to diagnose hot partitions
+        bulk scancount --table orders --per-segment
     """
 
 def json_type(s):
@@ -41,6 +45,7 @@ def run(env_configs):
     parser.add_argument('--expression-names', type=json_type, default=argparse.SUPPRESS, help='Expression names to use')
     parser.add_argument('--expression-values', type=json_type, default=argparse.SUPPRESS, help='Expression values to use')
     parser.add_argument('--index', type=str, default=argparse.SUPPRESS, help='Index to use')
+    parser.add_argument('--per-segment', action='store_true', default=False, help='Print item count per segment to reveal data skew')
     args = parser.parse_args()
 
     if hasattr(args, "filter_expression"):
