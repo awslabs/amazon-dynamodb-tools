@@ -349,9 +349,10 @@ class TestDiffSegment:
     def _make_monitor_options(self):
         return {}
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_identical_tables_no_diffs(self, mock_stream_cls, mock_rl):
+    def test_identical_tables_no_diffs(self, mock_stream_cls, mock_rl, mock_boto3):
         """Two identical single-item streams produce no diffs."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -390,14 +391,17 @@ class TestDiffSegment:
         result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', 'test-bucket',
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
-        assert result == []
+        count, preview = result
+        assert count == 0
+        assert preview == []
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_item_in_a_not_in_b_reported_as_minus(self, mock_stream_cls, mock_rl):
+    def test_item_in_a_not_in_b_reported_as_minus(self, mock_stream_cls, mock_rl, mock_boto3):
         """Item in stream_a but not stream_b appears as '-'."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -439,15 +443,17 @@ class TestDiffSegment:
         result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', 'test-bucket',
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
-        assert len(result) == 1
-        assert result[0].startswith('-')
+        count, preview = result
+        assert count == 1
+        assert preview[0].startswith('-')
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_item_in_b_not_in_a_reported_as_plus(self, mock_stream_cls, mock_rl):
+    def test_item_in_b_not_in_a_reported_as_plus(self, mock_stream_cls, mock_rl, mock_boto3):
         """Item in stream_b but not stream_a appears as '+'."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -484,15 +490,17 @@ class TestDiffSegment:
         result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', 'test-bucket',
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
-        assert len(result) == 1
-        assert result[0].startswith('+')
+        count, preview = result
+        assert count == 1
+        assert preview[0].startswith('+')
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_changed_item_reported_as_star_concise(self, mock_stream_cls, mock_rl):
+    def test_changed_item_reported_as_star_concise(self, mock_stream_cls, mock_rl, mock_boto3):
         """Same pk but different values in concise mode → '*' diff."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -534,15 +542,17 @@ class TestDiffSegment:
         result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', 'test-bucket',
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
-        assert len(result) == 1
-        assert result[0].startswith('*')
+        count, preview = result
+        assert count == 1
+        assert preview[0].startswith('*')
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_changed_item_full_format_shows_minus_plus(self, mock_stream_cls, mock_rl):
+    def test_changed_item_full_format_shows_minus_plus(self, mock_stream_cls, mock_rl, mock_boto3):
         """Same pk but different values in full mode → '-' then '+' lines."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -584,16 +594,18 @@ class TestDiffSegment:
         result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, False, 'job1', False, None,
+            0, 1, False, False, 'job1', 'test-bucket',
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
-        assert len(result) == 2
-        assert result[0].startswith('-')
-        assert result[1].startswith('+')
+        count, preview = result
+        assert count == 2
+        assert preview[0].startswith('-')
+        assert preview[1].startswith('+')
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_with_sort_key_same_pk_different_sk(self, mock_stream_cls, mock_rl):
+    def test_with_sort_key_same_pk_different_sk(self, mock_stream_cls, mock_rl, mock_boto3):
         """Same pk, sk in A not in B → '-'."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -640,15 +652,17 @@ class TestDiffSegment:
         result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', 'test-bucket',
             self._make_schema_broadcast(pk1='pk', sk1='sk', pk2='pk', sk2='sk'),
             self._make_rate_limiter_config()
         )
-        assert any(r.startswith('-') for r in result)
+        count, preview = result
+        assert any(r.startswith('-') for r in preview)
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_with_sort_key_extra_in_b(self, mock_stream_cls, mock_rl):
+    def test_with_sort_key_extra_in_b(self, mock_stream_cls, mock_rl, mock_boto3):
         """Same pk, extra sk in B → '+'."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -695,11 +709,12 @@ class TestDiffSegment:
         result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', 'test-bucket',
             self._make_schema_broadcast(pk1='pk', sk1='sk', pk2='pk', sk2='sk'),
             self._make_rate_limiter_config()
         )
-        plus_lines = [r for r in result if r.startswith('+')]
+        count, preview = result
+        plus_lines = [r for r in preview if r.startswith('+')]
         assert len(plus_lines) == 1
 
     @patch.object(diff_module, 'boto3')
@@ -745,19 +760,21 @@ class TestDiffSegment:
         result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            5, 10, False, True, 'job123', True, 'my-bucket',
+            5, 10, False, True, 'job123', 'my-bucket',
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
-        assert result == 1
+        count, preview = result
+        assert count == 1
         s3_client.put_object.assert_called_once()
         put_kwargs = s3_client.put_object.call_args.kwargs
         assert put_kwargs['Bucket'] == 'my-bucket'
         assert put_kwargs['Key'] == 'job123/5.txt'
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_output_truncated_to_print_limit(self, mock_stream_cls, mock_rl):
-        """Without S3, result is truncated to PRINT_LIMIT."""
+    def test_preview_truncated_to_print_limit(self, mock_stream_cls, mock_rl, mock_boto3):
+        """Preview lines are truncated to PRINT_LIMIT."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
         mock_rl.return_value = mock_rl_instance
@@ -792,14 +809,17 @@ class TestDiffSegment:
         result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', 'test-bucket',
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
-        assert len(result) == diff_module.PRINT_LIMIT
+        count, preview = result
+        assert count == 200
+        assert len(preview) == diff_module.PRINT_LIMIT
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_rate_limiter_shutdown_called(self, mock_stream_cls, mock_rl):
+    def test_rate_limiter_shutdown_called(self, mock_stream_cls, mock_rl, mock_boto3):
         """Rate limiter workers are shut down in finally block."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -821,14 +841,15 @@ class TestDiffSegment:
         diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', 'test-bucket',
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
         assert mock_rl_instance.shutdown.call_count == 2
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_rate_limiter_shutdown_on_exception(self, mock_stream_cls, mock_rl):
+    def test_rate_limiter_shutdown_on_exception(self, mock_stream_cls, mock_rl, mock_boto3):
         """Rate limiter workers are shut down even when an exception occurs."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -840,7 +861,7 @@ class TestDiffSegment:
             diff_module.diff_segment(
                 'table1', 'table2',
                 self._make_monitor_options(), self._make_monitor_options(),
-                0, 1, False, True, 'job1', False, None,
+                0, 1, False, True, 'job1', 'test-bucket',
                 self._make_schema_broadcast(), self._make_rate_limiter_config()
             )
         assert mock_rl_instance.shutdown.call_count == 2
@@ -884,7 +905,6 @@ class TestRun:
             'table': 'table1',
             'table2': 'table2',
             'format': 'keys',
-            's3': None,
             'JOB_RUN_ID': 'job-1',
             's3-bucket-name': 'bucket',
         }
@@ -914,25 +934,26 @@ class TestRun:
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [[], [], [], []]
+        rdd.map.return_value.collect.return_value = [(0, []), (0, []), (0, []), (0, [])]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
         out = capsys.readouterr().out
         assert 'No differences found' in out
 
-    def test_diffs_printed_up_to_limit(self, monkeypatch, capsys):
+    def test_few_diffs_prints_all(self, monkeypatch, capsys):
         self._setup_run_mocks(monkeypatch)
         args = self._base_args()
 
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        diffs = [f'- item{i}' for i in range(50)]
-        rdd.map.return_value.collect.return_value = [diffs]
+        preview = [f'- item{i}' for i in range(5)]
+        rdd.map.return_value.collect.return_value = [(5, preview)]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
         out = capsys.readouterr().out
-        assert '50 differences' in out
+        assert '5 differences' in out
+        assert 's3://bucket/job-1/' in out
 
     def test_diffs_over_limit_shows_truncation(self, monkeypatch, capsys):
         self._setup_run_mocks(monkeypatch)
@@ -941,43 +962,28 @@ class TestRun:
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        diffs = [f'- item{i}' for i in range(150)]
-        rdd.map.return_value.collect.return_value = [diffs]
+        preview = [f'- item{i}' for i in range(diff_module.PRINT_LIMIT)]
+        rdd.map.return_value.collect.return_value = [(150, preview)]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
         out = capsys.readouterr().out
-        assert 'output truncated' in out
-        assert '150 differences' in out
-        assert f'first {diff_module.PRINT_LIMIT}' in out
+        assert f'First {diff_module.PRINT_LIMIT}' in out
+        assert 'more not printed' in out
+        assert 's3://bucket/job-1/' in out
 
-    def test_s3_mode_prints_s3_path(self, monkeypatch, capsys):
+    def test_always_outputs_s3_path(self, monkeypatch, capsys):
         self._setup_run_mocks(monkeypatch)
         args = self._base_args()
-        args['s3'] = True
 
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [5, 3, 0, 2]
+        rdd.map.return_value.collect.return_value = [(5, ['- a']), (3, ['+ b']), (0, []), (2, ['- c'])]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
         out = capsys.readouterr().out
         assert '10 differences' in out
         assert 's3://bucket/job-1/' in out
-
-    def test_s3_mode_no_diffs(self, monkeypatch, capsys):
-        self._setup_run_mocks(monkeypatch)
-        args = self._base_args()
-        args['s3'] = True
-
-        spark_context = MagicMock()
-        rdd = MagicMock()
-        spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [0, 0, 0, 0]
-
-        diff_module.run(MagicMock(), spark_context, MagicMock(), args)
-        out = capsys.readouterr().out
-        assert 'No differences found' in out
 
     def test_sample_fraction_reduces_segments(self, monkeypatch, capsys):
         self._setup_run_mocks(monkeypatch)
@@ -988,7 +994,7 @@ class TestRun:
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [[] for _ in range(10)]
+        rdd.map.return_value.collect.return_value = [(0, []) for _ in range(10)]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
 
@@ -1031,7 +1037,7 @@ class TestRun:
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [[]]
+        rdd.map.return_value.collect.return_value = [(0, [])]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
         agg.shutdown.assert_called_once()
@@ -1068,7 +1074,7 @@ class TestRun:
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [[]]
+        rdd.map.return_value.collect.return_value = [(0, [])]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
 
@@ -1095,7 +1101,7 @@ class TestRun:
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [[]]
+        rdd.map.return_value.collect.return_value = [(0, [])]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
         out = capsys.readouterr().out
@@ -1109,7 +1115,7 @@ class TestRun:
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [[]]
+        rdd.map.return_value.collect.return_value = [(0, [])]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
 
@@ -1121,7 +1127,7 @@ class TestRun:
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [[] for _ in range(400)]
+        rdd.map.return_value.collect.return_value = [(0, []) for _ in range(400)]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
 
@@ -1143,9 +1149,10 @@ class TestDiffSegmentAlignment:
         }
         return broadcast
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_divergent_pks_align_and_report(self, mock_stream_cls, mock_rl):
+    def test_divergent_pks_align_and_report(self, mock_stream_cls, mock_rl, mock_boto3):
         """When pks diverge, the algorithm peeks ahead to align."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -1199,11 +1206,12 @@ class TestDiffSegmentAlignment:
         result = diff_module.diff_segment(
             'table1', 'table2',
             {}, {},
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', 'test-bucket',
             self._make_schema_broadcast(), MagicMock()
         )
-        minus_lines = [r for r in result if r.startswith('-')]
-        plus_lines = [r for r in result if r.startswith('+')]
+        count, preview = result
+        minus_lines = [r for r in preview if r.startswith('-')]
+        plus_lines = [r for r in preview if r.startswith('+')]
         assert len(minus_lines) == 1
         assert len(plus_lines) == 1
         assert '"a"' in minus_lines[0]
@@ -1223,9 +1231,10 @@ class TestDiffSegmentSortKeyEdges:
         }
         return broadcast
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_sk_mode_changed_values_concise(self, mock_stream_cls, mock_rl):
+    def test_sk_mode_changed_values_concise(self, mock_stream_cls, mock_rl, mock_boto3):
         """Same pk, same sk, different non-key attrs in concise → '*'."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -1266,15 +1275,17 @@ class TestDiffSegmentSortKeyEdges:
 
         result = diff_module.diff_segment(
             'table1', 'table2', {}, {},
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', 'test-bucket',
             self._make_schema_broadcast(), MagicMock()
         )
-        assert len(result) == 1
-        assert result[0].startswith('*')
+        count, preview = result
+        assert count == 1
+        assert preview[0].startswith('*')
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_sk_mode_changed_values_full(self, mock_stream_cls, mock_rl):
+    def test_sk_mode_changed_values_full(self, mock_stream_cls, mock_rl, mock_boto3):
         """Same pk, same sk, different non-key attrs in full → '-' then '+'."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -1315,16 +1326,18 @@ class TestDiffSegmentSortKeyEdges:
 
         result = diff_module.diff_segment(
             'table1', 'table2', {}, {},
-            0, 1, False, False, 'job1', False, None,
+            0, 1, False, False, 'job1', 'test-bucket',
             self._make_schema_broadcast(), MagicMock()
         )
-        assert len(result) == 2
-        assert result[0].startswith('-')
-        assert result[1].startswith('+')
+        count, preview = result
+        assert count == 2
+        assert preview[0].startswith('-')
+        assert preview[1].startswith('+')
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_sk_b_greater_than_sk_a(self, mock_stream_cls, mock_rl):
+    def test_sk_b_greater_than_sk_a(self, mock_stream_cls, mock_rl, mock_boto3):
         """sk_a < sk_b → '-' for stream_a item (extra in A at that sk)."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -1370,17 +1383,19 @@ class TestDiffSegmentSortKeyEdges:
 
         result = diff_module.diff_segment(
             'table1', 'table2', {}, {},
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', 'test-bucket',
             self._make_schema_broadcast(), MagicMock()
         )
-        minus_lines = [r for r in result if r.startswith('-')]
-        plus_lines = [r for r in result if r.startswith('+')]
+        count, preview = result
+        minus_lines = [r for r in preview if r.startswith('-')]
+        plus_lines = [r for r in preview if r.startswith('+')]
         assert len(minus_lines) >= 1
         assert len(plus_lines) >= 1
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_sk_a_exhausted_before_b(self, mock_stream_cls, mock_rl):
+    def test_sk_a_exhausted_before_b(self, mock_stream_cls, mock_rl, mock_boto3):
         """A has fewer items for same pk (sk_a becomes None) → remaining B items are '+'."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -1425,15 +1440,17 @@ class TestDiffSegmentSortKeyEdges:
 
         result = diff_module.diff_segment(
             'table1', 'table2', {}, {},
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', 'test-bucket',
             self._make_schema_broadcast(), MagicMock()
         )
-        plus_lines = [r for r in result if r.startswith('+')]
+        count, preview = result
+        plus_lines = [r for r in preview if r.startswith('+')]
         assert len(plus_lines) == 2
 
+    @patch.object(diff_module, 'boto3')
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_sk_b_exhausted_before_a(self, mock_stream_cls, mock_rl):
+    def test_sk_b_exhausted_before_a(self, mock_stream_cls, mock_rl, mock_boto3):
         """B has fewer items for same pk (sk_b becomes None) → remaining A items are '-'."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -1478,10 +1495,11 @@ class TestDiffSegmentSortKeyEdges:
 
         result = diff_module.diff_segment(
             'table1', 'table2', {}, {},
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', 'test-bucket',
             self._make_schema_broadcast(), MagicMock()
         )
-        minus_lines = [r for r in result if r.startswith('-')]
+        count, preview = result
+        minus_lines = [r for r in preview if r.startswith('-')]
         assert len(minus_lines) == 2
 
 

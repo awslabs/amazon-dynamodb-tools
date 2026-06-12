@@ -10,8 +10,8 @@ help_text = f"""
         Required --table parameter
         Required --table2 parameter
         Optional --format parameter to specify 'full' or 'keys' view. Default is keys.
-        Optional --s3 flag to specify if S3 should be used to store the diff output
         Optional --sample-fraction fraction of the table to compare, 1.0 meaning full
+        Saves full output to S3 and prints the top few items to console
 
     Examples:
         bulk diff --table tableBeforeRestore --table2 tableAfterRestore
@@ -33,7 +33,6 @@ def run(env_configs):
     parser.add_argument('--table', required=True, type=str, help='First table name')
     parser.add_argument('--table2', required=True, type=str, help='Second table name')
     parser.add_argument('--format', type=str, default=argparse.SUPPRESS, choices=['full', 'keys'], help='Output format (full or keys)')
-    parser.add_argument('--s3', dest='s3', action='store_true', help='Store the diff output in S3')
     parser.add_argument('--sample-fraction', type=positive_fraction, default=1.0, help='Fraction of segments to diff (e.g., 0.5 for 50%% of segments), must be > 0 and ≤ 1.0, default 1.0')
     args = parser.parse_args()
 
