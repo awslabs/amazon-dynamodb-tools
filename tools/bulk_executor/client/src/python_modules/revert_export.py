@@ -1,4 +1,4 @@
-from utils.export_args import parse_export_args
+from python_modules.shared.export.export_args import parse_export_args
 
 help_text = f"""
     Purpose of "revert-export":
