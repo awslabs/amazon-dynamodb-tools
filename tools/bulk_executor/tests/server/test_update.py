@@ -278,7 +278,7 @@ class TestRunArgumentWiring:
         update_module.run(MagicMock(), spark_context, MagicMock(), base_args)
 
         pc_args = spark_context.parallelize.call_args
-        assert list(pc_args.args[0]) == list(range(800)), "first arg is range(800)"
+        assert sorted(pc_args.args[0]) == list(range(800)), "segments cover 0..799 (shuffled)"
         assert pc_args.args[1] == 800, "numSlices is 800"
 
 

@@ -1,3 +1,4 @@
+import random
 import sys
 
 import boto3
@@ -72,10 +73,14 @@ def run(job, spark_context, glue_context, parsed_args):
     # Since each task might generate errors, let's accumulate them and report intelligently
     error_accumulator = spark_context.accumulator([], ListAccumulator())
 
-    # Distribute work among partitions, each knowing what segment it's to handle
+    # Distribute work among partitions, each knowing what segment it's to handle.
+    # Shuffle segment order so concurrently executing workers hit different DynamoDB
+    # partitions, diffusing read traffic instead of concentrating it on adjacent ranges.
     try:
         parallelize_count = 400
-        rdd = spark_context.parallelize(range(parallelize_count), parallelize_count)
+        segments = list(range(parallelize_count))
+        random.shuffle(segments)
+        rdd = spark_context.parallelize(segments, parallelize_count)
         rdd.foreach(lambda worker_id: _copy_data(source_table, target_table, source_monitor_options, target_monitor_options, worker_id, parallelize_count, total_matched_accumulator, error_accumulator, source_rate_limiter_shared_config, target_rate_limiter_shared_config))
         #rdd.count()
     except Exception as e:

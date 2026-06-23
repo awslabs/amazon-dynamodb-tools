@@ -339,8 +339,12 @@ def run(job, spark_context, glue_context, parsed_args):
         'table2': {'pk': pk2, 'sk': sk2}
     })
 
+    # Shuffle segment order so concurrently executing workers hit different DynamoDB
+    # partitions, diffusing read traffic instead of concentrating it on adjacent ranges.
+    shuffled_segments = list(segment_indices)
+    random.shuffle(shuffled_segments)
     try:
-        rdd = spark_context.parallelize(segment_indices, len(segment_indices))
+        rdd = spark_context.parallelize(shuffled_segments, len(shuffled_segments))
     except Exception as e:
         raise Exception(f"Error in parallel execution: {get_error_message(e)}") from None
 

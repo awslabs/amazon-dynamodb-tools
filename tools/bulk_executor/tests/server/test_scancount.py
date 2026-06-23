@@ -258,7 +258,7 @@ class TestRunArgumentWiring:
         sc_module.run(MagicMock(), spark_context, MagicMock(), base_args)
 
         pc_args = spark_context.parallelize.call_args
-        assert list(pc_args.args[0]) == list(range(200)), "range(200) as first arg"
+        assert sorted(pc_args.args[0]) == list(range(200)), "segments cover 0..199 (shuffled)"
         assert pc_args.args[1] == 200, "numSlices is 200"
 
     def test_total_matched_accumulator_initialized_to_zero(self, monkeypatch, shared_table_info_mocks,
