@@ -1,4 +1,4 @@
-from ..parsers.records import FullExportRecord, IncrementalExportRecord
+from python_modules.shared.export.parsers.records import FullExportRecord, IncrementalExportRecord
 import hashlib
 
 """

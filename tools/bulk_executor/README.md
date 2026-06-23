@@ -116,6 +116,12 @@ Here are some example use cases:
 
 # Load a DynamoDB export into an existing DynamoDB table
 ./bulk load-export --table target --s3-path "s3://<bucket-name>/prefix/AWSDynamoDB/01716790307109-5f9d6aaa" [--transform example]
+
+# Revert an incremental export (undo all writes from that time window)
+./bulk revert-export --table target --s3-path "s3://<bucket-name>/prefix/AWSDynamoDB/01716790307109-5f9d6aaa"
+
+# Revert only specific records using a filter transform
+./bulk revert-export --table target --s3-path "s3://<bucket-name>/prefix/AWSDynamoDB/01716790307109-5f9d6aaa" --transform my_filter
 ```
 
 ## Quick start
@@ -337,7 +343,7 @@ The teardown process will not remove any output written to S3 during bulk execut
 
 ## Run the bulk actions
 
-Once you've completed bootstrapping, the regular bulk script actions can be performed by anyone with permission to run the Glue job. There are various actions available out of the box: `count`, `find`, `delete`, `fill`, `update`, `scancount`, `diff`, and `sql`.
+Once you've completed bootstrapping, the regular bulk script actions can be performed by anyone with permission to run the Glue job. There are various actions available out of the box: `count`, `find`, `delete`, `fill`, `update`, `scancount`, `diff`, `sql`, `load-export`, and `revert-export`.
 
 Executing a bulk job:
 
@@ -523,6 +529,17 @@ If doing cross-account, you need a resource-based policy to enable access. The f
   * `--transform` where you specify the python module used to transform items during load
   * `--XTimeout` for large loads, set this appropriately to ensure Glue job doesn't time out, with a maximum of 10080 minutes (7 days)
 * Note: If there is an updated item in an incremental export and that item does not exist in the destination table, the command will insert this item
+
+#### `revert-export`
+
+* Reverts an incremental export by undoing all writes from that export's time window, in-place on the same table
+* Requires `table` and `s3-path`
+* Only works with incremental exports that have `NEW_AND_OLD_IMAGES` output view - fails fast otherwise
+* Additions become deletes, deletions become puts of the old item, updates become puts of the previous state
+* Accepts an optional `--transform` to filter which records to revert (applied before the revert logic)
+* Best used with:
+  * `--XMaxWriteRate N` where _N_ is the max aggregate write units per second to consume on the destination table
+  * `--XTimeout` for large reverts, set this appropriately to ensure Glue job doesn't time out
 
 
 ## Glue execution parameters

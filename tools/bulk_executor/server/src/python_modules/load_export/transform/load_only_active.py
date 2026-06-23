@@ -1,4 +1,4 @@
-from ..parsers.records import FullExportRecord, IncrementalExportRecord
+from python_modules.shared.export.parsers.records import FullExportRecord, IncrementalExportRecord
 
 """
 This demonstrates how to filter a load to only perform the load for items with certain characteristics. 

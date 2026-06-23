@@ -1,4 +1,4 @@
-from ..parsers.records import FullExportRecord, IncrementalExportRecord
+from python_modules.shared.export.parsers.records import FullExportRecord, IncrementalExportRecord
 
 """
 This example demonstrates how to modify attributes in place while using the table schema to ignore modifying PK/SK values. 

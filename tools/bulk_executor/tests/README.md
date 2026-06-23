@@ -33,9 +33,11 @@ pytest                                                       # all tests
 pytest tests/client                                          # client only
 pytest tests/server                                          # all server tests
 pytest tests/server/diff                                     # diff tests only
+pytest tests/server/shared/export                            # shared code for *_export functionality tests only
 pytest tests/server/load_export                              # load_export tests only
-pytest tests/client/test_validate_s3_path.py -v              # a single file
-pytest --cov=python_modules --cov-branch --cov-report=term-missing
+pytest tests/server/revert_export                            # revert_export tests only
+pytest tests/client/diff/test_validate_s3_path.py -v         # a single file
+pytest --cov=server/src --cov=client/src --cov-branch --cov-report=term-missing
 ```
 
 Test configuration lives in `pytest.ini` at the project root. It sets `pythonpath` to cover both `client/src` and `server/src`, so any subset of tests can be invoked from `tools/bulk_executor/`. The mock bootstrap for `awsglue` and `pyspark` (used by the server-side tests) lives in `tests/server/conftest.py` and runs automatically at pytest collection time.
