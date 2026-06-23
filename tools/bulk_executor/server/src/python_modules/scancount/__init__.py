@@ -23,6 +23,7 @@ class DecimalEncoder(json.JSONDecoder):
 sys.path.append('/server/src')
 from python_modules.shared.errors import *
 from python_modules.shared.logger import log
+from python_modules.shared.poison_pill import PoisonPillConfig, PoisonPillDriver, PoisonPillWorker, _NOOP as _NOOP_POISON_PILL
 from python_modules.shared.pricing import PricingUtility
 from python_modules.shared.rate_limiter import (
     RateLimiterAggregator,
@@ -77,16 +78,20 @@ def run(job, spark_context, glue_context, parsed_args):
     # Since each task might generate errors, let's accumulate them and report intelligently
     error_accumulator = spark_context.accumulator([], ListAccumulator())
 
+    poison_pill_config = PoisonPillConfig(bucket=bucket_name, job_run_id=job_run_id)
+    poison_pill_driver = PoisonPillDriver(poison_pill_config)
+
     # Distribute work among partitions, each knowing what segment it's to handle
     try:
         parallelize_count = 200
         rdd = spark_context.parallelize(range(parallelize_count), parallelize_count)
-        rdd.foreach(lambda worker_id: _count_data(monitor_options, table_name, index_name, filter_expression, expression_values, expression_names, worker_id, parallelize_count, total_matched_accumulator, error_accumulator, rate_limiter_shared_config))
+        rdd.foreach(lambda worker_id: _count_data(monitor_options, table_name, index_name, filter_expression, expression_values, expression_names, worker_id, parallelize_count, total_matched_accumulator, error_accumulator, rate_limiter_shared_config, poison_pill_config))
         rdd.count()
     except Exception as e:
         raise Exception(f"Error in parallel execution: {get_error_message(e)}") from None
     finally:
         rate_limiter_aggregator.shutdown()
+        poison_pill_driver.cleanup()
     if error_accumulator.value:
         first_error = error_accumulator.value[0]
         raise Exception(first_error) from None
@@ -94,7 +99,8 @@ def run(job, spark_context, glue_context, parsed_args):
     # Print the total records inserted using the accumulator after all tasks complete
     print(f"Total records counted: {total_matched_accumulator.value:,}")
 
-def _count_data(monitor_options, table_name, index_name, filter_expression, expression_values, expression_names, segment, total_segments, total_matched_accumulator, error_accumulator, rate_limiter_shared_config):
+def _count_data(monitor_options, table_name, index_name, filter_expression, expression_values, expression_names, segment, total_segments, total_matched_accumulator, error_accumulator, rate_limiter_shared_config, poison_pill_config=None):
+    poison_pill = PoisonPillWorker(poison_pill_config) if poison_pill_config else _NOOP_POISON_PILL
 
     rate_limiter_worker = RateLimiterWorker(
         shared_config=rate_limiter_shared_config,
@@ -132,6 +138,9 @@ def _count_data(monitor_options, table_name, index_name, filter_expression, expr
             scan_kwargs["ExpressionAttributeValues"] = json.loads(expression_values, cls=DecimalEncoder)
 
         while True:
+            if poison_pill.check():
+                break
+
             response = table.scan(**scan_kwargs) # We do 50 retries within the SDK so shouldn't see a throttle response
             local_count += response.get("Count", 0)
             if "LastEvaluatedKey" not in response:
@@ -139,7 +148,8 @@ def _count_data(monitor_options, table_name, index_name, filter_expression, expr
             scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
     except Exception as e:
         error_accumulator.add([f"Error in worker {segment}: {get_error_message(e)}"])
-        # Let control drop down to exit
+        if PoisonPillWorker.is_systemic_error(e):
+            poison_pill.signal(f"Worker {segment}: {get_error_message(e)}")
     finally:
         rate_limiter_worker.shutdown()
 
