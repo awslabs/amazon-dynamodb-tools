@@ -149,14 +149,12 @@ class TestPrintDynamodbTableInfo:
         self, table_info_mocks, boto3_session_mock
     ):
         """Line 31: kwargs forwarded to get_and_print_table_scan_cost."""
-        gen = find_module.print_dynamodb_table_info('t', False, numberOfScans=2)
+        gen = find_module.print_dynamodb_table_info('t', False, fraction=0.5)
         next(gen)
 
         call_kwargs = table_info_mocks.get_and_print_table_scan_cost.call_args
-        assert call_kwargs.kwargs.get('numberOfScans') == 2 or \
-            2 in call_kwargs.args or \
-            any('numberOfScans' in str(c) for c in [call_kwargs]), \
-            "numberOfScans kwarg passed through"
+        assert call_kwargs.kwargs.get('fraction') == 0.5, \
+            "fraction kwarg passed through"
 
     def test_delete_provisioned_prints_provisioned_cost(
         self, table_info_mocks, boto3_session_mock, pricing_mock, capsys
@@ -302,10 +300,10 @@ class TestRunSimpleCount:
         assert '7' in out, "DataFrame count used when WHERE present"
         df.filter.assert_called_once_with('attr > 5')
 
-    def test_count_with_where_sets_numberOfScans(
+    def test_count_with_where_does_not_set_numberOfScans(
         self, monkeypatch, table_info_mocks, boto3_session_mock, glue_context
     ):
-        """Line 74-75: not a simple count → numberOfScans=2."""
+        """DataFrame connector reads once; no double-scan pricing multiplier."""
         args = {
             'splits': '200', 'table': 'my-table',
             'where': 'x = 1', 'orderby': None, 'limit': None,
@@ -314,8 +312,7 @@ class TestRunSimpleCount:
         find_module.run(MagicMock(), MagicMock(), glue_context, args)
 
         scan_cost_call = table_info_mocks.get_and_print_table_scan_cost.call_args
-        assert scan_cost_call.kwargs.get('numberOfScans') == 2 or \
-            (len(scan_cost_call.args) > 2 and scan_cost_call.args[2] == 2)
+        assert 'numberOfScans' not in (scan_cost_call.kwargs or {})
 
 
 # --- run(): Connection options ------------------------------------------------
