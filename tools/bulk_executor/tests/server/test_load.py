@@ -371,7 +371,8 @@ class TestRunWritePath:
         load_module.run(MagicMock(), MagicMock(), glue_ctx, args)
 
         df.repartition.assert_called_once_with(30)
-        write_mock.assert_called_once_with(glue_ctx, repartitioned, 'my-tbl', args)
+        repartitioned.toDF.assert_called_once()
+        write_mock.assert_called_once_with(glue_ctx, repartitioned.toDF(), 'my-tbl', args)
 
     def test_write_error_wraps_with_get_error_message(self, monkeypatch):
         """Lines 111-112: wrapper exception is wrapped via get_error_message."""
