@@ -525,7 +525,7 @@ class BootstrapInfrastructure:
     def _ensure_dynamodb_glue_connection(self):
         """Create a Glue connection of type DYNAMODB if missing.
 
-        Glue 5.0+ requires this connection to be attached to the job for
+        Glue 5.x requires this connection to be attached to the job for
         the DataFrame-based DynamoDB source (spark.read.format("dynamodb"))
         to register on the Spark classpath. Without it, jobs invoking the
         new connector fail with "[DATA_SOURCE_NOT_FOUND] dynamodb".

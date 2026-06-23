@@ -104,9 +104,9 @@ def run(job, spark_context, glue_context, parsed_args):
         session = boto3.Session()
         print_dynamodb_table_info(session, table_name, count, check_dynamic_frame_avg_size(dynamicFrame))
 
-        dynamicFrame = dynamicFrame.repartition(30)
+        df = dynamicFrame.repartition(30).toDF()
         write_dynamodb_dataframe(
-            glue_context, dynamicFrame, table_name, parsed_args)
+            glue_context, df, table_name, parsed_args)
         log.info(f"Wrote {count} items to '{table_name}'")
     except Exception as e:
         raise Exception(f"Error in writing to table: {get_error_message(e)}") from None

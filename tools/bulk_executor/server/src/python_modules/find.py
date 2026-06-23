@@ -23,8 +23,7 @@ from python_modules.shared.rate_limiter import (
 from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info, get_and_print_table_scan_cost,
     get_dynamodb_throughput_configs)
-from python_modules.shared.glue_connector import (
-    count_dynamodb_table, read_dynamodb_dataframe)
+from python_modules.shared.glue_connector import read_dynamodb_dataframe
 
 
 def print_dynamodb_table_info(table_name, is_delete, **kwargs):
@@ -97,12 +96,12 @@ def run(job, spark_context, glue_context, parsed_args):
     if ORDERBY:
         ORDERBY = parse_sort_order(ORDERBY)
 
-    # Shortcut: if it's a simple full table count we don't need to convert to a DataFrame, just count directly
+    # Shortcut: simple full-table count reads once and counts directly
     if DO_COUNT and not (WHERE or ORDERBY or LIMIT):
-        count = count_dynamodb_table(
+        df = read_dynamodb_dataframe(
             glue_context, DYNAMO_DB_TABLE_NAME, parsed_args,
             splits=DYNAMO_DB_NUMBER_OF_SPLITS)
-        print(f"Count of matching items: {count:,}")
+        print(f"Count of matching items: {df.count():,}")
 
     # OK, we're gonna convert the DynamicFrame to a DataFrame for processing
     else:
