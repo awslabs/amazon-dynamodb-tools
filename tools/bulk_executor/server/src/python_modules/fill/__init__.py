@@ -170,7 +170,11 @@ def _fill_data(monitor_options, table_name, num_items, generate, total_inserted_
         if get_error_code(e) == DYNAMO_DB_THROTTLE_EXCEPTION:
             log.info('Persistent throttling on batch_writer exit, give up on last few item inserts...')
         elif get_error_code(e) == DYNAMO_DB_VALIDATION_EXCEPTION:
-            error_accumulator.add([f"Schema validation error: Perhaps generated items don't match table schema?: {get_error_message(e)}"])
+            msg = get_error_message(e)
+            # Offer a little help for "The provided key element does not match" which can be confusing
+            if "The provided key element does not match" in msg:
+                msg = f"Perhaps generated items don't match table schema? {msg}"
+            error_accumulator.add([f"Schema validation error: {msg}"])
         else:
             error_accumulator.add([f"Error during writing: {get_error_message(e)}"])
     finally:
