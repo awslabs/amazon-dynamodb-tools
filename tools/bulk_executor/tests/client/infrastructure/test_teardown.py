@@ -492,22 +492,64 @@ class TestDeleteGlueJobBucketAndServerObjects:
 # ---------------------------------------------------------------------------
 
 class TestTeardown:
-    """The public teardown() runs the three phases in the locked order."""
+    """The public teardown() runs the four phases in the locked order."""
 
     def test_runs_phases_in_order(self):
         td = _make_teardown()
         td._delete_glue_job_bucket_and_server_objects = MagicMock()
         td._delete_glue_job_role = MagicMock()
         td._delete_glue_job = MagicMock()
+        td._delete_dynamodb_glue_connection = MagicMock()
 
         # Use a parent mock to record relative call ordering across the
-        # three phase methods.
+        # four phase methods.
         parent = MagicMock()
         parent.attach_mock(td._delete_glue_job_bucket_and_server_objects, 'bucket')
         parent.attach_mock(td._delete_glue_job_role, 'role')
         parent.attach_mock(td._delete_glue_job, 'job')
+        parent.attach_mock(td._delete_dynamodb_glue_connection, 'connection')
 
         td.teardown()
 
         names = [c[0] for c in parent.mock_calls]
-        assert names == ['bucket', 'role', 'job']
+        # Connection MUST come after job — Glue refuses to delete a
+        # connection still attached to an existing job.
+        assert names == ['bucket', 'role', 'job', 'connection']
+
+
+class TestDeleteDynamodbGlueConnection:
+    """The connection that bootstrap upserts must be removed at teardown."""
+
+    def test_existing_connection_is_deleted(self):
+        from infrastructure.constants import GLUE_DYNAMODB_CONNECTION_NAME
+
+        td = _make_teardown()
+        td._delete_dynamodb_glue_connection()
+
+        td.glue_client.delete_connection.assert_called_once_with(
+            ConnectionName=GLUE_DYNAMODB_CONNECTION_NAME
+        )
+
+    def test_missing_connection_is_a_noop(self):
+        td = _make_teardown()
+
+        class _ENF(Exception):
+            pass
+
+        td.glue_client.exceptions.EntityNotFoundException = _ENF
+        td.glue_client.delete_connection.side_effect = _ENF()
+
+        # Idempotent — should not raise.
+        td._delete_dynamodb_glue_connection()
+
+    def test_unexpected_failure_exits(self):
+        td = _make_teardown()
+
+        class _ENF(Exception):
+            pass
+
+        td.glue_client.exceptions.EntityNotFoundException = _ENF
+        td.glue_client.delete_connection.side_effect = RuntimeError('boom')
+
+        with pytest.raises(SystemExit):
+            td._delete_dynamodb_glue_connection()

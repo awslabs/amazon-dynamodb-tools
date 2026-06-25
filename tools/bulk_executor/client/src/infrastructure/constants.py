@@ -1,12 +1,18 @@
 from enum import Enum
 
-GLUE_VERSION = '4.0'
+GLUE_VERSION = '5.1'
 PYTHON_VERSION = '3'
 LOG4J_PROPERTIES_FILE = 'server/src/log4j2.properties'
 
 GLUE_JOB_NAME = 'bulk_dynamodb'
 GLUE_JOB_ROOT_ROLE_NAME = 'AWSGlueServiceRoleBulkDynamoDB' # AWSGlueServiceRole prefix intentional.
 GLUE_JOB_SERVER_ROOT_PATH = "server/src/root.py"
+
+# Glue 5.x DataFrame-based DynamoDB source requires an attached Glue
+# connection of type DYNAMODB to register the data source on the Spark
+# classpath. ConnectionProperties is intentionally empty; the connection
+# is purely a marker that tells Glue to load the connector library.
+GLUE_DYNAMODB_CONNECTION_NAME = 'bulk-dynamodb-connection'
 
 # CloudWatch Log Groups for Glue Jobs
 GLUE_LOG_GROUP_ERROR = '/aws-glue/jobs/error'

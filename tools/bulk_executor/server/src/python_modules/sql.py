@@ -7,6 +7,7 @@ from pyspark.sql import SparkSession
 sys.path.append('/server/src')
 from python_modules.shared.pricing import PricingUtility
 from python_modules.shared.table_info import get_and_print_dynamodb_table_info, get_dynamodb_throughput_configs, get_and_print_table_scan_cost
+from python_modules.shared.glue_connector import read_dynamodb_dataframe
 from python_modules.shared.errors import *
 
 def run(job, spark_context, glue_context, parsed_args):
@@ -18,26 +19,15 @@ def run(job, spark_context, glue_context, parsed_args):
     # Print the table info
     region_name = boto3.Session().region_name
     table_info = get_and_print_dynamodb_table_info(DYNAMO_DB_TABLE_NAME)
-    _ = get_and_print_table_scan_cost(table_info, region_name, numberOfScans=2)
-
-    connection_options = {
-        "dynamodb.input.tableName": DYNAMO_DB_TABLE_NAME,
-        "dynamodb.splits": str(DYNAMO_DB_NUMBER_OF_SPLITS),
-        "dynamodb.consistentRead": "false",
-        **get_dynamodb_throughput_configs(parsed_args, DYNAMO_DB_TABLE_NAME, modes=["read"])
-    }
-
-    # Create a DynamoDB data source
-    dynamo_data_source = glue_context.create_dynamic_frame.from_options(
-        connection_type="dynamodb",
-        connection_options=connection_options
-    )
+    _ = get_and_print_table_scan_cost(table_info, region_name)
 
     # Suppress dataframe.py warning
     warnings.filterwarnings("ignore", message="DataFrame constructor is internal. Do not directly use it.")
-    
-    # Convert to DataFrame and register as temp table
-    records = dynamo_data_source.toDF()
+
+    # Read directly into a DataFrame and register as temp table
+    records = read_dynamodb_dataframe(
+        glue_context, DYNAMO_DB_TABLE_NAME, parsed_args,
+        splits=DYNAMO_DB_NUMBER_OF_SPLITS)
     table_alias = DYNAMO_DB_TABLE_NAME.replace('-', '_').replace('.', '_')
     records.createOrReplaceTempView(table_alias)
     

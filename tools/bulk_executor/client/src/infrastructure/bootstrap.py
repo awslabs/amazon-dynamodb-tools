@@ -16,6 +16,7 @@ from __version__ import __version__ as VERSION
 
 # project files
 from .constants import (
+    GLUE_DYNAMODB_CONNECTION_NAME,
     GLUE_JOB_NAME,
     GLUE_JOB_ROOT_ROLE_NAME,
     GLUE_JOB_SERVER_ROOT_PATH,
@@ -247,6 +248,7 @@ class BootstrapInfrastructure:
                         'Timeout': args.get('XTimeout', GlueJobDefaults.Timeout.value), # Configuration expects minutes
                         'MaxRetries': args.get('XRetries', GlueJobDefaults.Retries.value),
                         'DefaultArguments': default_arguments,
+                        'Connections': {'Connections': [GLUE_DYNAMODB_CONNECTION_NAME]},
                         'ExecutionProperty': {
                             'MaxConcurrentRuns': args.get('XMaxConcurrentRuns', GlueJobDefaults.MaxConcurrentRuns.value),
                         }
@@ -269,6 +271,7 @@ class BootstrapInfrastructure:
                     Timeout=args.get('XTimeout', GlueJobDefaults.Timeout.value),
                     MaxRetries=args.get('XRetries', GlueJobDefaults.Retries.value),
                     DefaultArguments=default_arguments,
+                    Connections={'Connections': [GLUE_DYNAMODB_CONNECTION_NAME]},
                     ExecutionProperty={
                         'MaxConcurrentRuns':args.get('XMaxConcurrentRuns', GlueJobDefaults.MaxConcurrentRuns.value),
                     }
@@ -513,7 +516,38 @@ class BootstrapInfrastructure:
     def bootstrap(self, args):
         self._add_glue_job_role(args)
         self._create_glue_log_groups()
+        self._ensure_dynamodb_glue_connection()
         self._create_or_update_glue_job(args)
         self._upload_job_root_to_s3()
         self.update_python_modules_in_s3()
         self._upload_property_files_to_s3()
+
+    def _ensure_dynamodb_glue_connection(self):
+        """Create a Glue connection of type DYNAMODB if missing.
+
+        Glue 5.x requires this connection to be attached to the job for
+        the DataFrame-based DynamoDB source (spark.read.format("dynamodb"))
+        to register on the Spark classpath. Without it, jobs invoking the
+        new connector fail with "[DATA_SOURCE_NOT_FOUND] dynamodb".
+
+        The connection itself carries no credentials -- ConnectionProperties
+        is empty. It exists purely as a marker that tells Glue to load the
+        DynamoDB DataFrame connector library on the executors.
+        """
+        connection_input = {
+            'Name': GLUE_DYNAMODB_CONNECTION_NAME,
+            'ConnectionType': 'DYNAMODB',
+            'ConnectionProperties': {},
+            'ValidateCredentials': False,
+            'ValidateForComputeEnvironments': ['SPARK'],
+        }
+        try:
+            self.glue_client.get_connection(Name=GLUE_DYNAMODB_CONNECTION_NAME)
+            log.debug(f"Glue connection '{GLUE_DYNAMODB_CONNECTION_NAME}' already exists.")
+        except self.glue_client.exceptions.EntityNotFoundException:
+            try:
+                self.glue_client.create_connection(ConnectionInput=connection_input)
+                log.info(f"Created Glue connection '{GLUE_DYNAMODB_CONNECTION_NAME}' for DynamoDB DataFrame source.")
+            except Exception as e:
+                log.error(f"Failed to create Glue connection '{GLUE_DYNAMODB_CONNECTION_NAME}': {e}")
+                exit(1)
