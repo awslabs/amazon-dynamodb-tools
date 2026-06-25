@@ -117,51 +117,58 @@ def _make_result_mock(count=5):
 
 # --- Argument parsing and setup -------------------------------------------
 
-@pytest.mark.skip(reason="Asserts against legacy DynamicFrame code path; verb now goes through python_modules.shared.glue_connector wrapper. Tracked in followup: rewrite to assert against wrapper boundary.")
 class TestRunArgumentParsing:
-    """run() extracts splits, table, query, and limit from parsed_args."""
+    """run() extracts splits, table, query, and limit from parsed_args.
+
+    Rewritten for the Glue 5.0 wrapper boundary: splits is no longer baked into
+    a legacy connection_options dict; it is passed to the
+    python_modules.shared.glue_connector.read_dynamodb_dataframe wrapper as the
+    `splits` keyword (sql.py line 28-30). We assert against that call.
+    """
+
+    def _patch_read(self, monkeypatch, result_df=None):
+        """Patch the wrapper read fn in the sql module namespace, return its mock."""
+        df = result_df if result_df is not None else MagicMock()
+        read_mock = MagicMock(return_value=df)
+        monkeypatch.setattr(sql_module, 'read_dynamodb_dataframe', read_mock)
+        return read_mock
 
     def test_splits_defaults_to_200_when_absent(self, monkeypatch, mock_boto3_session,
                                                   mock_table_info, mock_warnings,
                                                   mock_spark_session, mock_get_error_message,
                                                   glue_context, base_args):
-        """Line 13: splits defaults to '200' when not provided."""
+        """Line 14: splits defaults to '200' when not provided, passed to wrapper."""
         result = _make_result_mock(count=1)
         mock_spark_session.sql.return_value = result
-        df = MagicMock()
-        glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
+        read_mock = self._patch_read(monkeypatch)
 
         sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
-        conn_opts = glue_context.create_dynamic_frame.from_options.call_args.kwargs['connection_options']
-        assert conn_opts['dynamodb.splits'] == '200', "default splits is '200'"
+        assert read_mock.call_args.kwargs['splits'] == '200', "default splits is '200'"
 
     def test_splits_uses_provided_value(self, monkeypatch, mock_boto3_session,
                                           mock_table_info, mock_warnings,
                                           mock_spark_session, mock_get_error_message,
                                           glue_context, base_args):
-        """Line 13: splits uses parsed_args value when present."""
+        """Line 14: splits uses parsed_args value when present, passed to wrapper."""
         base_args['splits'] = '50'
         result = _make_result_mock(count=1)
         mock_spark_session.sql.return_value = result
-        df = MagicMock()
-        glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
+        read_mock = self._patch_read(monkeypatch)
 
         sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
-        conn_opts = glue_context.create_dynamic_frame.from_options.call_args.kwargs['connection_options']
-        assert conn_opts['dynamodb.splits'] == '50'
+        assert read_mock.call_args.kwargs['splits'] == '50'
 
     def test_limit_defaults_to_none(self, monkeypatch, mock_boto3_session,
                                       mock_table_info, mock_warnings,
                                       mock_spark_session, mock_get_error_message,
                                       glue_context, base_args):
-        """Line 16: limit is None when not provided — no user-limit call on result.
-        result.limit(10) still happens for display (line 85), so we check no other call."""
+        """Line 17: limit is None when not provided — no user-limit call on result.
+        result.limit(10) still happens for display, so we check no other call."""
         result = _make_result_mock(count=2)
         mock_spark_session.sql.return_value = result
-        df = MagicMock()
-        glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
+        self._patch_read(monkeypatch)
 
         sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
@@ -172,19 +179,39 @@ class TestRunArgumentParsing:
 
 # --- Table info and connection setup --------------------------------------
 
-@pytest.mark.skip(reason="Asserts against legacy DynamicFrame code path; verb now goes through python_modules.shared.glue_connector wrapper. Followup: rewrite to assert against the wrapper boundary.")
 class TestRunTableInfoAndConnection:
-    """run() calls table info helpers and builds connection_options correctly."""
+    """run() calls table info helpers and reads via the glue_connector wrapper.
+
+    Rewritten for the Glue 5.0 wrapper boundary. The table-info / scan-cost /
+    region behaviors still live in sql.py and are preserved as passing tests.
+    The legacy connection_options / create_dynamic_frame.from_options details
+    (tableName, consistentRead, throughput, connection_type='dynamodb',
+    get_dynamodb_throughput_configs modes=['read']) NO LONGER live in sql.py --
+    they moved inside read_dynamodb_dataframe in
+    python_modules/shared/glue_connector.py and are now covered by
+    tests/server/test_glue_connector.py (see TestReadDataFrame:
+    test_options_set_on_reader, test_xmax_read_rate_passes_through_as_direct_int).
+    Those five legacy assertions were therefore DELETED here rather than ported,
+    to avoid duplicating the wrapper's own contract tests. What sql.py still owns
+    is *that* it delegates the read to the wrapper for the right table -- asserted
+    by test_read_wrapper_called_with_table_name below.
+    """
+
+    def _patch_read(self, monkeypatch, result_df=None):
+        df = result_df if result_df is not None else MagicMock()
+        read_mock = MagicMock(return_value=df)
+        monkeypatch.setattr(sql_module, 'read_dynamodb_dataframe', read_mock)
+        return read_mock
 
     def test_boto3_session_region_used(self, monkeypatch, mock_boto3_session,
                                          mock_table_info, mock_warnings,
                                          mock_spark_session, mock_get_error_message,
                                          glue_context, base_args):
-        """Line 19: region_name comes from boto3.Session().region_name."""
+        """Line 20-22: region_name comes from boto3.Session().region_name and is
+        passed to get_and_print_table_scan_cost."""
         result = _make_result_mock(count=1)
         mock_spark_session.sql.return_value = result
-        df = MagicMock()
-        glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
+        self._patch_read(monkeypatch)
 
         sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
@@ -195,11 +222,10 @@ class TestRunTableInfoAndConnection:
     def test_get_and_print_dynamodb_table_info_called_with_table_name(
             self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
             mock_spark_session, mock_get_error_message, glue_context, base_args):
-        """Line 20: table info called with the table name."""
+        """Line 21: table info called with the table name."""
         result = _make_result_mock(count=1)
         mock_spark_session.sql.return_value = result
-        df = MagicMock()
-        glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
+        self._patch_read(monkeypatch)
 
         sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
@@ -211,74 +237,62 @@ class TestRunTableInfoAndConnection:
         """DataFrame connector reads once; no double-scan pricing multiplier."""
         result = _make_result_mock(count=1)
         mock_spark_session.sql.return_value = result
-        df = MagicMock()
-        glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
+        self._patch_read(monkeypatch)
 
         sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
         call_kwargs = mock_table_info.get_and_print_table_scan_cost.call_args.kwargs
         assert 'numberOfScans' not in call_kwargs
 
-    def test_connection_options_includes_table_name_and_consistent_read(
+    def test_read_wrapper_called_with_table_name(
             self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
             mock_spark_session, mock_get_error_message, glue_context, base_args):
-        """Lines 23-28: connection_options dict has correct keys."""
+        """Lines 28-30: sql.py delegates the read to read_dynamodb_dataframe,
+        passing the glue_context, the table name, and parsed_args. This preserves
+        the original intent of the deleted connection_options assertions -- that
+        the read targets the correct table -- at the wrapper boundary sql.py owns.
+        (How the table name becomes a connector option is the wrapper's concern,
+        covered in test_glue_connector.py.)"""
         result = _make_result_mock(count=1)
         mock_spark_session.sql.return_value = result
-        df = MagicMock()
-        glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
+        read_mock = self._patch_read(monkeypatch)
 
-        sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
+        sc = MagicMock()
+        sql_module.run(MagicMock(), sc, glue_context, base_args)
 
-        conn_opts = glue_context.create_dynamic_frame.from_options.call_args.kwargs['connection_options']
-        assert conn_opts['dynamodb.input.tableName'] == 'my-test.table'
-        assert conn_opts['dynamodb.consistentRead'] == 'false'
-        assert conn_opts['throughput.read.percent'] == '0.5', "throughput configs merged in"
-
-    def test_create_dynamic_frame_called_with_dynamodb_connection_type(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
-            mock_spark_session, mock_get_error_message, glue_context, base_args):
-        """Lines 31-34: from_options called with connection_type='dynamodb'."""
-        result = _make_result_mock(count=1)
-        mock_spark_session.sql.return_value = result
-        df = MagicMock()
-        glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
-
-        sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
-
-        call_kwargs = glue_context.create_dynamic_frame.from_options.call_args.kwargs
-        assert call_kwargs['connection_type'] == 'dynamodb'
-
-    def test_throughput_configs_called_with_read_mode(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
-            mock_spark_session, mock_get_error_message, glue_context, base_args):
-        """Line 27: get_dynamodb_throughput_configs called with modes=['read']."""
-        result = _make_result_mock(count=1)
-        mock_spark_session.sql.return_value = result
-        df = MagicMock()
-        glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
-
-        sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
-
-        call_args = mock_table_info.get_dynamodb_throughput_configs.call_args
-        assert call_args[0][1] == 'my-test.table'
-        assert call_args.kwargs['modes'] == ['read']
+        read_mock.assert_called_once()
+        pos = read_mock.call_args.args
+        assert pos[0] is glue_context, "wrapper receives the glue_context"
+        assert pos[1] == 'my-test.table', "wrapper receives the table name"
+        assert pos[2] is base_args, "wrapper receives parsed_args"
 
 
 # --- DataFrame and temp view setup ----------------------------------------
 
-@pytest.mark.skip(reason="Asserts against legacy DynamicFrame code path; verb now goes through python_modules.shared.glue_connector wrapper. Followup: rewrite to assert against the wrapper boundary.")
 class TestRunDataFrameSetup:
-    """run() converts dynamic frame to DataFrame, aliases table name, registers temp view."""
+    """run() reads a DataFrame via the wrapper, aliases the table name, registers temp view.
+
+    Rewritten for the Glue 5.0 wrapper boundary. read_dynamodb_dataframe now
+    returns a Spark DataFrame directly (sql.py line 28-30), so the legacy
+    dynamic-frame -> toDF() conversion no longer happens in sql.py and there is
+    no separate `df` from `create_dynamic_frame.from_options(...).toDF()`. The
+    temp view is registered on the wrapper's return value (`records`). The
+    warnings-suppression, table-aliasing, and SparkSession-creation behaviors all
+    still live in sql.py and are preserved here.
+    """
+
+    def _patch_read(self, monkeypatch, result_df):
+        read_mock = MagicMock(return_value=result_df)
+        monkeypatch.setattr(sql_module, 'read_dynamodb_dataframe', read_mock)
+        return read_mock
 
     def test_warnings_filter_suppresses_dataframe_constructor_warning(
             self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
             mock_spark_session, mock_get_error_message, glue_context, base_args):
-        """Line 37: warnings.filterwarnings called with 'ignore' and the specific message."""
+        """Line 25: warnings.filterwarnings called with 'ignore' and the specific message."""
         result = _make_result_mock(count=1)
         mock_spark_session.sql.return_value = result
-        df = MagicMock()
-        glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
+        self._patch_read(monkeypatch, MagicMock())
 
         sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
@@ -290,24 +304,24 @@ class TestRunDataFrameSetup:
     def test_table_alias_replaces_hyphens_and_dots(
             self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
             mock_spark_session, mock_get_error_message, glue_context, base_args):
-        """Line 41: table alias replaces '-' and '.' with '_'."""
+        """Lines 31-32: table alias replaces '-' and '.' with '_', and the temp
+        view is registered on the DataFrame returned by the wrapper."""
         result = _make_result_mock(count=1)
         mock_spark_session.sql.return_value = result
-        df = MagicMock()
-        glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
+        records = MagicMock()
+        self._patch_read(monkeypatch, records)
 
         sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
-        df.createOrReplaceTempView.assert_called_once_with('my_test_table')
+        records.createOrReplaceTempView.assert_called_once_with('my_test_table')
 
     def test_spark_session_created_from_spark_context(
             self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
             mock_spark_session, mock_get_error_message, glue_context, base_args):
-        """Line 45: SparkSession(spark_context) is called."""
+        """Line 35: SparkSession(spark_context) is called."""
         result = _make_result_mock(count=1)
         mock_spark_session.sql.return_value = result
-        df = MagicMock()
-        glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
+        self._patch_read(monkeypatch, MagicMock())
 
         sc = MagicMock()
         sql_module.run(MagicMock(), sc, glue_context, base_args)
