@@ -609,8 +609,6 @@ The DynamoDB cost will be estimated below
 The Glue cost estimation isn't provided since it is based on DPU hours being used by the job, which is hard to estimate in advance  
 You can run the script with the --XWaitForDPU parameter in order to print the used Glue DPU hours at the end of the job  
 
-Note that commands that use the DynamoDB connector (`count`, `find`, `delete`, `sql`) will sometimes perform two scans when running against large tables. The cost estimate takes this into account.
-
 ## Testing
 
 Bulk Executor has two test layers, both driven from the Makefile in `tools/bulk_executor/`:
