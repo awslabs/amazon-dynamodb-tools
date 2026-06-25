@@ -33,7 +33,7 @@ class RateLimiterAggregator:
         modes (none to many list of ("read", "write")): The expected execution modes of the DynamoDB actions requiring rate limiting.
     """
     def __init__(self, shared_config):
-        log.info(f"Initializing...Bucket:{shared_config.bucket}, Prefix:{shared_config.bucket}")
+        log.debug(f"Initializing...Bucket:{shared_config.bucket}, Prefix:{shared_config.prefix}")
 
         self.rate_limiter_monitor_aggregator = DistributedDynamoDBMonitorAggregator(
             session=Session(),
