@@ -10,7 +10,7 @@ set -euo pipefail
 #
 # Usage:
 #   .github/scripts/e2e-switch-account.sh \
-#     --old-account-id 654654401288 \
+#     --old-account-id 111111111111 \
 #     --new-account-id 111222333444 \
 #     --region us-east-1 \
 #     --read-table tiny-boat \
