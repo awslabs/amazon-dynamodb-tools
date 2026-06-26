@@ -2,6 +2,7 @@ import mysql.connector
 import decimal
 import datetime
 import boto3
+import os
 
 sql = "SELECT * FROM customer_features.v_features WHERE record_type = 'events'"
 s3_bucket = 's3-import-demo'
@@ -12,9 +13,9 @@ items_per_file = 5
 
 def main():
     mydb = mysql.connector.connect(
-      host="my-endpoint-host.us-east-1.rds.amazonaws.com",
-      user="admin",
-      password="mriA6p5M7eH"
+      host=os.environ.get('DB_HOST', ''),
+      user=os.environ.get('DB_USER', ''),
+      password=os.environ.get('DB_PASSWORD', '')
     )
 
     cur = mydb.cursor(buffered=True, dictionary=True)
