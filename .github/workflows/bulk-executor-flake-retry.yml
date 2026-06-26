@@ -1,0 +1,64 @@
+name: "bulk_executor: flake retry"
+
+on:
+  workflow_run:
+    workflows:
+      - "bulk_executor: e2e fill"
+      - "bulk_executor: e2e copy"
+      - "bulk_executor: e2e update"
+      - "bulk_executor: e2e delete"
+      - "bulk_executor: e2e diff"
+      - "bulk_executor: connector smoke"
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  retry-on-failure:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'failure'
+
+    steps:
+      - name: Check if this is already a retry
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          # Count recent failed runs for this workflow + commit
+          FAILED_COUNT=$(gh api \
+            "repos/${{ github.repository }}/actions/runs?event=workflow_run&status=failure&head_sha=${HEAD_SHA}" \
+            --jq "[.workflow_runs[] | select(.name == \"${WORKFLOW_NAME}\")] | length" \
+            2>/dev/null || echo "0")
+
+          echo "failed_count=${FAILED_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "Workflow '${WORKFLOW_NAME}' has ${FAILED_COUNT} failure(s) on commit ${HEAD_SHA:0:7}"
+
+      - name: Retry if first failure
+        if: steps.check.outputs.failed_count == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+        run: |
+          echo "First failure — triggering retry..."
+          gh workflow run "${WORKFLOW_ID}" \
+            --repo "${{ github.repository }}" \
+            --ref "${{ github.event.workflow_run.head_branch }}"
+
+      - name: Alert if repeated failure
+        if: steps.check.outputs.failed_count != '1'
+        env:
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          echo "::error::REAL FAILURE (not a flake): '${WORKFLOW_NAME}' failed twice on ${HEAD_SHA:0:7}"
+          echo ""
+          echo "Run: ${RUN_URL}"
+          echo ""
+          echo "This is likely a genuine regression, not a transient Glue hiccup."
+          exit 1

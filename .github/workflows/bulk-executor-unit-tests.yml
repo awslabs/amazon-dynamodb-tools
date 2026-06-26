@@ -1,0 +1,43 @@
+name: "bulk_executor: unit tests"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/bulk_executor/**'
+      - '.github/workflows/bulk-executor-unit-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/bulk_executor/**'
+      - '.github/workflows/bulk-executor-unit-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/bulk_executor
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install -r tests/requirements-test.txt
+
+      - name: Run unit tests
+        run: |
+          .venv/bin/pytest tests/ --ignore=tests/e2e -v --tb=short --cov=server/src --cov=client/src --cov-branch --cov-report=term-missing

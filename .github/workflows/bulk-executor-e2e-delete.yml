@@ -1,0 +1,58 @@
+name: "bulk_executor: e2e delete"
+
+on:
+  workflow_run:
+    workflows: ["bulk_executor: connector smoke"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  e2e-delete:
+    runs-on: ubuntu-latest
+    if: >
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       (github.repository == 'awslabs/amazon-dynamodb-tools' || github.repository == 'relentlesscol/amazon-dynamodb-tools'))
+    defaults:
+      run:
+        working-directory: tools/bulk_executor
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install -r tests/requirements-test.txt
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.E2E_AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.E2E_AWS_REGION }}
+
+      - name: Write e2e config
+        env:
+          E2E_ACCOUNT: ${{ secrets.E2E_AWS_ACCOUNT_ID }}
+          E2E_REGION: ${{ secrets.E2E_AWS_REGION }}
+          E2E_READ: ${{ secrets.E2E_READ_TABLE }}
+          E2E_WRITE: ${{ secrets.E2E_WRITE_TABLE }}
+        run: |
+          printf '{"aws_account_id":"%s","aws_region":"%s","read_table":"%s","write_table":"%s","bootstrap_confirmed":true}\n' \
+            "$E2E_ACCOUNT" "$E2E_REGION" "$E2E_READ" "$E2E_WRITE" > tests/e2e/.e2e-config
+
+      - name: Run e2e delete
+        run: |
+          .venv/bin/pytest tests/e2e/commands/test_delete_smoke.py -m e2e -v --tb=short --e2e-suite "e2e delete"
