@@ -757,6 +757,76 @@ class TestRunFindAction:
         assert 'Wrote 42 items in JSON format' in out
 
 
+# --- run(): DO_FIND — direct DataFrame write (no schema re-inference) --------
+
+class TestRunFindDirectWrite:
+    """DO_FIND writes JSON to S3 via records.write.json() directly,
+    preserving the DynamoDB connector's schema without re-inferring
+    via spark.read.json(). Addresses issue #184."""
+
+    def test_find_writes_dataframe_directly_to_s3(
+        self, monkeypatch, table_info_mocks, boto3_session_mock, base_args
+    ):
+        """records.write.mode('overwrite').json(location) is called."""
+        df = _pyspark_sql.MagicMock if hasattr(_pyspark_sql, 'MagicMock') else MagicMock()
+        df = MagicMock()
+        df.cache.return_value = df
+        df.count.return_value = 2
+        df.limit.return_value.toJSON.return_value.collect.return_value = ['{"a":1}', '{"b":2}']
+        writer = MagicMock()
+        df.write = writer
+        writer.mode.return_value = writer
+
+        monkeypatch.setattr(find_module, 'read_dynamodb_dataframe', lambda *a, **kw: df)
+
+        find_module.run(MagicMock(), MagicMock(), MagicMock(), base_args)
+
+        writer.mode.assert_called_once_with("overwrite")
+        writer.json.assert_called_once_with("s3://my-bucket/output/run-123")
+
+    def test_find_does_not_use_spark_read_json(
+        self, monkeypatch, table_info_mocks, boto3_session_mock, base_args
+    ):
+        """No intermediate spark.read.json() — schema is not re-inferred."""
+        df = MagicMock()
+        df.cache.return_value = df
+        df.count.return_value = 1
+        df.limit.return_value.toJSON.return_value.collect.return_value = ['{"x":1}']
+        writer = MagicMock()
+        df.write = writer
+        writer.mode.return_value = writer
+
+        monkeypatch.setattr(find_module, 'read_dynamodb_dataframe', lambda *a, **kw: df)
+
+        spark_ctx = MagicMock()
+        find_module.run(MagicMock(), spark_ctx, MagicMock(), base_args)
+
+        assert not hasattr(find_module, 'SparkSession'), \
+            "SparkSession import removed — no re-inference path"
+
+    def test_find_prints_top_n_and_count(
+        self, monkeypatch, table_info_mocks, boto3_session_mock, base_args, capsys
+    ):
+        """Top-N preview and written count still work after the write change."""
+        df = MagicMock()
+        df.cache.return_value = df
+        df.count.return_value = 15
+        records = [f'{{"id":{i}}}' for i in range(10)]
+        df.limit.return_value.toJSON.return_value.collect.return_value = records
+        writer = MagicMock()
+        df.write = writer
+        writer.mode.return_value = writer
+
+        monkeypatch.setattr(find_module, 'read_dynamodb_dataframe', lambda *a, **kw: df)
+
+        find_module.run(MagicMock(), MagicMock(), MagicMock(), base_args)
+
+        out = capsys.readouterr().out
+        assert 'First 10 matching items:' in out
+        assert '5 more not printed' in out
+        assert 'Wrote 15 items in JSON format' in out
+
+
 # --- run(): DO_DELETE branch --------------------------------------------------
 
 @pytest.mark.skip(reason="Asserts against legacy DynamicFrame code path; verb now goes through python_modules.shared.glue_connector wrapper. Followup: rewrite to assert against the wrapper boundary.")
