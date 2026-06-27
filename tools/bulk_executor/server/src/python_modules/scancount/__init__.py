@@ -57,6 +57,7 @@ def run(job, spark_context, glue_context, parsed_args):
     expression_values = parsed_args.get('expression_values')
     expression_names = parsed_args.get('expression_names')
     per_segment = parsed_args.get('per_segment', False)
+    segments = int(parsed_args.get('segments', 200))
 
     # Rate limiter configuration
     bucket_name = parsed_args.get('s3-bucket-name')
@@ -84,7 +85,7 @@ def run(job, spark_context, glue_context, parsed_args):
 
     # Distribute work among partitions, each knowing what segment it's to handle
     try:
-        parallelize_count = 200
+        parallelize_count = segments
         rdd = spark_context.parallelize(range(parallelize_count), parallelize_count)
         rdd.foreach(lambda worker_id: _count_data(monitor_options, table_name, index_name, filter_expression, expression_values, expression_names, worker_id, parallelize_count, total_matched_accumulator, error_accumulator, rate_limiter_shared_config, poison_pill_config))
         rdd.count()

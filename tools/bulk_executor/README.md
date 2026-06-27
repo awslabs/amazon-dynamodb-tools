@@ -463,6 +463,8 @@ If you ever want to stop execution early, you can hit Control-C. The interrupt w
 * Performs a parallel scan to count items. Leverages DynamoDB's `Select=COUNT` parameter on the `scan` call so only a count is returned on each internal DynamoDB scan call for maximum performance and memory efficiency.
 * Accepts an optional `index` name to scan an index, suitable if there's an appropriate sparse index that would be faster to scan than the base table.
 * Accepts a `filter-expression` to filter down the items counted. This expression uses the usual DynamoDB syntax. Requires a supporting  `expression-values` parameter and sometimes `expression-names`, as with usual DynamoDB scan calls.
+* Accepts an optional `--segments` parameter to control how many parallel scan segments to use (default 200). Fewer segments reduces parallelism and consumed capacity; more segments increases it.
+* Accepts an optional `--per-segment` flag to print item counts per segment, revealing data skew across the table's key space.
 
 #### `diff`
 
