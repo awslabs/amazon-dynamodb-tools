@@ -104,7 +104,7 @@ def run(env_configs):
         parser.error('--format should be "csv", "json" or "parquet"')
 
     result = args.__dict__
-    utils.validate_tables(env_configs, parser, result['table'])
+    utils.validate_tables(env_configs, parser, result['table'], pitr_enabled=True)
 
     log.info(f"Running action '{result['verb']}' with arguments: {result}")
 
