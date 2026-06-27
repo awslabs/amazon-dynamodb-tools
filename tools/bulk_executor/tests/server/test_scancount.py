@@ -252,7 +252,7 @@ class TestRunArgumentWiring:
 
     def test_parallelize_count_is_200(self, monkeypatch, shared_table_info_mocks,
                                        rate_limiter_mocks, spark_context, base_args):
-        """Line 83: parallelize(range(200), 200)."""
+        """Line 83: parallelize(range(200), 200) when segments not specified."""
         spark_context.parallelize.return_value.foreach = MagicMock()
         monkeypatch.setattr(sc_module.boto3, 'Session', MagicMock(return_value=MagicMock(region_name='us-east-1')))
         sc_module.run(MagicMock(), spark_context, MagicMock(), base_args)
@@ -260,6 +260,18 @@ class TestRunArgumentWiring:
         pc_args = spark_context.parallelize.call_args
         assert list(pc_args.args[0]) == list(range(200)), "range(200) as first arg"
         assert pc_args.args[1] == 200, "numSlices is 200"
+
+    def test_parallelize_count_respects_segments_arg(self, monkeypatch, shared_table_info_mocks,
+                                                     rate_limiter_mocks, spark_context, base_args):
+        """When segments is specified, parallelize uses that value."""
+        spark_context.parallelize.return_value.foreach = MagicMock()
+        monkeypatch.setattr(sc_module.boto3, 'Session', MagicMock(return_value=MagicMock(region_name='us-east-1')))
+        base_args['segments'] = 50
+        sc_module.run(MagicMock(), spark_context, MagicMock(), base_args)
+
+        pc_args = spark_context.parallelize.call_args
+        assert list(pc_args.args[0]) == list(range(50)), "range(50) as first arg"
+        assert pc_args.args[1] == 50, "numSlices is 50"
 
     def test_total_matched_accumulator_initialized_to_zero(self, monkeypatch, shared_table_info_mocks,
                                                             rate_limiter_mocks, spark_context, base_args):
