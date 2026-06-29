@@ -107,7 +107,7 @@ for prefix in ['shared', 'python_modules.shared']:
     sys.modules[f'{prefix}.glue_connector'].count_dynamodb_table = _count_dynamodb_stub
     sys.modules[f'{prefix}.glue_connector'].write_dynamodb_dataframe = _write_dynamodb_stub
 
-# Import the real module — no pyspark dependency, so no mocking needed
+# Import real modules — no pyspark dependency, so no mocking needed
 import importlib.util
 _spec = importlib.util.spec_from_file_location(
     "python_modules.shared.bulk_executor_error",
@@ -117,6 +117,16 @@ _be_module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_be_module)
 for prefix in ['shared', 'python_modules.shared']:
     sys.modules[f'{prefix}.bulk_executor_error'] = _be_module
+
+_pp_spec = importlib.util.spec_from_file_location(
+    "python_modules.shared.poison_pill",
+    str(__import__('pathlib').Path(__file__).resolve().parents[2] / "server/src/python_modules/shared/poison_pill.py")
+)
+_pp_module = importlib.util.module_from_spec(_pp_spec)
+_pp_spec.loader.exec_module(_pp_module)
+for prefix in ['shared', 'python_modules.shared']:
+    sys.modules[f'{prefix}.poison_pill'] = _pp_module
+    sys.modules[prefix].poison_pill = _pp_module
 
 
 class MockRateLimiterWorker:

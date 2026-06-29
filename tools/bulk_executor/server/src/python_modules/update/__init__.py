@@ -15,6 +15,7 @@ from pyspark.context import SparkContext
 sys.path.append('/server/src')
 from python_modules.shared.errors import *
 from python_modules.shared.logger import log
+from python_modules.shared.poison_pill import PoisonPillConfig, PoisonPillDriver, PoisonPillWorker, _NOOP as _NOOP_POISON_PILL
 from python_modules.shared.pricing import PricingUtility
 from python_modules.shared.rate_limiter import (
     RateLimiterAggregator,
@@ -75,15 +76,19 @@ def run(job, spark_context, glue_context, parsed_args):
     # Since each task might generate errors, let's accumulate them and report intelligently
     error_accumulator = spark_context.accumulator([], ListAccumulator())
 
+    poison_pill_config = PoisonPillConfig(bucket=bucket_name, job_run_id=job_run_id)
+    poison_pill_driver = PoisonPillDriver(poison_pill_config)
+
     # Distribute work among partitions, each knowing what segment it's to handle
     try:
         parallelize_count = 800
         rdd = spark_context.parallelize(range(parallelize_count), parallelize_count)
-        rdd.map(lambda worker_id: _update_data(monitor_options, table_name, generate, worker_id, parallelize_count, updated_accumulator, skipped_accumulator, failed_accumulator, error_accumulator, rate_limiter_shared_config)).collect()
+        rdd.map(lambda worker_id: _update_data(monitor_options, table_name, generate, worker_id, parallelize_count, updated_accumulator, skipped_accumulator, failed_accumulator, error_accumulator, rate_limiter_shared_config, poison_pill_config)).collect()
     except Exception as e:
         raise Exception(f"Error in parallel execution: {get_error_message(e)}") from None
     finally:
         rate_limiter_aggregator.shutdown()
+        poison_pill_driver.cleanup()
     if error_accumulator.value:
         first_error = error_accumulator.value[0]
         raise Exception(first_error) from None
@@ -93,7 +98,9 @@ def run(job, spark_context, glue_context, parsed_args):
     total = updated_accumulator.value + skipped_accumulator.value + failed_accumulator.value
     print(f"Processed {total:,} records: ({updated_accumulator.value:,} updates, {skipped_accumulator.value:,} non-updates, {failed_accumulator.value:,} conditions failed)")
 
-def _update_data(monitor_options, table_name, generate, segment, total_segments, updated_accumulator, skipped_accumulator, failed_accumulator, error_accumulator, rate_limiter_shared_config):
+def _update_data(monitor_options, table_name, generate, segment, total_segments, updated_accumulator, skipped_accumulator, failed_accumulator, error_accumulator, rate_limiter_shared_config, poison_pill_config=None):
+    poison_pill = PoisonPillWorker(poison_pill_config) if poison_pill_config else _NOOP_POISON_PILL
+
     rate_limiter_worker = RateLimiterWorker(
         shared_config=rate_limiter_shared_config,
         **monitor_options
@@ -122,6 +129,9 @@ def _update_data(monitor_options, table_name, generate, segment, total_segments,
 
     try:
         while True:
+            if poison_pill.check():
+                break
+
             response = table.scan(**scan_kwargs)
             for item in response.get("Items", []):
                 try:
@@ -135,8 +145,10 @@ def _update_data(monitor_options, table_name, generate, segment, total_segments,
                 except botocore.exceptions.ClientError as e:
                     error_code = get_error_code(e)
                     if error_code == DYNAMO_DB_THROTTLE_EXCEPTION:
+                        poison_pill.signal(f"Worker {segment}: Throttling observed despite massive retries")
                         exit("Throttling observed despite massive retries")
                     elif error_code == DYNAMO_DB_VALIDATION_EXCEPTION:
+                        poison_pill.signal(f"Worker {segment}: {get_error_message(e)}")
                         exit(f"Validation exception (usually caused by the generator producing items incompatible with the table schema): {get_error_message(e)}")
                     elif error_code == DYNAMO_DB_CONDITIONAL_CHECK_FAILED:
                         print(f"UpdateItem condition expression failed, skipping... with kwargs: {update_kwargs}")
@@ -151,7 +163,8 @@ def _update_data(monitor_options, table_name, generate, segment, total_segments,
 
     except Exception as e:
         error_accumulator.add([f"Error in worker {segment}: {get_error_message(e)}"])
-        # Let control drop down to exit
+        if PoisonPillWorker.is_systemic_error(e):
+            poison_pill.signal(f"Worker {segment}: {get_error_message(e)}")
     finally:
         rate_limiter_worker.shutdown()
 
