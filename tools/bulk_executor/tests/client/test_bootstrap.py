@@ -970,3 +970,112 @@ class TestBootstrapInit:
         assert instance.s3_client is clients.s3_client
         assert instance.glue_client is clients.glue_client
         assert instance.logs_client is clients.logs_client
+
+
+# -- XExistingBucket feature (GH#130) -------------------------------------
+
+class TestExistingBucket:
+    """Coverage for the --XExistingBucket parameter that allows users to
+    skip bucket creation and use a pre-existing S3 bucket."""
+
+    def test_existing_bucket_is_used_by_get_bucket_name(self, bootstrap):
+        from infrastructure.bootstrap import BootstrapInfrastructure
+        bootstrap._get_glue_job_bucket_name = BootstrapInfrastructure._get_glue_job_bucket_name.__get__(bootstrap)
+        bootstrap._existing_bucket = 'my-existing-bucket'
+        assert bootstrap._get_glue_job_bucket_name() == 'my-existing-bucket'
+
+    def test_existing_bucket_skips_bucket_creation(self, bootstrap):
+        from infrastructure.bootstrap import BootstrapInfrastructure
+        bootstrap._get_glue_job_bucket_name = BootstrapInfrastructure._get_glue_job_bucket_name.__get__(bootstrap)
+        bootstrap._existing_bucket = 'my-existing-bucket'
+        bootstrap._bucket_exists = MagicMock(return_value=True)
+
+        bootstrap._upload_job_root_to_s3()
+
+        bootstrap.s3_client.create_bucket.assert_not_called()
+        # Script upload still happens
+        bootstrap.s3_client.upload_file.assert_called_once()
+
+    def test_existing_bucket_still_applies_bucket_policy(self, bootstrap):
+        from infrastructure.bootstrap import BootstrapInfrastructure
+        bootstrap._get_glue_job_bucket_name = BootstrapInfrastructure._get_glue_job_bucket_name.__get__(bootstrap)
+        bootstrap._existing_bucket = 'my-existing-bucket'
+        bootstrap._bucket_exists = MagicMock(return_value=True)
+
+        bootstrap._upload_job_root_to_s3()
+
+        bootstrap.s3_client.put_bucket_policy.assert_called_once()
+        policy_kwargs = bootstrap.s3_client.put_bucket_policy.call_args.kwargs
+        assert policy_kwargs['Bucket'] == 'my-existing-bucket'
+
+    def test_validate_existing_bucket_succeeds_when_exists(self, bootstrap):
+        bootstrap.s3_client.head_bucket.return_value = {}
+        bootstrap._validate_existing_bucket('good-bucket')
+
+    def test_validate_existing_bucket_exits_when_not_found(self, bootstrap):
+        bootstrap.s3_client.head_bucket.side_effect = ClientError(
+            {'Error': {'Code': '404', 'Message': 'Not Found'}}, 'HeadBucket'
+        )
+        with pytest.raises(SystemExit) as exc:
+            bootstrap._validate_existing_bucket('bad-bucket')
+        assert exc.value.code == 1
+
+    def test_validate_existing_bucket_exits_when_forbidden(self, bootstrap):
+        bootstrap.s3_client.head_bucket.side_effect = ClientError(
+            {'Error': {'Code': '403', 'Message': 'Forbidden'}}, 'HeadBucket'
+        )
+        with pytest.raises(SystemExit) as exc:
+            bootstrap._validate_existing_bucket('forbidden-bucket')
+        assert exc.value.code == 1
+
+    def test_bootstrap_with_existing_bucket_sets_field(self, bootstrap):
+        bootstrap._validate_existing_bucket = MagicMock()
+        bootstrap._add_glue_job_role = MagicMock()
+        bootstrap._create_glue_log_groups = MagicMock()
+        bootstrap._create_or_update_glue_job = MagicMock()
+        bootstrap._upload_job_root_to_s3 = MagicMock()
+        bootstrap.update_python_modules_in_s3 = MagicMock()
+        bootstrap._upload_property_files_to_s3 = MagicMock()
+
+        bootstrap.bootstrap({'XRole': 'READ-ONLY', 'XExistingBucket': 'my-bucket'})
+
+        bootstrap._validate_existing_bucket.assert_called_once_with('my-bucket')
+        assert bootstrap._existing_bucket == 'my-bucket'
+
+    def test_bootstrap_without_existing_bucket_leaves_field_none(self, bootstrap):
+        bootstrap._add_glue_job_role = MagicMock()
+        bootstrap._create_glue_log_groups = MagicMock()
+        bootstrap._create_or_update_glue_job = MagicMock()
+        bootstrap._upload_job_root_to_s3 = MagicMock()
+        bootstrap.update_python_modules_in_s3 = MagicMock()
+        bootstrap._upload_property_files_to_s3 = MagicMock()
+
+        bootstrap.bootstrap({'XRole': 'READ-ONLY'})
+
+        assert bootstrap._existing_bucket is None
+
+    def test_existing_bucket_excluded_from_default_arguments(self, bootstrap):
+        result = _run(bootstrap, {'XExistingBucket': 'my-bucket', 'XWorkerType': 'G.1X'})
+        assert '--XExistingBucket' not in result
+        assert result.get('--XWorkerType') == 'G.1X'
+
+    def test_existing_bucket_none_does_not_override_persisted_bucket(self, bootstrap):
+        """When no existing bucket is specified, the persisted bucket from the
+        Glue job details is still used (standard behavior)."""
+        with patch('infrastructure.bootstrap.Clients') as MockClients:
+            clients = MagicMock()
+            clients.iam_client = MagicMock()
+            clients.s3_client = MagicMock()
+            clients.glue_client = MagicMock()
+            clients.logs_client = MagicMock()
+            MockClients.return_value = clients
+
+            from infrastructure.bootstrap import BootstrapInfrastructure
+            env = MagicMock(aws_region='us-east-1', aws_account_id='123456789012')
+            instance = BootstrapInfrastructure(env)
+
+        instance._existing_bucket = None
+        instance._get_glue_job_details = MagicMock(return_value={
+            'Job': {'DefaultArguments': {'--s3-bucket-name': 'persisted-bucket'}}
+        })
+        assert instance._get_glue_job_bucket_name() == 'persisted-bucket'

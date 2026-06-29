@@ -277,7 +277,7 @@ class BootstrapInfrastructure:
         # concerns and are not needed at job runtime, so they are excluded
         # from DefaultArguments. See issue #85.
         for key, value in args.items():
-            if key.startswith('X') and key not in ('XRole', 'XRegion', 'XAccount'):
+            if key.startswith('X') and key not in ('XRole', 'XRegion', 'XAccount', 'XExistingBucket'):
                 default_arguments[f'--{key}'] = str(value)
 
         default_arguments.update({ # Update last intentional.
@@ -369,23 +369,24 @@ class BootstrapInfrastructure:
     def _upload_job_root_to_s3(self):
         glue_job_bucket = self._get_glue_job_bucket_name()
 
-        # Check if the bucket exists
-        if not self._bucket_exists(self.s3_client, glue_job_bucket):
-            try:
-                # Create the bucket
-                bucket_config = {}
-                if self.aws_region != 'us-east-1': # Default is us-east-1 so LocationConstraint fails if configured for this region.
-                    bucket_config['CreateBucketConfiguration'] = {'LocationConstraint': self.aws_region}
-                self.s3_client.create_bucket(
-                    Bucket=glue_job_bucket,
-                    **bucket_config
-                )
-                log.info(f"Bucket '{glue_job_bucket}' created successfully!")
-            except Exception as e:
-                log.error(f"Error creating bucket '{glue_job_bucket}': {e}")
-                exit(1)
-        else:
-            log.info(f"Bucket '{glue_job_bucket}' already exists.")
+        if not getattr(self, '_existing_bucket', None):
+            # Check if the bucket exists
+            if not self._bucket_exists(self.s3_client, glue_job_bucket):
+                try:
+                    # Create the bucket
+                    bucket_config = {}
+                    if self.aws_region != 'us-east-1': # Default is us-east-1 so LocationConstraint fails if configured for this region.
+                        bucket_config['CreateBucketConfiguration'] = {'LocationConstraint': self.aws_region}
+                    self.s3_client.create_bucket(
+                        Bucket=glue_job_bucket,
+                        **bucket_config
+                    )
+                    log.info(f"Bucket '{glue_job_bucket}' created successfully!")
+                except Exception as e:
+                    log.error(f"Error creating bucket '{glue_job_bucket}': {e}")
+                    exit(1)
+            else:
+                log.info(f"Bucket '{glue_job_bucket}' already exists.")
 
         # Apply the secure transport policy
         try:
@@ -423,7 +424,16 @@ class BootstrapInfrastructure:
         self.s3_client.upload_file(f"./{GLUE_JOB_SERVER_ROOT_PATH}", glue_job_bucket, GLUE_JOB_SERVER_ROOT_PATH)
         log.info(f"Glue script '{GLUE_JOB_SERVER_ROOT_PATH}' uploaded into S3 successfully.")
 
+    def _validate_existing_bucket(self, bucket_name):
+        if not self._bucket_exists(self.s3_client, bucket_name):
+            log.error(f"The specified bucket '{bucket_name}' does not exist or is not accessible.")
+            exit(1)
+        log.info(f"Using existing S3 bucket: {bucket_name}")
+
     def _get_glue_job_bucket_name(self):
+        if getattr(self, '_existing_bucket', None):
+            return self._existing_bucket
+
         # Return the existing persisted S3 Bucket name
         job_details = self._get_glue_job_details()
         if job_details:
@@ -588,6 +598,13 @@ class BootstrapInfrastructure:
                 exit(1)
 
     def bootstrap(self, args):
+        existing_bucket = args.get('XExistingBucket')
+        if existing_bucket:
+            self._validate_existing_bucket(existing_bucket)
+            self._existing_bucket = existing_bucket
+        else:
+            self._existing_bucket = None
+
         self._add_glue_job_role(args)
         self._create_glue_log_groups()
         self._ensure_dynamodb_glue_connection()
