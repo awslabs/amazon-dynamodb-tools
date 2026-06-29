@@ -104,6 +104,12 @@ def run(job, spark_context, glue_context, parsed_args):
         session = boto3.Session()
         print_dynamodb_table_info(session, table_name, count, check_dynamic_frame_avg_size(dynamicFrame))
 
+        write_rate = parsed_args.get('XMaxWriteRate')
+        if write_rate is not None:
+            log.info(f"Write rate: {write_rate} WCU/s (explicitly set via --XMaxWriteRate)")
+        else:
+            log.info("Write rate: automatically determined by the DynamoDB connector")
+
         df = dynamicFrame.repartition(30).toDF()
         write_dynamodb_dataframe(
             glue_context, df, table_name, parsed_args)
