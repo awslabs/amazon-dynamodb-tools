@@ -7,7 +7,6 @@ import warnings
 import boto3
 from awsglue.transforms import *
 from botocore.config import Config
-from pyspark.sql import SparkSession
 from pyspark.sql.functions import asc, desc
 
 # Custom Library Imports
@@ -154,14 +153,9 @@ def run(job, spark_context, glue_context, parsed_args):
             job_run_id = parsed_args.get("JOB_RUN_ID")
             s3_output_location = f"s3://{bucket_name}/output/{job_run_id}"
 
-            # With a --limit, this produces one file with a name like part-00000-8c460443-6d45-4d11-b9ef-0cd84c21a45a-c000.json
-            # because the limit moves all the data to a single worker
-            # Without a limit, this produces about 200 files with names similar to that
-            # Adding coalesce(10) gets us down to 10 files, but testing against a large table showed that slower
-            spark = SparkSession(spark_context)
-            json_rdd = records.toJSON()
-            json_df = spark.read.json(json_rdd)
-            json_df.write.mode("overwrite").json(s3_output_location)
+            # Write the DataFrame directly to S3 as JSON Lines, preserving the
+            # connector's schema (type fidelity for maps, numbers, booleans, etc.).
+            records.write.mode("overwrite").json(s3_output_location)
 
             # Print the top N many
             TOP_N = 10
