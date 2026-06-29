@@ -290,9 +290,11 @@ class BootstrapInfrastructure:
             '--s3-bucket-name': glue_job_bucket,
             '--s3-script-location': s3_script_location,
             '--extra-py-files': s3_python_module_location,
-            '--additional-python-modules': THIRD_PARTY_PYTHON_MODULES,
             '--bulk-dynamodb-version': VERSION
         })
+
+        if THIRD_PARTY_PYTHON_MODULES:
+            default_arguments['--additional-python-modules'] = THIRD_PARTY_PYTHON_MODULES
 
         # Custom log4j2 properties override continuous CloudWatch logging
         # Reference: https://repost.aws/knowledge-center/glue-reduce-cloudwatch-logs
