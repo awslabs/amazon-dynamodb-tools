@@ -38,6 +38,7 @@ class GlueJobDefaults(Enum):
     MaxConcurrentRuns=20
     Retries=0
     Timeout=60
+    IdleTimeout=5
     NumberOfWorkers=220
     WorkerType='G.1X'
 
