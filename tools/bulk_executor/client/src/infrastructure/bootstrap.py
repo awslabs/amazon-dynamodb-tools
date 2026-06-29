@@ -67,6 +67,7 @@ class BootstrapInfrastructure:
             if not self._is_existing_role(role_param):
                 print(f"Provided --XRole '{role_param}' name does not exist!")
                 exit(1)
+            self._check_custom_role_permissions(role_param)
             return role_param
 
         # Handle standard role types
@@ -181,6 +182,39 @@ class BootstrapInfrastructure:
         except Exception as e:
             log.error(f'Unexpected error when checking for existing IAM Role: {e}')
             exit(1)
+
+    # Minimum actions a custom Glue execution role must be able to perform.
+    REQUIRED_ACTIONS = [
+        'dynamodb:DescribeTable',
+        'dynamodb:Scan',
+        's3:GetObject',
+        's3:PutObject',
+        'logs:CreateLogGroup',
+        'logs:PutLogEvents',
+        'pricing:GetProducts',
+        'servicequotas:GetServiceQuota',
+    ]
+
+    def _check_custom_role_permissions(self, role_name):
+        role_arn = f"arn:aws:iam::{self.aws_account_id}:role/{role_name}"
+        try:
+            response = self.iam_client.simulate_principal_policy(
+                PolicySourceArn=role_arn,
+                ActionNames=self.REQUIRED_ACTIONS,
+            )
+            denied = [
+                r['EvalActionName']
+                for r in response.get('EvaluationResults', [])
+                if r.get('EvalDecision') != 'allowed'
+            ]
+            if denied:
+                log.warning(
+                    f"Custom role '{role_name}' may be missing required permissions: "
+                    f"{', '.join(denied)}. "
+                    f"Execution may fail. See documentation for minimum required permissions."
+                )
+        except Exception as e:
+            log.debug(f"Unable to verify permissions for role '{role_name}': {e}")
 
     def _create_or_update_glue_job(self, args, is_create_allowed=True):
         glue_job_bucket = self._get_glue_job_bucket_name()
