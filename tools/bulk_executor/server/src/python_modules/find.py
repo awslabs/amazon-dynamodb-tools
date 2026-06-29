@@ -13,6 +13,7 @@ from pyspark.sql.functions import asc, desc
 # Custom Library Imports
 sys.path.append('/server/src')
 from python_modules.shared.errors import *
+from python_modules.shared.poison_pill import PoisonPillConfig, PoisonPillDriver, PoisonPillWorker, _NOOP as _NOOP_POISON_PILL
 from python_modules.shared.pricing import PricingUtility
 from python_modules.shared.rate_limiter import (
     RateLimiterAggregator,
@@ -180,7 +181,8 @@ def run(job, spark_context, glue_context, parsed_args):
         elif DO_DELETE:
             keys = get_table_keys(DYNAMO_DB_TABLE_NAME)
 
-            def delete_partition(monitor_options, partition, shared_config):
+            def delete_partition(monitor_options, partition, shared_config, pp_config):
+                poison_pill = PoisonPillWorker(pp_config)
                 rate_limiter_worker = RateLimiterWorker(
                     shared_config=rate_limiter_shared_config,
                     **monitor_options
@@ -200,11 +202,16 @@ def run(job, spark_context, glue_context, parsed_args):
                 try:
                     with table.batch_writer() as batch:
                         for record in partition:
+                            if poison_pill.check():
+                                break
                             try:
                                 item = json.loads(record)
                                 key = {k: item[k] for k in keys}
                                 batch.delete_item(Key=key)
                             except Exception as e:
+                                if PoisonPillWorker.is_systemic_error(e):
+                                    poison_pill.signal(f"Delete partition: {get_error_message(e)}")
+                                    raise
                                 print(f"Error deleting item {item}: {e}")
                 finally:
                     rate_limiter_worker.shutdown()
@@ -228,15 +235,19 @@ def run(job, spark_context, glue_context, parsed_args):
                 job_run_id=job_run_id
             )
 
+            poison_pill_config = PoisonPillConfig(bucket=bucket_name, job_run_id=job_run_id)
+            poison_pill_driver = PoisonPillDriver(poison_pill_config)
+
             rate_limiter_aggregator = RateLimiterAggregator(shared_config=rate_limiter_shared_config)
 
             monitor_options = get_dynamodb_throughput_configs(parsed_args, DYNAMO_DB_TABLE_NAME, modes=["write"], format="monitor")
             try:
                 records.toJSON().foreachPartition(
-                    lambda partition: delete_partition(monitor_options, partition, rate_limiter_shared_config)
+                    lambda partition: delete_partition(monitor_options, partition, rate_limiter_shared_config, poison_pill_config)
                 )
             finally:
                 rate_limiter_aggregator.shutdown()
+                poison_pill_driver.cleanup()
             print(f"Deleted {count:,} items")
 
         else:

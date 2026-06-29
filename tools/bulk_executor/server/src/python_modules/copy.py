@@ -7,6 +7,7 @@ from pyspark import AccumulatorParam
 
 sys.path.append('/server/src')
 from python_modules.shared.errors import get_error_message
+from python_modules.shared.poison_pill import PoisonPillConfig, PoisonPillDriver, PoisonPillWorker, _NOOP as _NOOP_POISON_PILL
 from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info,
     get_and_print_table_scan_cost,
@@ -16,7 +17,7 @@ from python_modules.shared.table_info import (
 )
 
 from python_modules.shared.rate_limiter import (
-    RateLimiterAggregator,  
+    RateLimiterAggregator,
     RateLimiterSharedConfig,
     RateLimiterWorker
 )
@@ -72,24 +73,30 @@ def run(job, spark_context, glue_context, parsed_args):
     # Since each task might generate errors, let's accumulate them and report intelligently
     error_accumulator = spark_context.accumulator([], ListAccumulator())
 
+    poison_pill_config = PoisonPillConfig(bucket=bucket_name, job_run_id=job_run_id)
+    poison_pill_driver = PoisonPillDriver(poison_pill_config)
+
     # Distribute work among partitions, each knowing what segment it's to handle
     try:
         parallelize_count = 400
         rdd = spark_context.parallelize(range(parallelize_count), parallelize_count)
-        rdd.foreach(lambda worker_id: _copy_data(source_table, target_table, source_monitor_options, target_monitor_options, worker_id, parallelize_count, total_matched_accumulator, error_accumulator, source_rate_limiter_shared_config, target_rate_limiter_shared_config))
+        rdd.foreach(lambda worker_id: _copy_data(source_table, target_table, source_monitor_options, target_monitor_options, worker_id, parallelize_count, total_matched_accumulator, error_accumulator, source_rate_limiter_shared_config, target_rate_limiter_shared_config, poison_pill_config))
         #rdd.count()
     except Exception as e:
         raise Exception(f"Error in parallel execution: {get_error_message(e)}") from None
     finally:
         source_rate_limiter_aggregator.shutdown()
         target_rate_limiter_aggregator.shutdown()
+        poison_pill_driver.cleanup()
     if error_accumulator.value:
         first_error = error_accumulator.value[0]
         raise Exception(first_error) from None
 
     print(f"Total records copied: {total_matched_accumulator.value:,}")
 
-def _copy_data(source_table, target_table, source_monitor_options, target_monitor_options, segment, total_segments, total_matched_accumulator, error_accumulator, source_rate_limiter_shared_config, target_rate_limiter_shared_config):
+def _copy_data(source_table, target_table, source_monitor_options, target_monitor_options, segment, total_segments, total_matched_accumulator, error_accumulator, source_rate_limiter_shared_config, target_rate_limiter_shared_config, poison_pill_config=None):
+
+    poison_pill = PoisonPillWorker(poison_pill_config) if poison_pill_config else _NOOP_POISON_PILL
 
     # Let's hit the gas harder for this verb, at least for now XXX
     source_rl = RateLimiterWorker(
@@ -128,6 +135,9 @@ def _copy_data(source_table, target_table, source_monitor_options, target_monito
     try:
         with dst.batch_writer() as batch:
             while True:
+                if poison_pill.check():
+                    break
+
                 resp = src.scan(**scan_kwargs)
 
                 items = resp.get("Items", [])
@@ -142,7 +152,8 @@ def _copy_data(source_table, target_table, source_monitor_options, target_monito
                 scan_kwargs["ExclusiveStartKey"] = lek
     except Exception as e:
         error_accumulator.add([f"Error in worker {segment}: {get_error_message(e)}"])
-        # Let control drop down to exit
+        if PoisonPillWorker.is_systemic_error(e):
+            poison_pill.signal(f"Worker {segment}: {get_error_message(e)}")
     finally:
         source_rl.shutdown()
         target_rl.shutdown()
