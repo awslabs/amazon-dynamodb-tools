@@ -244,6 +244,61 @@ class TestIsExistingRole:
         assert exc.value.code == 1
 
 
+# -- _get_role_version_tag / _tag_role_version / _is_builtin_role --------
+
+class TestRoleVersionTag:
+    def test_returns_version_when_tag_present(self, bootstrap):
+        bootstrap.iam_client.list_role_tags.return_value = {
+            'Tags': [
+                {'Key': 'BulkDynamoDBVersion', 'Value': '1.2.3'},
+                {'Key': 'OtherTag', 'Value': 'x'},
+            ]
+        }
+        assert bootstrap._get_role_version_tag('MyRole') == '1.2.3'
+
+    def test_returns_none_when_tag_absent(self, bootstrap):
+        bootstrap.iam_client.list_role_tags.return_value = {
+            'Tags': [{'Key': 'OtherTag', 'Value': 'x'}]
+        }
+        assert bootstrap._get_role_version_tag('MyRole') is None
+
+    def test_returns_none_on_empty_tags(self, bootstrap):
+        bootstrap.iam_client.list_role_tags.return_value = {'Tags': []}
+        assert bootstrap._get_role_version_tag('MyRole') is None
+
+    def test_returns_none_on_exception(self, bootstrap):
+        bootstrap.iam_client.list_role_tags.side_effect = RuntimeError('boom')
+        assert bootstrap._get_role_version_tag('MyRole') is None
+
+    def test_tag_role_version_calls_tag_role(self, bootstrap):
+        from __version__ import __version__ as VERSION
+        bootstrap._tag_role_version('MyRole')
+        bootstrap.iam_client.tag_role.assert_called_once_with(
+            RoleName='MyRole',
+            Tags=[{'Key': 'BulkDynamoDBVersion', 'Value': VERSION}]
+        )
+
+    def test_tag_role_version_swallows_error(self, bootstrap):
+        bootstrap.iam_client.tag_role.side_effect = RuntimeError('no perms')
+        bootstrap._tag_role_version('MyRole')  # should not raise
+
+
+class TestIsBuiltinRole:
+    def test_no_role_is_builtin(self, bootstrap):
+        assert bootstrap._is_builtin_role({}) is True
+
+    def test_read_only_is_builtin(self, bootstrap):
+        from infrastructure.constants import ROLE_TYPE_READ_ONLY
+        assert bootstrap._is_builtin_role({'XRole': ROLE_TYPE_READ_ONLY}) is True
+
+    def test_read_write_is_builtin(self, bootstrap):
+        from infrastructure.constants import ROLE_TYPE_READ_WRITE
+        assert bootstrap._is_builtin_role({'XRole': ROLE_TYPE_READ_WRITE}) is True
+
+    def test_custom_role_is_not_builtin(self, bootstrap):
+        assert bootstrap._is_builtin_role({'XRole': 'MyCustomRole'}) is False
+
+
 # -- _is_write_access_enabled -------------------------------------------
 
 class TestIsWriteAccessEnabled:
@@ -316,9 +371,11 @@ class TestAddGlueJobRole:
         assert 'arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess' in attached
         assert 'arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess' not in attached
 
-    def test_role_already_exists_returns_without_attaching_policies(self, bootstrap):
+    def test_role_already_exists_with_current_version_skips_policy_refresh(self, bootstrap):
         from infrastructure.constants import ROLE_TYPE_READ_ONLY
+        from __version__ import __version__ as VERSION
         bootstrap._prompt_for_role = MagicMock()
+        bootstrap._get_role_version_tag = MagicMock(return_value=VERSION)
 
         class EntityAlreadyExistsException(Exception):
             pass
@@ -329,9 +386,61 @@ class TestAddGlueJobRole:
 
         bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_ONLY})
 
-        # Early return — no policy attachments
         bootstrap.iam_client.attach_role_policy.assert_not_called()
         bootstrap.iam_client.put_role_policy.assert_not_called()
+
+    def test_role_already_exists_with_old_version_refreshes_policies(self, bootstrap):
+        from infrastructure.constants import ROLE_TYPE_READ_ONLY
+        bootstrap._prompt_for_role = MagicMock()
+        bootstrap._get_role_version_tag = MagicMock(return_value='old-version')
+
+        class EntityAlreadyExistsException(Exception):
+            pass
+        bootstrap.iam_client.exceptions.EntityAlreadyExistsException = (
+            EntityAlreadyExistsException
+        )
+        bootstrap.iam_client.create_role.side_effect = EntityAlreadyExistsException()
+
+        bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_ONLY})
+
+        assert bootstrap.iam_client.attach_role_policy.call_count == 2
+        assert bootstrap.iam_client.put_role_policy.call_count == 2
+        bootstrap.iam_client.tag_role.assert_called_once()
+
+    def test_role_already_exists_with_no_version_tag_refreshes_policies(self, bootstrap):
+        from infrastructure.constants import ROLE_TYPE_READ_ONLY
+        bootstrap._prompt_for_role = MagicMock()
+        bootstrap._get_role_version_tag = MagicMock(return_value=None)
+
+        class EntityAlreadyExistsException(Exception):
+            pass
+        bootstrap.iam_client.exceptions.EntityAlreadyExistsException = (
+            EntityAlreadyExistsException
+        )
+        bootstrap.iam_client.create_role.side_effect = EntityAlreadyExistsException()
+
+        bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_ONLY})
+
+        assert bootstrap.iam_client.attach_role_policy.call_count == 2
+        assert bootstrap.iam_client.put_role_policy.call_count == 2
+        bootstrap.iam_client.tag_role.assert_called_once()
+
+    def test_custom_role_exists_skips_policy_management(self, bootstrap):
+        bootstrap._prompt_for_role = MagicMock()
+        bootstrap._is_existing_role = MagicMock(return_value=True)
+
+        class EntityAlreadyExistsException(Exception):
+            pass
+        bootstrap.iam_client.exceptions.EntityAlreadyExistsException = (
+            EntityAlreadyExistsException
+        )
+        bootstrap.iam_client.create_role.side_effect = EntityAlreadyExistsException()
+
+        bootstrap._add_glue_job_role({'XRole': 'MyCustomRole'})
+
+        bootstrap.iam_client.attach_role_policy.assert_not_called()
+        bootstrap.iam_client.put_role_policy.assert_not_called()
+        bootstrap.iam_client.tag_role.assert_not_called()
 
     def test_unexpected_create_role_error_exits(self, bootstrap):
         from infrastructure.constants import ROLE_TYPE_READ_ONLY

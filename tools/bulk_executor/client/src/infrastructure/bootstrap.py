@@ -37,6 +37,8 @@ from .constants import (
     THIRD_PARTY_PYTHON_MODULES,
 )
 
+ROLE_VERSION_TAG_KEY = 'BulkDynamoDBVersion'
+
 
 class BootstrapInfrastructure:
     def __init__(self, env_configs):
@@ -74,6 +76,10 @@ class BootstrapInfrastructure:
         is_write_access = role_param == ROLE_TYPE_READ_WRITE
         role_id = READ_WRITE_ROLE_ID if is_write_access else READ_ONLY_ROLE_ID
         return f"{GLUE_JOB_ROOT_ROLE_NAME}-{role_id}-{self.aws_region}" # region definition for separate region specific permissioning
+
+    def _is_builtin_role(self, args):
+        role_param = args.get('XRole', '')
+        return not role_param or role_param in READ_WRITE_ROLE_TYPES
 
     def _add_glue_job_role(self, args):
         log.info("Adding Glue Job role...")
@@ -120,7 +126,8 @@ class BootstrapInfrastructure:
             ]
         }
 
-        # Create the role
+        # Create the role or check if it needs a policy refresh
+        role_exists = False
         try:
             response = self.iam_client.create_role(
                 RoleName=role_name,
@@ -129,12 +136,22 @@ class BootstrapInfrastructure:
 
             log.info(f"Bulk Executor Glue Job Role created: {role_name}")
             log.debug(f'Role ARN: {response["Role"]["Arn"]}')
-        except self.iam_client.exceptions.EntityAlreadyExistsException as e:
+        except self.iam_client.exceptions.EntityAlreadyExistsException:
+            role_exists = True
             log.info(f"Found Bulk Executor Glue Job Role: {role_name}")
-            return # Roles exists. No additional actions needed.
         except Exception as e:
             log.error(f'Unexpected error: {e}')
             exit(1)
+
+        if role_exists:
+            if not self._is_builtin_role(args):
+                log.info(f"Custom role {role_name} exists. Skipping policy management.")
+                return
+            existing_version = self._get_role_version_tag(role_name)
+            if existing_version == VERSION:
+                log.info(f"Role {role_name} is up to date (version {VERSION}).")
+                return
+            log.info(f"Role {role_name} version mismatch (tagged={existing_version}, current={VERSION}). Refreshing policies...")
 
         policy_arns = [
             'arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole', # S3 permissions etc are handled here
@@ -172,6 +189,27 @@ class BootstrapInfrastructure:
         except Exception as e:
             log.error(f'Unexpected error: {e}')
             exit(1)
+
+        self._tag_role_version(role_name)
+
+    def _get_role_version_tag(self, role_name):
+        try:
+            response = self.iam_client.list_role_tags(RoleName=role_name)
+            for tag in response.get('Tags', []):
+                if tag['Key'] == ROLE_VERSION_TAG_KEY:
+                    return tag['Value']
+            return None
+        except Exception:
+            return None
+
+    def _tag_role_version(self, role_name):
+        try:
+            self.iam_client.tag_role(
+                RoleName=role_name,
+                Tags=[{'Key': ROLE_VERSION_TAG_KEY, 'Value': VERSION}]
+            )
+        except Exception as e:
+            log.warning(f'Could not tag role {role_name} with version: {e}')
 
     def _is_existing_role(self, role_name):
         try:
