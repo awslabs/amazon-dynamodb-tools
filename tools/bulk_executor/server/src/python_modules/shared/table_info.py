@@ -11,6 +11,45 @@ from .pricing import PricingUtility
 MIN_RECOMMENDED_READ_RATE = 100
 MIN_RECOMMENDED_WRITE_RATE = 100
 
+# Maximum multiplier over table capacity before we warn the user.
+# For provisioned tables, exceeding 100% will cause throttling.
+# For on-demand tables, exceeding the configured limit causes throttling.
+MAX_RATE_CAPACITY_MULTIPLIER = 1.0
+
+
+def _warn_rate_vs_capacity(table_name, direction, user_rate, table_capacity):
+    """Emit a warning if user-specified rate is too high or too low relative to table capacity.
+
+    Returns suggested (low, high) range tuple for testing.
+    """
+    user_rate = int(user_rate)
+    table_capacity = int(table_capacity)
+
+    min_recommended = MIN_RECOMMENDED_READ_RATE if direction == "read" else MIN_RECOMMENDED_WRITE_RATE
+    suggested_low = max(min_recommended, table_capacity // 10)
+    suggested_high = table_capacity
+
+    if user_rate > table_capacity:
+        log.warn(
+            f"[{table_name}] WARNING: {direction.capitalize()} rate {user_rate:,} exceeds table capacity "
+            f"of {table_capacity:,}. This will cause throttling. "
+            f"Suggested range: {suggested_low:,}–{suggested_high:,}."
+        )
+    elif user_rate < min_recommended:
+        log.warn(
+            f"[{table_name}] WARNING: {direction.capitalize()} rate {user_rate:,} is very low and will "
+            f"result in an extremely slow job. "
+            f"Suggested range: {suggested_low:,}–{suggested_high:,}."
+        )
+    elif user_rate < suggested_low:
+        log.warn(
+            f"[{table_name}] WARNING: {direction.capitalize()} rate {user_rate:,} is low relative to table "
+            f"capacity of {table_capacity:,}. The job may take unreasonably long. "
+            f"Suggested range: {suggested_low:,}–{suggested_high:,}."
+        )
+
+    return (suggested_low, suggested_high)
+
 def get_quota_value(quota_name, region_name):
     """
     Get the value of a specific DynamoDB quota from Service Quotas API.
@@ -327,6 +366,15 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
     if "read" in modes:
         if read_rate:
             log.info(f"[{table_name}] Max read rate set to specified limit: {read_rate}")
+            # Warn if user-specified rate is unreasonable relative to table capacity
+            effective_read_capacity = None
+            if is_on_demand_table:
+                on_demand_throughput = table_desc.get('OnDemandThroughput', {})
+                effective_read_capacity = on_demand_throughput.get('MaxReadRequestUnits') or DEFAULT_ON_DEMAND_CAPACITY
+            else:
+                effective_read_capacity = table_desc.get('ProvisionedThroughput', {}).get('ReadCapacityUnits')
+            if effective_read_capacity:
+                _warn_rate_vs_capacity(table_name, "read", read_rate, effective_read_capacity)
         elif is_on_demand_table:
             # Check for table-specific limit
             on_demand_throughput = table_desc.get('OnDemandThroughput', {})
@@ -360,6 +408,15 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
     if "write" in modes:
         if write_rate:
             log.info(f"[{table_name}] Max write rate set to specified limit: {write_rate}")
+            # Warn if user-specified rate is unreasonable relative to table capacity
+            effective_write_capacity = None
+            if is_on_demand_table:
+                on_demand_throughput = table_desc.get('OnDemandThroughput', {})
+                effective_write_capacity = on_demand_throughput.get('MaxWriteRequestUnits') or DEFAULT_ON_DEMAND_CAPACITY
+            else:
+                effective_write_capacity = table_desc.get('ProvisionedThroughput', {}).get('WriteCapacityUnits')
+            if effective_write_capacity:
+                _warn_rate_vs_capacity(table_name, "write", write_rate, effective_write_capacity)
         elif is_on_demand_table:
             # Check for table-specific limit
             on_demand_throughput = table_desc.get('OnDemandThroughput', {})

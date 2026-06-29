@@ -1374,3 +1374,151 @@ class TestGetThroughputConfigsReadRateFalsyConnector:
         # but the read percent key is always set.
         assert 'dynamodb.throughput.read' not in opts
         assert opts['dynamodb.throughput.read.percent'] == '1.0'
+
+
+# --- _warn_rate_vs_capacity ---------------------------------------------------
+
+
+class TestWarnRateVsCapacity:
+    """Unit tests for the _warn_rate_vs_capacity helper."""
+
+    def test_returns_suggested_range(self):
+        low, high = table_info._warn_rate_vs_capacity('t', 'read', 500, 1000)
+        assert low == 100  # max(MIN_RECOMMENDED=100, 1000//10=100)
+        assert high == 1000
+
+    def test_suggested_low_is_at_least_min_recommended(self):
+        low, high = table_info._warn_rate_vs_capacity('t', 'write', 50, 500)
+        # 500 // 10 = 50, but MIN_RECOMMENDED_WRITE_RATE=100 wins
+        assert low == 100
+        assert high == 500
+
+    def test_suggested_low_scales_with_large_capacity(self):
+        low, high = table_info._warn_rate_vs_capacity('t', 'read', 5000, 40000)
+        # 40000 // 10 = 4000 > MIN=100
+        assert low == 4000
+        assert high == 40000
+
+    def test_too_high_emits_warning(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            table_info._warn_rate_vs_capacity('t', 'read', 2000, 1000)
+        assert 'exceeds table capacity' in caplog.text
+        assert '2,000' in caplog.text
+        assert '1,000' in caplog.text
+
+    def test_too_low_below_min_emits_warning(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            table_info._warn_rate_vs_capacity('t', 'write', 5, 1000)
+        assert 'very low' in caplog.text
+
+    def test_low_relative_to_capacity_emits_warning(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            # capacity=40000, rate=200 is above MIN_RECOMMENDED but below 40000//10=4000
+            table_info._warn_rate_vs_capacity('t', 'read', 200, 40000)
+        assert 'low relative to table capacity' in caplog.text
+
+    def test_rate_within_range_no_warning(self, caplog):
+        import logging
+        with caplog.at_level(logging.WARNING):
+            table_info._warn_rate_vs_capacity('t', 'read', 500, 1000)
+        assert 'WARNING' not in caplog.text
+        assert 'exceeds' not in caplog.text
+        assert 'low' not in caplog.text
+
+
+# --- Rate validation integration in get_dynamodb_throughput_configs -----------
+
+
+class TestRateValidationIntegration:
+    """Verify _warn_rate_vs_capacity is called when users specify explicit rates."""
+
+    def test_read_rate_too_high_provisioned_warns(
+        self, boto3_mock, provisioned_table, caplog
+    ):
+        import logging
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        with caplog.at_level(logging.WARNING):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '5000'}, table_name='t', modes=['read']
+            )
+        # provisioned RCU=1000, user wants 5000 → too high
+        assert 'exceeds table capacity' in caplog.text
+
+    def test_write_rate_too_high_provisioned_warns(
+        self, boto3_mock, provisioned_table, caplog
+    ):
+        import logging
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        with caplog.at_level(logging.WARNING):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxWriteRate': '2000'}, table_name='t', modes=['write']
+            )
+        # provisioned WCU=500, user wants 2000 → too high
+        assert 'exceeds table capacity' in caplog.text
+
+    def test_read_rate_too_high_ondemand_warns(
+        self, boto3_mock, ondemand_table_with_limits, caplog
+    ):
+        import logging
+        boto3_mock.dynamodb_client.describe_table.return_value = (
+            ondemand_table_with_limits
+        )
+        with caplog.at_level(logging.WARNING):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '50000'}, table_name='t', modes=['read']
+            )
+        # on-demand table read limit=25000, user wants 50000 → too high
+        assert 'exceeds table capacity' in caplog.text
+
+    def test_write_rate_too_low_provisioned_warns(
+        self, boto3_mock, provisioned_table, caplog
+    ):
+        import logging
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        with caplog.at_level(logging.WARNING):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxWriteRate': '10'}, table_name='t', modes=['write']
+            )
+        # provisioned WCU=500, user wants 10 → very low (below MIN_RECOMMENDED)
+        assert 'very low' in caplog.text
+
+    def test_rate_within_capacity_no_capacity_warning(
+        self, boto3_mock, provisioned_table, caplog
+    ):
+        import logging
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        with caplog.at_level(logging.WARNING):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '800'}, table_name='t', modes=['read']
+            )
+        # provisioned RCU=1000, user wants 800 → within range, no warning
+        assert 'exceeds' not in caplog.text
+        assert 'low relative' not in caplog.text
+        assert 'very low' not in caplog.text
+
+    def test_no_capacity_warning_when_describe_table_fails(
+        self, boto3_mock, caplog
+    ):
+        import logging
+        boto3_mock.dynamodb_client.describe_table.side_effect = RuntimeError('nope')
+        with caplog.at_level(logging.WARNING):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '99999'}, table_name='t', modes=['read']
+            )
+        # describe_table failed → no capacity info → no capacity warning
+        assert 'exceeds table capacity' not in caplog.text
+
+    def test_ondemand_no_table_limit_uses_default_40k(
+        self, boto3_mock, ondemand_table, caplog
+    ):
+        import logging
+        boto3_mock.dynamodb_client.describe_table.return_value = ondemand_table
+        with caplog.at_level(logging.WARNING):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxWriteRate': '80000'}, table_name='t', modes=['write']
+            )
+        # on-demand no table limit → default capacity=40000, user wants 80000 → too high
+        assert 'exceeds table capacity' in caplog.text
