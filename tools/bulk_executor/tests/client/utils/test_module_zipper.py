@@ -5,6 +5,7 @@ Covers `client/src/utils/module_zipper.py`:
   infrastructure.constants
 - _zip_module(): happy path (writes parent dir entry, recurses os.walk,
   writes files, writes subdir entries to preserve empty dirs, skips symlinks),
+  exclusion of __pycache__, .DS_Store, .pyc/.pyo, and other junk,
   guard against zip_path inside source_path (raises ValueError → caught,
   returns False), exception during zipping (caught, log.error, returns False)
 
@@ -147,6 +148,156 @@ class TestZipModuleInternalHappyPath:
 
         # Zip materialized at the absolute location
         assert (tmp_path / 'out.zip').exists()
+
+
+class TestZipModuleExclusions:
+    """Tests for file/directory exclusion logic."""
+
+    def test_pycache_excluded(self, tmp_path):
+        """__pycache__ directories and their contents are excluded."""
+        source = tmp_path / "modules"
+        source.mkdir()
+        (source / "a.py").write_text("a")
+        cache = source / "__pycache__"
+        cache.mkdir()
+        (cache / "a.cpython-311.pyc").write_bytes(b"\x00")
+
+        zip_path = tmp_path / "out.zip"
+
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(source), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert 'modules/a.py' in names
+        assert not any('__pycache__' in n for n in names)
+
+    def test_nested_pycache_excluded(self, tmp_path):
+        """__pycache__ inside a subdirectory is also excluded."""
+        source = tmp_path / "modules"
+        source.mkdir()
+        sub = source / "sub"
+        sub.mkdir()
+        (sub / "b.py").write_text("b")
+        cache = sub / "__pycache__"
+        cache.mkdir()
+        (cache / "b.cpython-311.pyc").write_bytes(b"\x00")
+
+        zip_path = tmp_path / "out.zip"
+
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(source), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert 'modules/sub/b.py' in names
+        assert not any('__pycache__' in n for n in names)
+
+    def test_ds_store_excluded(self, tmp_path):
+        """.DS_Store files are excluded from the archive."""
+        source = tmp_path / "modules"
+        source.mkdir()
+        (source / "a.py").write_text("a")
+        (source / ".DS_Store").write_bytes(b"\x00\x00\x00\x01")
+
+        zip_path = tmp_path / "out.zip"
+
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(source), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert 'modules/a.py' in names
+        assert not any('.DS_Store' in n for n in names)
+
+    def test_pyc_files_excluded(self, tmp_path):
+        """.pyc files outside __pycache__ are also excluded."""
+        source = tmp_path / "modules"
+        source.mkdir()
+        (source / "a.py").write_text("a")
+        (source / "a.pyc").write_bytes(b"\x00")
+
+        zip_path = tmp_path / "out.zip"
+
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(source), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert 'modules/a.py' in names
+        assert 'modules/a.pyc' not in names
+
+    def test_pyo_files_excluded(self, tmp_path):
+        """.pyo files are excluded."""
+        source = tmp_path / "modules"
+        source.mkdir()
+        (source / "a.py").write_text("a")
+        (source / "a.pyo").write_bytes(b"\x00")
+
+        zip_path = tmp_path / "out.zip"
+
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(source), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert 'modules/a.py' in names
+        assert 'modules/a.pyo' not in names
+
+    def test_egg_info_dir_excluded(self, tmp_path):
+        """*.egg-info directories are excluded."""
+        source = tmp_path / "modules"
+        source.mkdir()
+        (source / "a.py").write_text("a")
+        egg = source / "pkg.egg-info"
+        egg.mkdir()
+        (egg / "PKG-INFO").write_text("info")
+
+        zip_path = tmp_path / "out.zip"
+
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(source), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert 'modules/a.py' in names
+        assert not any('egg-info' in n for n in names)
+
+    def test_thumbs_db_excluded(self, tmp_path):
+        """Thumbs.db files are excluded."""
+        source = tmp_path / "modules"
+        source.mkdir()
+        (source / "a.py").write_text("a")
+        (source / "Thumbs.db").write_bytes(b"\x00")
+
+        zip_path = tmp_path / "out.zip"
+
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(source), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert 'modules/a.py' in names
+        assert 'modules/Thumbs.db' not in names
+
+    def test_pytest_cache_excluded(self, tmp_path):
+        """.pytest_cache directories are excluded."""
+        source = tmp_path / "modules"
+        source.mkdir()
+        (source / "a.py").write_text("a")
+        cache = source / ".pytest_cache"
+        cache.mkdir()
+        (cache / "CACHEDIR.TAG").write_text("tag")
+
+        zip_path = tmp_path / "out.zip"
+
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(source), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert 'modules/a.py' in names
+        assert not any('.pytest_cache' in n for n in names)
 
 
 class TestZipModuleInternalGuard:
