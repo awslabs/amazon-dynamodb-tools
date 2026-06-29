@@ -8,6 +8,23 @@ from infrastructure.constants import (
 )
 from utils.logger import log
 
+EXCLUDED_DIRS = {'__pycache__', '.pytest_cache', '.git', '*.egg-info'}
+EXCLUDED_FILES = {'.DS_Store', 'Thumbs.db', '.gitignore'}
+EXCLUDED_EXTENSIONS = {'.pyc', '.pyo'}
+
+
+def _is_excluded_dir(name):
+    if name in EXCLUDED_DIRS:
+        return True
+    return name.endswith('.egg-info')
+
+
+def _is_excluded_file(name):
+    if name in EXCLUDED_FILES:
+        return True
+    _, ext = os.path.splitext(name)
+    return ext in EXCLUDED_EXTENSIONS
+
 
 def zip_module():
     return _zip_module(PYTHON_MODULE_CLIENT_DIR_PATH, PYTHON_MODULE_CLIENT_ZIP_PATH)
@@ -28,7 +45,12 @@ def _zip_module(source_path, zip_path):
             zipf.writestr(parent_dir + '/', '')
 
             for root, dirs, files in os.walk(source_path):
+                dirs[:] = [d for d in dirs if not _is_excluded_dir(d)]
+
                 for file in files:
+                    if _is_excluded_file(file):
+                        continue
+
                     file_path = os.path.join(root, file)
 
                     # Skip any symlinked files out of an abundance of caution
