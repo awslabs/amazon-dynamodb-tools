@@ -42,10 +42,16 @@ class GlueJobDefaults(Enum):
     NumberOfWorkers=220
     WorkerType='G.1X'
 
-# Third Party Dependencies as an alpha-numeric list
-_THIRD_PARTY_PYTHON_MODULES = [
-  'faker'
-]
+# Third Party Dependencies installed on every Glue run (alpha-numeric list).
+# Verb-specific deps go in VERB_PYTHON_MODULES below.
+_THIRD_PARTY_PYTHON_MODULES = []
 
 # Convert to AWS Glue Readable Format
 THIRD_PARTY_PYTHON_MODULES = ','.join(map(str, _THIRD_PARTY_PYTHON_MODULES))
+
+# Dependencies needed only for specific verbs (keyed by verb name).
+# These are added per-run via start_job_run Arguments to avoid
+# installing them for every job invocation.
+VERB_PYTHON_MODULES = {
+    'fill': ['faker'],
+}

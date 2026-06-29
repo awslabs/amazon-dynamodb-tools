@@ -14,7 +14,7 @@ from botocore.exceptions import (
 # project files
 from clients import Clients
 from infrastructure import GLUE_JOB_NAME, GlueJobDefaults
-from infrastructure.constants import GLUE_LOG_GROUP_ERROR, GLUE_LOG_GROUP_OUTPUT
+from infrastructure.constants import GLUE_LOG_GROUP_ERROR, GLUE_LOG_GROUP_OUTPUT, VERB_PYTHON_MODULES
 from infrastructure.verifier import assert_version_parity, is_existing_glue_job
 from reassembler import GlueLogReassembler
 from utils.graceful_interrupt_handler import GracefulInterruptHandler
@@ -333,6 +333,11 @@ class BulkDynamoDbRunner:
                     if key == "verb": # Server-side thinks of verb as XAction
                         key = "XAction"
                     arguments[f"--{key}"] = value
+
+        action = arguments.get('--XAction', '')
+        verb_modules = VERB_PYTHON_MODULES.get(action, [])
+        if verb_modules:
+            arguments['--additional-python-modules'] = ','.join(verb_modules)
 
         log.debug(f"All Glue Job args: {arguments}")
         return arguments
