@@ -942,6 +942,18 @@ class TestStartGlueJob:
         with pytest.raises(SystemExit):
             bulk_runner._start_glue_job({}, {})
 
+    def test_uses_default_idle_timeout_when_missing(self, bulk_runner):
+        bulk_runner.glue_client.start_job_run.return_value = {'JobRunId': 'x'}
+        bulk_runner._start_glue_job({}, {})
+        kwargs = bulk_runner.glue_client.start_job_run.call_args.kwargs
+        assert kwargs['IdleTimeout'] == runner_module.GlueJobDefaults.IdleTimeout.value
+
+    def test_overrides_idle_timeout_with_provided_arg(self, bulk_runner):
+        bulk_runner.glue_client.start_job_run.return_value = {'JobRunId': 'x'}
+        bulk_runner._start_glue_job({}, {'XIdleTimeout': 10})
+        kwargs = bulk_runner.glue_client.start_job_run.call_args.kwargs
+        assert kwargs['IdleTimeout'] == 10
+
 
 # --- _stop_glue_job ---------------------------------------------------------
 
