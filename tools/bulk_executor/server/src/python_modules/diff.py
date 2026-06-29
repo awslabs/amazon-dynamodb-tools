@@ -282,7 +282,8 @@ def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_option
         rate_limiter_worker_b.shutdown()
 
     if use_s3:
-        boto3.client('s3').put_object(Body="\n".join(diff), Bucket=bucket, Key=f"{job_id}/{segment}.txt")
+        if diff:
+            boto3.client('s3').put_object(Body="\n".join(diff), Bucket=bucket, Key=f"{job_id}/{segment}.txt")
         return len(diff)
 
     return diff[0:PRINT_LIMIT]
