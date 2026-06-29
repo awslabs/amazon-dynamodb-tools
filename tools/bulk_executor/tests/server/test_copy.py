@@ -206,7 +206,7 @@ class TestRunArgumentWiring:
 
         # spark_context.parallelize(range(400), 400)
         pc_args = spark_context.parallelize.call_args
-        assert list(pc_args.args[0]) == list(range(400)), "first arg is range(400)"
+        assert sorted(pc_args.args[0]) == list(range(400)), "segments cover 0..399 (shuffled)"
         assert pc_args.args[1] == 400, "numSlices is 400 — one partition per worker"
 
     def test_total_matched_accumulator_initialized_to_zero(self, monkeypatch, shared_table_info_mocks,
