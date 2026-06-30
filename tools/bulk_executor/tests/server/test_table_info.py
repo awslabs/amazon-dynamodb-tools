@@ -1428,6 +1428,26 @@ class TestWarnRateVsCapacity:
         assert 'exceeds' not in caplog.text
         assert 'low' not in caplog.text
 
+    def test_suggested_range_valid_when_capacity_below_min_recommended(self):
+        """PR #217 feedback (line 29): when table_capacity < MIN_RECOMMENDED,
+        suggested_low must not exceed suggested_high. A table with 50 RCU should
+        never produce 'Suggested range: 100–50' — that's an inverted range."""
+        low, high = table_info._warn_rate_vs_capacity('t', 'read', 30, 50)
+        assert low <= high, (
+            f"Inverted suggested range: low={low} > high={high}. "
+            f"When table_capacity (50) < MIN_RECOMMENDED_READ_RATE "
+            f"({table_info.MIN_RECOMMENDED_READ_RATE}), the range must still be valid."
+        )
+
+    def test_suggested_range_valid_when_capacity_equals_one(self):
+        """Degenerate case: table_capacity=1. The suggested range must still
+        satisfy low <= high even at extreme low capacities."""
+        low, high = table_info._warn_rate_vs_capacity('t', 'write', 1, 1)
+        assert low <= high, (
+            f"Inverted suggested range: low={low} > high={high}. "
+            f"Even at table_capacity=1 the range should be coherent."
+        )
+
 
 # --- Rate validation integration in get_dynamodb_throughput_configs -----------
 
