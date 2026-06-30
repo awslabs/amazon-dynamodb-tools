@@ -4,12 +4,12 @@ from boto3 import Session
 
 from .logger import log
 
-_POISON_KEY_SUFFIX = "poison-pill"
+_ANDON_KEY_SUFFIX = "andon-cord"
 _CHECK_INTERVAL_SECONDS = 5
 
 
-class _NoOpPoisonPill:
-    """Placeholder when no poison-pill config is provided. All operations are no-ops."""
+class _NoOpAndonCord:
+    """Placeholder when no andon cord config is provided. All operations are no-ops."""
 
     def signal(self, reason):
         pass
@@ -18,19 +18,19 @@ class _NoOpPoisonPill:
         return False
 
 
-_NOOP = _NoOpPoisonPill()
+_NOOP = _NoOpAndonCord()
 
 
-class PoisonPillConfig:
-    """Shared configuration for poison-pill coordination between driver and workers."""
+class AndonCordConfig:
+    """Shared configuration for andon cord coordination between driver and workers."""
 
     def __init__(self, bucket, job_run_id):
         self.bucket = bucket
-        self.key = f"server/poison-pill/{job_run_id}/{_POISON_KEY_SUFFIX}"
+        self.key = f"server/andon-cord/{job_run_id}/{_ANDON_KEY_SUFFIX}"
 
 
-class PoisonPillDriver:
-    """Driver-side poison-pill lifecycle: cleanup on shutdown."""
+class AndonCordDriver:
+    """Driver-side andon cord lifecycle: cleanup on shutdown."""
 
     def __init__(self, config):
         self._config = config
@@ -43,9 +43,13 @@ class PoisonPillDriver:
             pass
 
 
-class PoisonPillWorker:
+class AndonCordWorker:
     """
-    Worker-side poison-pill: signal fatal errors and check for abort.
+    Worker-side andon cord: signal fatal errors and check for abort.
+
+    Like pulling the andon cord on a production line — when one worker
+    hits a non-recoverable systemic error, the whole job stops rather
+    than wasting compute on guaranteed failure.
 
     Call `check()` between scan pages. It rate-limits S3 reads to at most
     once per _CHECK_INTERVAL_SECONDS. Call `signal(reason)` when this worker
@@ -65,10 +69,10 @@ class PoisonPillWorker:
         self._config = config
         self._s3 = Session().client("s3")
         self._last_check = 0.0
-        self._poisoned = False
+        self._triggered = False
 
     def signal(self, reason):
-        """Write the poison marker so all other workers abort."""
+        """Pull the andon cord — all other workers will abort."""
         try:
             self._s3.put_object(
                 Bucket=self._config.bucket,
@@ -77,15 +81,15 @@ class PoisonPillWorker:
             )
         except Exception:
             pass
-        self._poisoned = True
+        self._triggered = True
 
     def check(self):
         """
-        Return True if the job has been poisoned (another worker signaled abort).
+        Return True if the andon cord has been pulled (another worker signaled abort).
 
         Rate-limits the S3 HEAD call to once per _CHECK_INTERVAL_SECONDS.
         """
-        if self._poisoned:
+        if self._triggered:
             return True
 
         now = time.monotonic()
@@ -95,7 +99,7 @@ class PoisonPillWorker:
         self._last_check = now
         try:
             self._s3.head_object(Bucket=self._config.bucket, Key=self._config.key)
-            self._poisoned = True
+            self._triggered = True
             return True
         except self._s3.exceptions.NoSuchKey:
             return False
