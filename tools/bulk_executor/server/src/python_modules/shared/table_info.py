@@ -26,8 +26,9 @@ def _warn_rate_vs_capacity(table_name, direction, user_rate, table_capacity):
     table_capacity = int(table_capacity)
 
     min_recommended = MIN_RECOMMENDED_READ_RATE if direction == "read" else MIN_RECOMMENDED_WRITE_RATE
+    # When table_capacity < min_recommended, the max() can invert the range.
     suggested_low = max(min_recommended, table_capacity // 10)
-    suggested_high = table_capacity
+    suggested_high = max(table_capacity, suggested_low)
 
     if user_rate > table_capacity:
         log.warn(
