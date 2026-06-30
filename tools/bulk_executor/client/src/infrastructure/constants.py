@@ -43,7 +43,9 @@ class GlueJobDefaults(Enum):
     WorkerType='G.1X'
 
 # Third Party Dependencies installed on every Glue run (alpha-numeric list).
-# Verb-specific deps go in VERB_PYTHON_MODULES below.
+# Verb-specific deps go in VERB_PYTHON_MODULES below — faker moved there
+# because it's only needed by 'fill' and pip-installing it on every run
+# added ~8s to worker startup for all other verbs.
 _THIRD_PARTY_PYTHON_MODULES = []
 
 # Convert to AWS Glue Readable Format

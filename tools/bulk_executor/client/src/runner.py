@@ -14,7 +14,7 @@ from botocore.exceptions import (
 # project files
 from clients import Clients
 from infrastructure import GLUE_JOB_NAME, GlueJobDefaults
-from infrastructure.constants import GLUE_LOG_GROUP_ERROR, GLUE_LOG_GROUP_OUTPUT, VERB_PYTHON_MODULES
+from infrastructure.constants import GLUE_LOG_GROUP_ERROR, GLUE_LOG_GROUP_OUTPUT, THIRD_PARTY_PYTHON_MODULES, VERB_PYTHON_MODULES
 from infrastructure.verifier import assert_version_parity, is_existing_glue_job
 from reassembler import GlueLogReassembler
 from utils.graceful_interrupt_handler import GracefulInterruptHandler
@@ -337,7 +337,8 @@ class BulkDynamoDbRunner:
         action = arguments.get('--XAction', '')
         verb_modules = VERB_PYTHON_MODULES.get(action, [])
         if verb_modules:
-            arguments['--additional-python-modules'] = ','.join(verb_modules)
+            all_modules = ([THIRD_PARTY_PYTHON_MODULES] if THIRD_PARTY_PYTHON_MODULES else []) + verb_modules
+            arguments['--additional-python-modules'] = ','.join(all_modules)
 
         log.debug(f"All Glue Job args: {arguments}")
         return arguments
