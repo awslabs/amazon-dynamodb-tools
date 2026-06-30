@@ -841,6 +841,41 @@ class TestGetGlueJobArguments:
         result = bulk_runner._get_glue_job_arguments({}, ['--key', None])
         assert '--key' not in result
 
+    def test_fill_verb_injects_faker_as_additional_python_module(self, bulk_runner):
+        result = bulk_runner._get_glue_job_arguments({}, ['--verb', 'fill'])
+        assert '--additional-python-modules' in result
+        assert 'faker' in result['--additional-python-modules']
+
+    def test_copy_verb_does_not_inject_additional_python_modules(self, bulk_runner):
+        result = bulk_runner._get_glue_job_arguments({}, ['--verb', 'copy'])
+        assert '--additional-python-modules' not in result
+
+    def test_delete_verb_does_not_inject_additional_python_modules(self, bulk_runner):
+        result = bulk_runner._get_glue_job_arguments({}, ['--verb', 'delete'])
+        assert '--additional-python-modules' not in result
+
+    def test_find_verb_does_not_inject_additional_python_modules(self, bulk_runner):
+        result = bulk_runner._get_glue_job_arguments({}, ['--verb', 'find'])
+        assert '--additional-python-modules' not in result
+
+    def test_verb_modules_combined_with_global_modules(self, bulk_runner):
+        """When both global and verb-specific modules exist, per-run args must include both.
+
+        The reviewer concern: removing faker from the global list means per-run
+        Arguments for fill only include verb-specific deps. If a global module
+        is ever added, the per-run override would clobber DefaultArguments. The
+        runner must merge global + verb-specific modules so that both reach the
+        worker.
+        """
+        with patch.object(runner_module, 'VERB_PYTHON_MODULES', {'fill': ['faker']}):
+            with patch.object(
+                runner_module, 'THIRD_PARTY_PYTHON_MODULES', 'boto3', create=True
+            ):
+                result = bulk_runner._get_glue_job_arguments({}, ['--verb', 'fill'])
+                modules = result['--additional-python-modules'].split(',')
+                assert 'faker' in modules, "verb-specific module missing"
+                assert 'boto3' in modules, "global module missing from per-run args"
+
 
 # --- _assert_expected_script_args -------------------------------------------
 
