@@ -10,6 +10,7 @@ from .pricing import PricingUtility
 
 MIN_RECOMMENDED_READ_RATE = 100
 MIN_RECOMMENDED_WRITE_RATE = 100
+TOO_LOW_CAPACITY_FRACTION = 0.01  # warn if user rate is below 1% of table capacity
 
 def get_quota_value(quota_name, region_name):
     """
@@ -298,6 +299,40 @@ def get_and_print_table_copy_write_cost(source_info, target_info):
         return od_cost
     return 0
 
+def _get_effective_read_capacity(table_desc, is_on_demand, default_on_demand):
+    """Determine the table's effective read capacity for validation purposes."""
+    if is_on_demand:
+        on_demand_throughput = table_desc.get('OnDemandThroughput', {})
+        limit = on_demand_throughput.get('MaxReadRequestUnits')
+        return int(limit) if isinstance(limit, (int, float)) and limit else default_on_demand
+    provisioned = table_desc.get('ProvisionedThroughput', {}).get('ReadCapacityUnits')
+    return int(provisioned) if isinstance(provisioned, (int, float)) and provisioned else None
+
+
+def _get_effective_write_capacity(table_desc, is_on_demand, default_on_demand):
+    """Determine the table's effective write capacity for validation purposes."""
+    if is_on_demand:
+        on_demand_throughput = table_desc.get('OnDemandThroughput', {})
+        limit = on_demand_throughput.get('MaxWriteRequestUnits')
+        return int(limit) if isinstance(limit, (int, float)) and limit else default_on_demand
+    provisioned = table_desc.get('ProvisionedThroughput', {}).get('WriteCapacityUnits')
+    return int(provisioned) if isinstance(provisioned, (int, float)) and provisioned else None
+
+
+def _warn_rate_vs_capacity(table_name, mode, user_rate, table_capacity):
+    """Emit warnings when user-specified rate is too high or too low relative to capacity."""
+    if user_rate > table_capacity:
+        log.warn(
+            f"[{table_name}] Warning: Specified {mode} rate {user_rate} exceeds "
+            f"table capacity of {table_capacity}. This may cause throttling."
+        )
+    elif user_rate < table_capacity * TOO_LOW_CAPACITY_FRACTION:
+        log.warn(
+            f"[{table_name}] Warning: Specified {mode} rate {user_rate} is very low "
+            f"relative to table capacity of {table_capacity}. Job may take unreasonably long."
+        )
+
+
 def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connector"):
     region_name = _region_from_table_ref(table_name) or _default_region()
     if not region_name:
@@ -324,6 +359,7 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
         table_desc = {}
 
     # Handle read throughput
+    user_specified_read_rate = read_rate
     if "read" in modes:
         if read_rate:
             log.info(f"[{table_name}] Max read rate set to specified limit: {read_rate}")
@@ -356,7 +392,14 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
         if int(read_rate) < MIN_RECOMMENDED_READ_RATE:
             log.warn(f"[{table_name}] Read rate {read_rate} less than recommended value of {MIN_RECOMMENDED_READ_RATE}.")
 
+        # Validate user-specified read rate against table capacity
+        if user_specified_read_rate:
+            table_read_capacity = _get_effective_read_capacity(table_desc, is_on_demand_table, DEFAULT_ON_DEMAND_CAPACITY)
+            if table_read_capacity:
+                _warn_rate_vs_capacity(table_name, "read", int(user_specified_read_rate), table_read_capacity)
+
     # Handle write throughput
+    user_specified_write_rate = write_rate
     if "write" in modes:
         if write_rate:
             log.info(f"[{table_name}] Max write rate set to specified limit: {write_rate}")
@@ -389,6 +432,12 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
 
         if int(write_rate) < MIN_RECOMMENDED_WRITE_RATE:
             log.warn(f"[{table_name}] Write rate {write_rate} less than recommended value of {MIN_RECOMMENDED_WRITE_RATE}.")
+
+        # Validate user-specified write rate against table capacity
+        if user_specified_write_rate:
+            table_write_capacity = _get_effective_write_capacity(table_desc, is_on_demand_table, DEFAULT_ON_DEMAND_CAPACITY)
+            if table_write_capacity:
+                _warn_rate_vs_capacity(table_name, "write", int(user_specified_write_rate), table_write_capacity)
 
     if format == "connector":
         # Now let's convert the read_rate and write_rate into connection_options
