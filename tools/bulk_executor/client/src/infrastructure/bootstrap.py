@@ -130,7 +130,8 @@ class BootstrapInfrastructure:
             log.debug(f'Role ARN: {response["Role"]["Arn"]}')
         except self.iam_client.exceptions.EntityAlreadyExistsException as e:
             log.info(f"Found Bulk Executor Glue Job Role: {role_name}")
-            return # Roles exists. No additional actions needed.
+            if not self._needs_role_refresh():
+                return
         except Exception as e:
             log.error(f'Unexpected error: {e}')
             exit(1)
@@ -171,6 +172,15 @@ class BootstrapInfrastructure:
         except Exception as e:
             log.error(f'Unexpected error: {e}')
             exit(1)
+
+    def _needs_role_refresh(self):
+        job_details = self._get_glue_job_details()
+        if not job_details:
+            return True
+        deployed_version = job_details['Job']['DefaultArguments'].get('--bulk-dynamodb-version')
+        if not deployed_version:
+            return True
+        return deployed_version != VERSION
 
     def _is_existing_role(self, role_name):
         try:
