@@ -841,6 +841,16 @@ class TestGetGlueJobArguments:
         result = bulk_runner._get_glue_job_arguments({}, ['--key', None])
         assert '--key' not in result
 
+    def test_fill_verb_includes_faker_module(self, bulk_runner):
+        result = bulk_runner._get_glue_job_arguments({}, ['--verb', 'fill', '--table', 't'])
+        assert '--additional-python-modules' in result
+        assert 'faker' in result['--additional-python-modules']
+
+    def test_non_fill_verb_excludes_faker_module(self, bulk_runner):
+        result = bulk_runner._get_glue_job_arguments({}, ['--verb', 'copy', '--table', 't'])
+        assert '--additional-python-modules' not in result or \
+            'faker' not in result.get('--additional-python-modules', '')
+
 
 # --- _assert_expected_script_args -------------------------------------------
 

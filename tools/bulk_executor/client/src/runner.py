@@ -334,6 +334,9 @@ class BulkDynamoDbRunner:
                         key = "XAction"
                     arguments[f"--{key}"] = value
 
+        if arguments.get('--XAction') == 'fill':
+            arguments['--additional-python-modules'] = 'faker'
+
         log.debug(f"All Glue Job args: {arguments}")
         return arguments
 

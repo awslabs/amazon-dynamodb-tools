@@ -34,7 +34,6 @@ from .constants import (
     ROLE_TYPE_READ_ONLY,
     ROLE_TYPE_READ_WRITE,
     READ_WRITE_ROLE_TYPES,
-    THIRD_PARTY_PYTHON_MODULES,
 )
 
 
@@ -218,7 +217,6 @@ class BootstrapInfrastructure:
             '--s3-bucket-name': glue_job_bucket,
             '--s3-script-location': s3_script_location,
             '--extra-py-files': s3_python_module_location,
-            '--additional-python-modules': THIRD_PARTY_PYTHON_MODULES,
             '--bulk-dynamodb-version': VERSION
         })
 
