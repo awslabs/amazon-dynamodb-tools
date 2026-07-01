@@ -11,6 +11,7 @@ from clients import Clients
 from infrastructure.verifier import is_existing_glue_job
 from utils import module_zipper
 from utils.logger import log
+from utils.role_validator import validate_custom_role_permissions
 
 from __version__ import __version__ as VERSION
 
@@ -67,6 +68,9 @@ class BootstrapInfrastructure:
             if not self._is_existing_role(role_param):
                 print(f"Provided --XRole '{role_param}' name does not exist!")
                 exit(1)
+            warnings = validate_custom_role_permissions(self.iam_client, role_param)
+            for warning in warnings:
+                log.warning(warning)
             return role_param
 
         # Handle standard role types
