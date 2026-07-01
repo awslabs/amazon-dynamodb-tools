@@ -96,6 +96,10 @@ def run(job, spark_context, glue_context, parsed_args):
     except Exception as e:
         raise Exception(f"Failed to create DynamicFrame {e}")
 
+    throughput = get_dynamodb_throughput_configs(
+        parsed_args, table_name, modes=["write"], format="monitor")
+    write_rate = throughput.get("aggregate_max_write_rate")
+
     if parsed_args.get('removeEmptyStringAttributes') is not None:
         log.debug(f"removeEmptyStringAttributes parameter was provided")
         dynamicFrame = Map.apply(frame = dynamicFrame, f = remove_empty_fields)
@@ -106,7 +110,7 @@ def run(job, spark_context, glue_context, parsed_args):
 
         df = dynamicFrame.repartition(30).toDF()
         write_dynamodb_dataframe(
-            glue_context, df, table_name, parsed_args)
+            glue_context, df, table_name, parsed_args, write_rate=write_rate)
         log.info(f"Wrote {count} items to '{table_name}'")
     except Exception as e:
         raise Exception(f"Error in writing to table: {get_error_message(e)}") from None

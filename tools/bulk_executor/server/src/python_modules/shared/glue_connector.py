@@ -39,6 +39,7 @@ def write_dynamodb_dataframe(
     df,
     table_name: str,
     parsed_args: dict,
+    write_rate: int = None,
 ) -> None:
     """Write a Spark DataFrame to DynamoDB."""
     writer = (
@@ -46,11 +47,16 @@ def write_dynamodb_dataframe(
         .mode("append")
         .option("dynamodb.output.tableName", table_name)
     )
-    rates = _resolve_direct_rates(parsed_args, modes=["write"])
-    if rates.get("write") is not None:
+    if write_rate is not None:
         writer = writer.option(
-            "dynamodb.throughput.write", str(rates["write"])
+            "dynamodb.throughput.write", str(write_rate)
         )
+    else:
+        rates = _resolve_direct_rates(parsed_args, modes=["write"])
+        if rates.get("write") is not None:
+            writer = writer.option(
+                "dynamodb.throughput.write", str(rates["write"])
+            )
     writer.save()
 
 
