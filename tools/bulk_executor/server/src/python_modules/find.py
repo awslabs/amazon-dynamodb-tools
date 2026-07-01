@@ -7,7 +7,6 @@ import warnings
 import boto3
 from awsglue.transforms import *
 from botocore.config import Config
-from pyspark.sql import SparkSession
 from pyspark.sql.functions import asc, desc
 
 # Custom Library Imports
@@ -24,6 +23,7 @@ from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info, get_and_print_table_scan_cost,
     get_dynamodb_throughput_configs)
 from python_modules.shared.glue_connector import read_dynamodb_dataframe
+from python_modules.shared.ddb_json_writer import write_ddb_json_to_s3, row_to_ddb_json
 
 
 def print_dynamodb_table_info(table_name, is_delete, **kwargs):
@@ -153,14 +153,8 @@ def run(job, spark_context, glue_context, parsed_args):
             job_run_id = parsed_args.get("JOB_RUN_ID")
             s3_output_location = f"s3://{bucket_name}/output/{job_run_id}"
 
-            # With a --limit, this produces one file with a name like part-00000-8c460443-6d45-4d11-b9ef-0cd84c21a45a-c000.json
-            # because the limit moves all the data to a single worker
-            # Without a limit, this produces about 200 files with names similar to that
-            # Adding coalesce(10) gets us down to 10 files, but testing against a large table showed that slower
-            spark = SparkSession(spark_context)
-            json_rdd = records.toJSON()
-            json_df = spark.read.json(json_rdd)
-            json_df.write.mode("overwrite").json(s3_output_location)
+            # Write as DynamoDB JSON (preserves type annotations for round-trip with load)
+            write_ddb_json_to_s3(records, s3_output_location)
 
             # Print the top N many
             TOP_N = 10
@@ -168,13 +162,14 @@ def run(job, spark_context, glue_context, parsed_args):
                 print(f"{count} matching items:")
             else:
                 print(f"First {TOP_N} matching items:")
-            top_n_records = records.limit(TOP_N).toJSON().collect()
-            for record in top_n_records:
-                print(record)
+            schema = records.schema
+            top_n_rows = records.limit(TOP_N).collect()
+            for row in top_n_rows:
+                print(json.dumps(row_to_ddb_json(row, schema), separators=(',', ':'), default=str))
             if count > TOP_N:
                 print(f"...and {count - TOP_N} more not printed")
             print()
-            print(f"Wrote {count:,} items in JSON format to {s3_output_location}/")
+            print(f"Wrote {count:,} items in DynamoDB JSON format to {s3_output_location}/")
             print()
 
         elif DO_DELETE:

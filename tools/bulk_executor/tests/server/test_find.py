@@ -22,8 +22,6 @@ import pytest
 
 # find.py imports these modules not covered by conftest
 sys.modules.setdefault('awsglue.transforms', MagicMock())
-_pyspark_sql = MagicMock()
-sys.modules.setdefault('pyspark.sql', _pyspark_sql)
 _pyspark_sql_functions = MagicMock()
 sys.modules.setdefault('pyspark.sql.functions', _pyspark_sql_functions)
 
@@ -658,103 +656,90 @@ class TestRunLimit:
         df.repartition.assert_not_called(), "limit <= 1000 skips repartition"
 
 
-# --- run(): DO_FIND branch ----------------------------------------------------
+# --- run(): DO_FIND — DynamoDB JSON output (issue #184) ----------------------
 
-@pytest.mark.skip(reason="Asserts against legacy DynamicFrame code path; verb now goes through python_modules.shared.glue_connector wrapper. Followup: rewrite to assert against the wrapper boundary.")
-class TestRunFindAction:
-    """DO_FIND writes JSON to S3 and prints top-N records."""
+class TestRunFindDdbJson:
+    """DO_FIND writes DynamoDB JSON to S3 via write_ddb_json_to_s3(),
+    preserving type annotations for round-trip with load. Addresses issue #184."""
 
-    def test_find_writes_json_to_s3_location(
-        self, monkeypatch, table_info_mocks, boto3_session_mock, glue_context, base_args, capsys
+    def _make_df_mock(self, count, schema_fields=None):
+        """Create a mock DataFrame with a schema for DDB JSON testing."""
+        from pyspark.sql.types import StructType, StructField, StringType
+        df = MagicMock()
+        df.cache.return_value = df
+        df.count.return_value = count
+        if schema_fields:
+            df.schema = StructType(schema_fields)
+        else:
+            df.schema = StructType([
+                StructField("pk", StringType(), metadata={"dynamodb.type": "S"}),
+            ])
+        mock_row = MagicMock()
+        mock_row.__getitem__ = lambda self, key: "val"
+        df.limit.return_value.collect.return_value = [mock_row] * min(count, 10)
+        return df
+
+    def test_find_calls_write_ddb_json_to_s3(
+        self, monkeypatch, table_info_mocks, boto3_session_mock, base_args
     ):
-        """Lines 164-176: S3 output location derived from bucket + job_run_id."""
-        spark_session = MagicMock()
-        monkeypatch.setattr(find_module, 'SparkSession', MagicMock(return_value=spark_session))
+        """write_ddb_json_to_s3(records, location) is called."""
+        df = self._make_df_mock(2)
+        write_mock = MagicMock()
+        monkeypatch.setattr(find_module, 'read_dynamodb_dataframe', lambda *a, **kw: df)
+        monkeypatch.setattr(find_module, 'write_ddb_json_to_s3', write_mock)
 
-        df = glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value
-        df.count.return_value = 3
-        json_rdd = MagicMock()
-        df.toJSON.return_value = json_rdd
-        df.limit.return_value.toJSON.return_value.collect.return_value = ['{"a":1}', '{"b":2}', '{"c":3}']
+        find_module.run(MagicMock(), MagicMock(), MagicMock(), base_args)
 
-        find_module.run(MagicMock(), MagicMock(), glue_context, base_args)
+        write_mock.assert_called_once_with(df, "s3://my-bucket/output/run-123")
+
+    def test_find_does_not_use_spark_session(
+        self, monkeypatch, table_info_mocks, boto3_session_mock, base_args
+    ):
+        """SparkSession is no longer imported — no schema re-inference path."""
+        assert not hasattr(find_module, 'SparkSession'), \
+            "SparkSession import removed — no re-inference path"
+
+    def test_find_prints_top_n_in_ddb_json(
+        self, monkeypatch, table_info_mocks, boto3_session_mock, base_args, capsys
+    ):
+        """Top-N preview prints DynamoDB JSON format."""
+        df = self._make_df_mock(15)
+        monkeypatch.setattr(find_module, 'read_dynamodb_dataframe', lambda *a, **kw: df)
+        monkeypatch.setattr(find_module, 'write_ddb_json_to_s3', MagicMock())
+
+        find_module.run(MagicMock(), MagicMock(), MagicMock(), base_args)
 
         out = capsys.readouterr().out
-        assert 's3://my-bucket/output/run-123' in out, "S3 path printed"
-        spark_session.read.json.assert_called_once_with(json_rdd)
+        assert 'First 10 matching items:' in out
+        assert '5 more not printed' in out
+        assert 'Wrote 15 items in DynamoDB JSON format' in out
+        assert '"S"' in out
 
     def test_find_count_le_top_n_prints_all(
-        self, monkeypatch, table_info_mocks, boto3_session_mock, glue_context, base_args, capsys
+        self, monkeypatch, table_info_mocks, boto3_session_mock, base_args, capsys
     ):
-        """Line 180-181: count <= 10 prints 'N matching items:' header."""
-        monkeypatch.setattr(find_module, 'SparkSession', MagicMock())
-        df = glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value
-        df.count.return_value = 3
-        df.limit.return_value.toJSON.return_value.collect.return_value = ['{"a":1}', '{"b":2}', '{"c":3}']
+        """count <= 10 prints 'N matching items:' header."""
+        df = self._make_df_mock(3)
+        monkeypatch.setattr(find_module, 'read_dynamodb_dataframe', lambda *a, **kw: df)
+        monkeypatch.setattr(find_module, 'write_ddb_json_to_s3', MagicMock())
 
-        find_module.run(MagicMock(), MagicMock(), glue_context, base_args)
+        find_module.run(MagicMock(), MagicMock(), MagicMock(), base_args)
 
         out = capsys.readouterr().out
         assert '3 matching items:' in out
         assert 'more not printed' not in out
 
-    def test_find_count_gt_top_n_prints_truncated(
-        self, monkeypatch, table_info_mocks, boto3_session_mock, glue_context, base_args, capsys
-    ):
-        """Lines 183-188: count > 10 prints first 10 and '...and N more'."""
-        monkeypatch.setattr(find_module, 'SparkSession', MagicMock())
-        df = glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value
-        df.count.return_value = 25
-        records = [f'{{"id":{i}}}' for i in range(10)]
-        df.limit.return_value.toJSON.return_value.collect.return_value = records
-
-        find_module.run(MagicMock(), MagicMock(), glue_context, base_args)
-
-        out = capsys.readouterr().out
-        assert 'First 10 matching items:' in out
-        assert '15 more not printed' in out
-
-    def test_find_prints_each_record(
-        self, monkeypatch, table_info_mocks, boto3_session_mock, glue_context, base_args, capsys
-    ):
-        """Lines 185-186: each top-N record printed."""
-        monkeypatch.setattr(find_module, 'SparkSession', MagicMock())
-        df = glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value
-        df.count.return_value = 2
-        df.limit.return_value.toJSON.return_value.collect.return_value = ['{"x":1}', '{"y":2}']
-
-        find_module.run(MagicMock(), MagicMock(), glue_context, base_args)
-
-        out = capsys.readouterr().out
-        assert '{"x":1}' in out
-        assert '{"y":2}' in out
-
     def test_find_caches_dataframe(
-        self, monkeypatch, table_info_mocks, boto3_session_mock, glue_context, base_args
+        self, monkeypatch, table_info_mocks, boto3_session_mock, base_args
     ):
-        """Line 161: records.cache() called before count."""
-        monkeypatch.setattr(find_module, 'SparkSession', MagicMock())
-        df = glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value
-        df.count.return_value = 1
-        df.limit.return_value.toJSON.return_value.collect.return_value = ['{}']
+        """records.cache() called before count."""
+        df = self._make_df_mock(1)
+        monkeypatch.setattr(find_module, 'read_dynamodb_dataframe', lambda *a, **kw: df)
+        monkeypatch.setattr(find_module, 'write_ddb_json_to_s3', MagicMock())
 
-        find_module.run(MagicMock(), MagicMock(), glue_context, base_args)
+        find_module.run(MagicMock(), MagicMock(), MagicMock(), base_args)
 
         df.cache.assert_called_once()
-
-    def test_find_writes_count_items_message(
-        self, monkeypatch, table_info_mocks, boto3_session_mock, glue_context, base_args, capsys
-    ):
-        """Line 190: 'Wrote N items in JSON format' message."""
-        monkeypatch.setattr(find_module, 'SparkSession', MagicMock())
-        df = glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value
-        df.count.return_value = 42
-        df.limit.return_value.toJSON.return_value.collect.return_value = [f'{{"i":{i}}}' for i in range(10)]
-
-        find_module.run(MagicMock(), MagicMock(), glue_context, base_args)
-
-        out = capsys.readouterr().out
-        assert 'Wrote 42 items in JSON format' in out
 
 
 # --- run(): DO_DELETE branch --------------------------------------------------
