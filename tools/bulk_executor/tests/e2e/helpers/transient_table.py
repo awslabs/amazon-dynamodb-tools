@@ -77,12 +77,14 @@ def transient_table(
     region: str,
     *,
     has_sort_key: bool = True,
+    pitr: bool = True,
     label: str = "command",
 ) -> Iterator[str]:
-    """Yield the name of a freshly-created PAY_PER_REQUEST DynamoDB table with PITR.
+    """Yield the name of a freshly-created PAY_PER_REQUEST DynamoDB table.
 
     label: short string included in the table name for debuggability ('fill', 'copy-src', etc).
     has_sort_key: if True, schema is pk(S)+sk(S); else just pk(S).
+    pitr: if True (default), enables PITR before yielding.
 
     Example:
         with transient_table(region, label="fill") as table:
@@ -110,8 +112,9 @@ def transient_table(
             ],
         )
         _wait_for_active(ddb, table_name)
-        _enable_pitr_with_retry(ddb, table_name)
-        _wait_for_pitr(ddb, table_name)
+        if pitr:
+            _enable_pitr_with_retry(ddb, table_name)
+            _wait_for_pitr(ddb, table_name)
 
         yield table_name
     finally:
