@@ -422,6 +422,50 @@ class TestRunWritePath:
 # opts['dynamodb.throughput.write'] == '75000' from XMaxWriteRate).
 
 
+class TestRunReportsWriteRate:
+    """run() logs the configured write rate at startup when XMaxWriteRate is set."""
+
+    def test_logs_write_rate_when_xmax_set(self, monkeypatch, caplog):
+        """When XMaxWriteRate is in parsed_args, run() logs it before writing."""
+        monkeypatch.setattr(load_module, 'check_s3_file_exists', lambda uri: True)
+        df = MagicMock()
+        df.count.return_value = 5
+        df.repartition.return_value = df
+        monkeypatch.setattr(load_module, 'read_data', lambda *a: df)
+        monkeypatch.setattr(load_module, 'print_dynamodb_table_info', lambda *a: None)
+        monkeypatch.setattr(load_module, 'check_dynamic_frame_avg_size', lambda df: 100.0)
+        monkeypatch.setattr(load_module, 'boto3', MagicMock())
+        monkeypatch.setattr(load_module, 'write_dynamodb_dataframe', MagicMock())
+
+        args = {'table': 't', 's3_path': 's3://b/k', 'format': 'json',
+                'XMaxWriteRate': '5000'}
+
+        import logging
+        with caplog.at_level(logging.INFO):
+            load_module.run(MagicMock(), MagicMock(), MagicMock(), args)
+        assert '5000' in caplog.text
+        assert 'write' in caplog.text.lower()
+
+    def test_no_write_rate_log_when_xmax_absent(self, monkeypatch, caplog):
+        """When XMaxWriteRate is not in parsed_args, no write rate line is logged."""
+        monkeypatch.setattr(load_module, 'check_s3_file_exists', lambda uri: True)
+        df = MagicMock()
+        df.count.return_value = 5
+        df.repartition.return_value = df
+        monkeypatch.setattr(load_module, 'read_data', lambda *a: df)
+        monkeypatch.setattr(load_module, 'print_dynamodb_table_info', lambda *a: None)
+        monkeypatch.setattr(load_module, 'check_dynamic_frame_avg_size', lambda df: 100.0)
+        monkeypatch.setattr(load_module, 'boto3', MagicMock())
+        monkeypatch.setattr(load_module, 'write_dynamodb_dataframe', MagicMock())
+
+        args = {'table': 't', 's3_path': 's3://b/k', 'format': 'json'}
+
+        import logging
+        with caplog.at_level(logging.INFO):
+            load_module.run(MagicMock(), MagicMock(), MagicMock(), args)
+        assert 'write rate' not in caplog.text.lower()
+
+
 # --- check_s3_file_exists ---------------------------------------------------
 
 class TestCheckS3FileExists:

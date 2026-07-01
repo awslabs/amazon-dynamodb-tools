@@ -96,6 +96,9 @@ def run(job, spark_context, glue_context, parsed_args):
     except Exception as e:
         raise Exception(f"Failed to create DynamicFrame {e}")
 
+    if parsed_args.get('XMaxWriteRate') is not None:
+        log.info(f"Configured write rate: {parsed_args['XMaxWriteRate']} WCU")
+
     if parsed_args.get('removeEmptyStringAttributes') is not None:
         log.debug(f"removeEmptyStringAttributes parameter was provided")
         dynamicFrame = Map.apply(frame = dynamicFrame, f = remove_empty_fields)
