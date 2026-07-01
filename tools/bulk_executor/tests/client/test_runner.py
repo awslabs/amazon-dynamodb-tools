@@ -1157,6 +1157,78 @@ class TestRunErrorMessageLogging:
         assert not any(rec.levelname == 'ERROR' for rec in caplog.records)
 
 
+# --- Clean error messages (no tracebacks) -----------------------------------
+
+
+class TestCleanErrorMessages:
+    """Bad parameters or runtime failures produce clean human-readable errors,
+    never raw Python tracebacks (issue #137)."""
+
+    def test_run_catches_unexpected_exception_and_exits_cleanly(self, bulk_runner):
+        """If _start_glue_job raises an unhandled exception, run() should
+        sys.exit with a clean message instead of propagating a traceback."""
+        bulk_runner._get_glue_job_arguments = MagicMock(return_value={})
+        bulk_runner._assert_expected_script_args = MagicMock()
+        bulk_runner._start_glue_job = MagicMock(
+            side_effect=RuntimeError('something unexpected went wrong')
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            bulk_runner.run({}, [])
+        exit_msg = str(exc_info.value)
+        assert 'Traceback' not in exit_msg
+        assert 'something unexpected went wrong' in exit_msg
+
+    def test_run_catches_client_error_and_exits_with_clean_message(self, bulk_runner):
+        """A ClientError during job start produces a clean exit message."""
+        bulk_runner._get_glue_job_arguments = MagicMock(return_value={})
+        bulk_runner._assert_expected_script_args = MagicMock()
+        err = ClientError(
+            {'Error': {'Code': 'InvalidInputException', 'Message': 'Parameter X is invalid'}},
+            'StartJobRun',
+        )
+        bulk_runner._start_glue_job = MagicMock(side_effect=err)
+        with pytest.raises(SystemExit) as exc_info:
+            bulk_runner.run({}, [])
+        exit_msg = str(exc_info.value)
+        assert 'Traceback' not in exit_msg
+        assert 'Parameter X is invalid' in exit_msg
+
+    def test_run_catches_value_error_from_post_start_code(self, bulk_runner):
+        """A ValueError in post-start code (e.g. bad state) exits cleanly."""
+        bulk_runner._get_glue_job_arguments = MagicMock(return_value={})
+        bulk_runner._assert_expected_script_args = MagicMock()
+        bulk_runner._start_glue_job = MagicMock(return_value='jr-1')
+        bulk_runner._watch_glue_job = MagicMock()
+        bulk_runner._watch_for_interrupt = MagicMock(
+            side_effect=ValueError('invalid job run id format')
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            bulk_runner.run({}, [])
+        exit_msg = str(exc_info.value)
+        assert 'Traceback' not in exit_msg
+        assert 'invalid job run id format' in exit_msg
+
+    def test_run_keyboard_interrupt_still_propagates(self, bulk_runner):
+        """KeyboardInterrupt should not be swallowed by error handling."""
+        bulk_runner._get_glue_job_arguments = MagicMock(return_value={})
+        bulk_runner._assert_expected_script_args = MagicMock()
+        bulk_runner._start_glue_job = MagicMock(side_effect=KeyboardInterrupt)
+        with pytest.raises(KeyboardInterrupt):
+            bulk_runner.run({}, [])
+
+    def test_exit_messages_do_not_contain_exception_class_prefix(self, bulk_runner):
+        """Error messages shown to users should not include 'ExceptionName:' prefix."""
+        bulk_runner._get_glue_job_arguments = MagicMock(return_value={})
+        bulk_runner._assert_expected_script_args = MagicMock()
+        bulk_runner._start_glue_job = MagicMock(
+            side_effect=RuntimeError('bad input value')
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            bulk_runner.run({}, [])
+        exit_msg = str(exc_info.value)
+        assert not exit_msg.startswith('RuntimeError')
+
+
 # --- Module constants -------------------------------------------------------
 
 
