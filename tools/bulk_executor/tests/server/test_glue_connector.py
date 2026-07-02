@@ -144,6 +144,42 @@ class TestWriteDataFrame:
         # on-demand tables.
         assert opts['dynamodb.throughput.write'] == '75000'
 
+    def test_explicit_write_rate_overrides_parsed_args(self):
+        df = MagicMock(spec=['write', 'schema'])
+        df.schema = MagicMock()
+        writer = MagicMock()
+        writer.option.return_value = writer
+        writer.mode.return_value = writer
+        df.write.format.return_value = writer
+
+        glue_connector.write_dynamodb_dataframe(
+            glue_context=MagicMock(),
+            df=df,
+            table_name='out-tbl',
+            parsed_args={'XMaxWriteRate': 75000},
+            write_rate=40000,
+        )
+        opts = {args[0]: args[1] for args, _ in writer.option.call_args_list}
+        assert opts['dynamodb.throughput.write'] == '40000'
+
+    def test_write_rate_none_falls_back_to_parsed_args(self):
+        df = MagicMock(spec=['write', 'schema'])
+        df.schema = MagicMock()
+        writer = MagicMock()
+        writer.option.return_value = writer
+        writer.mode.return_value = writer
+        df.write.format.return_value = writer
+
+        glue_connector.write_dynamodb_dataframe(
+            glue_context=MagicMock(),
+            df=df,
+            table_name='out-tbl',
+            parsed_args={'XMaxWriteRate': 75000},
+            write_rate=None,
+        )
+        opts = {args[0]: args[1] for args, _ in writer.option.call_args_list}
+        assert opts['dynamodb.throughput.write'] == '75000'
+
     def test_dataframe_written_with_save(self):
         df = MagicMock(spec=['write', 'schema'])
         df.schema = MagicMock()

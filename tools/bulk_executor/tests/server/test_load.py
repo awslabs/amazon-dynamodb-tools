@@ -363,6 +363,8 @@ class TestRunWritePath:
         monkeypatch.setattr(load_module, 'print_dynamodb_table_info', lambda *a: None)
         monkeypatch.setattr(load_module, 'check_dynamic_frame_avg_size', lambda df: 50.0)
         monkeypatch.setattr(load_module, 'boto3', MagicMock())
+        monkeypatch.setattr(load_module, 'get_dynamodb_throughput_configs',
+                            lambda *a, **kw: {"dynamodb.throughput.write": "40000"})
         write_mock = MagicMock()
         monkeypatch.setattr(load_module, 'write_dynamodb_dataframe', write_mock)
 
@@ -372,7 +374,8 @@ class TestRunWritePath:
 
         df.repartition.assert_called_once_with(30)
         repartitioned.toDF.assert_called_once()
-        write_mock.assert_called_once_with(glue_ctx, repartitioned.toDF(), 'my-tbl', args)
+        write_mock.assert_called_once_with(
+            glue_ctx, repartitioned.toDF(), 'my-tbl', args, write_rate=40000)
 
     def test_write_error_wraps_with_get_error_message(self, monkeypatch):
         """Lines 111-112: wrapper exception is wrapped via get_error_message."""
@@ -384,6 +387,8 @@ class TestRunWritePath:
         monkeypatch.setattr(load_module, 'print_dynamodb_table_info', lambda *a: None)
         monkeypatch.setattr(load_module, 'check_dynamic_frame_avg_size', lambda df: 100.0)
         monkeypatch.setattr(load_module, 'boto3', MagicMock())
+        monkeypatch.setattr(load_module, 'get_dynamodb_throughput_configs',
+                            lambda *a, **kw: {})
         monkeypatch.setattr(load_module, 'get_error_message',
                             lambda e: f"wrapped:{e}")
         write_mock = MagicMock(side_effect=RuntimeError('write fail'))
@@ -420,6 +425,77 @@ class TestRunWritePath:
 # now lives in tests/server/test_glue_connector.py::TestWriteDataFrame
 # ::test_xmax_write_rate_passes_through_as_direct_int (asserts
 # opts['dynamodb.throughput.write'] == '75000' from XMaxWriteRate).
+
+
+class TestRunWriteRateLimiting:
+    """run() determines and applies write rate limiting via get_dynamodb_throughput_configs."""
+
+    def test_xmax_write_rate_passed_to_connector(self, monkeypatch):
+        """When XMaxWriteRate is set, the determined rate is passed to write_dynamodb_dataframe."""
+        monkeypatch.setattr(load_module, 'check_s3_file_exists', lambda uri: True)
+        df = MagicMock()
+        df.count.return_value = 5
+        df.repartition.return_value = df
+        monkeypatch.setattr(load_module, 'read_data', lambda *a: df)
+        monkeypatch.setattr(load_module, 'print_dynamodb_table_info', lambda *a: None)
+        monkeypatch.setattr(load_module, 'check_dynamic_frame_avg_size', lambda df: 100.0)
+        monkeypatch.setattr(load_module, 'boto3', MagicMock())
+
+        mock_write = MagicMock()
+        monkeypatch.setattr(load_module, 'write_dynamodb_dataframe', mock_write)
+        monkeypatch.setattr(load_module, 'get_dynamodb_throughput_configs',
+                            lambda *a, **kw: {"dynamodb.throughput.write": "5000"})
+
+        args = {'table': 't', 's3_path': 's3://b/k', 'format': 'json',
+                'XMaxWriteRate': '5000'}
+
+        load_module.run(MagicMock(), MagicMock(), MagicMock(), args)
+        mock_write.assert_called_once()
+        assert mock_write.call_args.kwargs['write_rate'] == 5000
+
+    def test_auto_detected_rate_passed_when_no_xmax(self, monkeypatch):
+        """When XMaxWriteRate is absent, auto-detected rate from table is still applied."""
+        monkeypatch.setattr(load_module, 'check_s3_file_exists', lambda uri: True)
+        df = MagicMock()
+        df.count.return_value = 5
+        df.repartition.return_value = df
+        monkeypatch.setattr(load_module, 'read_data', lambda *a: df)
+        monkeypatch.setattr(load_module, 'print_dynamodb_table_info', lambda *a: None)
+        monkeypatch.setattr(load_module, 'check_dynamic_frame_avg_size', lambda df: 100.0)
+        monkeypatch.setattr(load_module, 'boto3', MagicMock())
+
+        mock_write = MagicMock()
+        monkeypatch.setattr(load_module, 'write_dynamodb_dataframe', mock_write)
+        monkeypatch.setattr(load_module, 'get_dynamodb_throughput_configs',
+                            lambda *a, **kw: {"dynamodb.throughput.write": "40000"})
+
+        args = {'table': 't', 's3_path': 's3://b/k', 'format': 'json'}
+
+        load_module.run(MagicMock(), MagicMock(), MagicMock(), args)
+        mock_write.assert_called_once()
+        assert mock_write.call_args.kwargs['write_rate'] == 40000
+
+    def test_no_rate_when_throughput_configs_returns_empty(self, monkeypatch):
+        """When get_dynamodb_throughput_configs returns no write key, write_rate is None."""
+        monkeypatch.setattr(load_module, 'check_s3_file_exists', lambda uri: True)
+        df = MagicMock()
+        df.count.return_value = 5
+        df.repartition.return_value = df
+        monkeypatch.setattr(load_module, 'read_data', lambda *a: df)
+        monkeypatch.setattr(load_module, 'print_dynamodb_table_info', lambda *a: None)
+        monkeypatch.setattr(load_module, 'check_dynamic_frame_avg_size', lambda df: 100.0)
+        monkeypatch.setattr(load_module, 'boto3', MagicMock())
+
+        mock_write = MagicMock()
+        monkeypatch.setattr(load_module, 'write_dynamodb_dataframe', mock_write)
+        monkeypatch.setattr(load_module, 'get_dynamodb_throughput_configs',
+                            lambda *a, **kw: {})
+
+        args = {'table': 't', 's3_path': 's3://b/k', 'format': 'json'}
+
+        load_module.run(MagicMock(), MagicMock(), MagicMock(), args)
+        mock_write.assert_called_once()
+        assert mock_write.call_args.kwargs['write_rate'] is None
 
 
 # --- check_s3_file_exists ---------------------------------------------------

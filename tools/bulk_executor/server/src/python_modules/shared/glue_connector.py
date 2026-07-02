@@ -39,17 +39,26 @@ def write_dynamodb_dataframe(
     df,
     table_name: str,
     parsed_args: dict,
+    write_rate: int = None,
 ) -> None:
-    """Write a Spark DataFrame to DynamoDB."""
+    """Write a Spark DataFrame to DynamoDB.
+
+    Args:
+        write_rate: Explicit write rate (WCU) to use. When provided, takes
+            precedence over XMaxWriteRate in parsed_args. Callers should
+            determine this via get_dynamodb_throughput_configs().
+    """
     writer = (
         df.write.format("dynamodb")
         .mode("append")
         .option("dynamodb.output.tableName", table_name)
     )
-    rates = _resolve_direct_rates(parsed_args, modes=["write"])
-    if rates.get("write") is not None:
+    if write_rate is None:
+        rates = _resolve_direct_rates(parsed_args, modes=["write"])
+        write_rate = rates.get("write")
+    if write_rate is not None:
         writer = writer.option(
-            "dynamodb.throughput.write", str(rates["write"])
+            "dynamodb.throughput.write", str(write_rate)
         )
     writer.save()
 
