@@ -391,49 +391,15 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
             log.warn(f"[{table_name}] Write rate {write_rate} less than recommended value of {MIN_RECOMMENDED_WRITE_RATE}.")
 
     if format == "connector":
-        # Now let's convert the read_rate and write_rate into connection_options
         connection_options = {}
 
-        if "read" in modes:
-            # For reads, we set dynamodb.throughput.read to the value we want
-            # We set dynamodb.throughput.read.percent to 1.0 to say use 100% of it
-            if read_rate:
-                connection_options["dynamodb.throughput.read"] = str(read_rate)
-            connection_options["dynamodb.throughput.read.percent"] = "1.0"
+        if "read" in modes and read_rate:
+            connection_options["dynamodb.throughput.read"] = str(read_rate)
 
-        if "write" in modes:
-            # For writes, there's no dynamodb.throughput.write
-            # Our only control is dynamodb.throughput.write.percent
-            # If we know the user's desired write rate and what the Connector thinks the table's level is,
-            # then we set the percent as write_rate / table_level.
-            # For example, if the user wants 10,000 and the table is on-demand so the Connector determines it's 40,000
-            # then a percent of 0.25 gets the job done.
+        if "write" in modes and write_rate:
+            connection_options["dynamodb.throughput.write"] = str(write_rate)
 
-            if write_rate is None: # if we couldn't find a rate, we'll go with 1.0
-                actual_percent = 1.0
-            else:
-                provisioned_write = table_desc.get('ProvisionedThroughput', {}).get('WriteCapacityUnits')
-                if provisioned_write and int(provisioned_write) > 0:
-                    table_level = int(provisioned_write)
-                else:
-                    table_level = DEFAULT_ON_DEMAND_CAPACITY # Connector sees all on-demand as 40,000
-                desired_percent = int(write_rate) / table_level
-                actual_percent = min(desired_percent, 1.5)
-            connection_options["dynamodb.throughput.write.percent"] = str(actual_percent)
-
-            # For now let's be verbose and explain the way we're doing write limiting
-            pct = actual_percent * 100
-            formatted = f"{pct:.0f}%" if pct.is_integer() else f"{pct:.1f}%"
-            log.info(f"Write rate achieved by requesting {formatted} of table capacity {table_level}")
-
-            # If we couldn't achieve the user's goal, be verbose about that and why
-            if desired_percent > actual_percent:
-                if provisioned_write and int(provisioned_write) > 0:
-                    log.info("Note: Rate is limited as it cannot be more than 150% of current provisioned capacity")
-                else:
-                    log.info("Note: Rate is limited as it cannot be above 60000 with on-demand tables")
-
-        log.info(f"\n") # Separate throughput configs on CLI for clarity
+        log.info("")
         return connection_options
 
     elif format == "monitor":
