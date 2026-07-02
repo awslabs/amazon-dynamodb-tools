@@ -11,12 +11,17 @@ help_text=f"""
         Optional --where parameter to specify a match criteria, using Spark SQL syntax
         Optional --orderby parameter to specify a sort attribute, with optional asc/desc suffix
         Optional --limit parameter to limit the number of items processed
+        Optional --format parameter to specify the S3 output format:
+            json      - Plain JSON (default). Human-readable but loses DynamoDB type info.
+            ddb-json  - DynamoDB JSON with type descriptors. Round-trips with 'bulk load'
+                        and the native DynamoDB Import from S3 feature.
+            parquet   - Apache Parquet columnar format. Compact and fast for analytics.
         Saves full output to S3 and prints the top few items to console
 
     Examples:
         bulk find --table products
         bulk find --table users --where "age > 21"
-        bulk find --table orders --where "status = 'pending'"
+        bulk find --table orders --where "status = 'pending'" --format ddb-json
     """
 
 def validate_orderby(parser, values):
@@ -40,6 +45,7 @@ def run(env_configs, verb="find", help_text=help_text):
     parser.add_argument('--where', type=str, default=argparse.SUPPRESS, help='Where clause')
     parser.add_argument('--orderby', nargs='+', type=str, default=argparse.SUPPRESS, metavar=('COLUMN', 'DIRECTION'), help='Order by clause (e.g., "column" or "column asc/desc")')
     parser.add_argument('--limit', type=int, default=argparse.SUPPRESS, help='Limit number')
+    parser.add_argument('--format', type=str, default='json', choices=['json', 'ddb-json', 'parquet'], help='S3 output format (default: json)')
     args = parser.parse_args()
 
     if hasattr(args, 'orderby'):
