@@ -132,6 +132,19 @@ class BootstrapInfrastructure:
             log.info(f"Found Bulk Executor Glue Job Role: {role_name}")
             if not self._needs_role_refresh():
                 return
+            # The role already exists, so create_role (which sets the trust
+            # policy) was skipped. Re-apply the trust policy on refresh so the
+            # role ends up with the same AssumeRolePolicyDocument a fresh
+            # bootstrap would create, not the one baked in when it was first made.
+            try:
+                self.iam_client.update_assume_role_policy(
+                    RoleName=role_name,
+                    PolicyDocument=json.dumps(trust_policy)
+                )
+                log.debug(f'Refreshed trust policy on role {role_name}')
+            except Exception as e:
+                log.error(f'Unexpected error: {e}')
+                exit(1)
         except Exception as e:
             log.error(f'Unexpected error: {e}')
             exit(1)
