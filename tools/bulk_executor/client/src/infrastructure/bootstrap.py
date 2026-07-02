@@ -180,7 +180,14 @@ class BootstrapInfrastructure:
         deployed_version = job_details['Job']['DefaultArguments'].get('--bulk-dynamodb-version')
         if not deployed_version:
             return True
-        return deployed_version != VERSION
+        if deployed_version != VERSION:
+            log.warning(
+                f"Version mismatch detected: deployed Glue job is v{deployed_version} "
+                f"but local bulk_executor is v{VERSION}. "
+                f"Refreshing IAM role policies to ensure required permissions are up to date."
+            )
+            return True
+        return False
 
     def _is_existing_role(self, role_name):
         try:

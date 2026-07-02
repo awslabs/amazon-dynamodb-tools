@@ -294,6 +294,32 @@ class TestAddGlueJobRole:
         bootstrap.iam_client.attach_role_policy.assert_called()
         bootstrap.iam_client.put_role_policy.assert_called()
 
+    def test_version_mismatch_logs_warning_with_both_versions(self, bootstrap, caplog):
+        import logging
+        from infrastructure.constants import ROLE_TYPE_READ_ONLY
+        from __version__ import __version__ as VERSION
+        bootstrap._prompt_for_role = MagicMock()
+
+        class EntityAlreadyExistsException(Exception):
+            pass
+        bootstrap.iam_client.exceptions.EntityAlreadyExistsException = (
+            EntityAlreadyExistsException
+        )
+        bootstrap.iam_client.create_role.side_effect = EntityAlreadyExistsException()
+
+        bootstrap._get_glue_job_details = MagicMock(return_value={
+            'Job': {'DefaultArguments': {'--bulk-dynamodb-version': '0.old'}}
+        })
+
+        with caplog.at_level(logging.WARNING):
+            bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_ONLY})
+
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any('0.old' in m and VERSION in m for m in warning_messages), (
+            f"Expected a warning mentioning deployed version '0.old' and local version '{VERSION}', "
+            f"got: {warning_messages}"
+        )
+
     def test_role_already_exists_skips_refresh_when_version_matches(self, bootstrap):
         from infrastructure.constants import ROLE_TYPE_READ_ONLY
         bootstrap._prompt_for_role = MagicMock()
