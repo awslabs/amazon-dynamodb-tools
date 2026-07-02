@@ -12,6 +12,7 @@ from pyspark.sql.functions import asc, desc
 
 # Custom Library Imports
 sys.path.append('/server/src')
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.errors import *
 from python_modules.shared.pricing import PricingUtility
 from python_modules.shared.rate_limiter import (
@@ -118,13 +119,13 @@ def run(job, spark_context, glue_context, parsed_args):
             try:
                 records = records.filter(WHERE)
             except Exception as e:
-                raise Exception("Invalid 'where': " + get_error_message(e)) from None
+                raise BulkExecutorError("Invalid 'where': " + get_error_message(e)) from None
         if ORDERBY:
             try:
                 records = records.orderBy(ORDERBY)
                 needsRepartitioning = True
             except Exception as e:
-                raise Exception("Invalid 'orderby': " + get_error_message(e)) from None
+                raise BulkExecutorError("Invalid 'orderby': " + get_error_message(e)) from None
         if LIMIT:
             try:
                 limit = int(LIMIT)
@@ -132,7 +133,7 @@ def run(job, spark_context, glue_context, parsed_args):
                 if limit > 1000: # Don't bother for tiny sizes
                     needsRepartitioning = True
             except Exception as e:
-                raise Exception("Invalid 'limit': " + get_error_message(e)) from None
+                raise BulkExecutorError("Invalid 'limit': " + get_error_message(e)) from None
 
         def get_table_keys(table_name):
             client = boto3.client('dynamodb')
