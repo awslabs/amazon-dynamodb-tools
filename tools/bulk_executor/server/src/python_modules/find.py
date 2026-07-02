@@ -7,6 +7,7 @@ import warnings
 import boto3
 from awsglue.transforms import *
 from botocore.config import Config
+from pyspark.sql import SparkSession
 from pyspark.sql.functions import asc, desc
 
 # Custom Library Imports
@@ -153,8 +154,20 @@ def run(job, spark_context, glue_context, parsed_args):
             job_run_id = parsed_args.get("JOB_RUN_ID")
             s3_output_location = f"s3://{bucket_name}/output/{job_run_id}"
 
-            # Write as DynamoDB JSON (preserves type annotations for round-trip with load)
-            write_ddb_json_to_s3(records, s3_output_location)
+            output_format = parsed_args.get('format', 'json')
+
+            if output_format == 'ddb-json':
+                write_ddb_json_to_s3(records, s3_output_location)
+                format_label = "DynamoDB JSON"
+            elif output_format == 'parquet':
+                records.write.mode("overwrite").parquet(s3_output_location)
+                format_label = "Parquet"
+            else:
+                spark = SparkSession(spark_context)
+                json_rdd = records.toJSON()
+                json_df = spark.read.json(json_rdd)
+                json_df.write.mode("overwrite").json(s3_output_location)
+                format_label = "JSON"
 
             # Print the top N many
             TOP_N = 10
@@ -162,14 +175,19 @@ def run(job, spark_context, glue_context, parsed_args):
                 print(f"{count} matching items:")
             else:
                 print(f"First {TOP_N} matching items:")
-            schema = records.schema
-            top_n_rows = records.limit(TOP_N).collect()
-            for row in top_n_rows:
-                print(json.dumps(row_to_ddb_json(row, schema), separators=(',', ':'), default=str))
+            if output_format == 'ddb-json':
+                schema = records.schema
+                top_n_rows = records.limit(TOP_N).collect()
+                for row in top_n_rows:
+                    print(json.dumps(row_to_ddb_json(row, schema), separators=(',', ':'), default=str))
+            else:
+                top_n_records = records.limit(TOP_N).toJSON().collect()
+                for record in top_n_records:
+                    print(record)
             if count > TOP_N:
                 print(f"...and {count - TOP_N} more not printed")
             print()
-            print(f"Wrote {count:,} items in DynamoDB JSON format to {s3_output_location}/")
+            print(f"Wrote {count:,} items in {format_label} format to {s3_output_location}/")
             print()
 
         elif DO_DELETE:

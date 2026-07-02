@@ -24,6 +24,7 @@ import pytest
 sys.modules.setdefault('awsglue.transforms', MagicMock())
 _pyspark_sql_functions = MagicMock()
 sys.modules.setdefault('pyspark.sql.functions', _pyspark_sql_functions)
+sys.modules.setdefault('pyspark.sql', MagicMock())
 
 from python_modules import find as find_module
 
@@ -656,11 +657,12 @@ class TestRunLimit:
         df.repartition.assert_not_called(), "limit <= 1000 skips repartition"
 
 
-# --- run(): DO_FIND — DynamoDB JSON output (issue #184) ----------------------
+# --- run(): DO_FIND — format-aware output (issue #184) ----------------------
 
 class TestRunFindDdbJson:
-    """DO_FIND writes DynamoDB JSON to S3 via write_ddb_json_to_s3(),
-    preserving type annotations for round-trip with load. Addresses issue #184."""
+    """DO_FIND writes to S3 in the format specified by --format.
+    Default is 'json' (backward-compatible). 'ddb-json' preserves type
+    annotations for round-trip with load. 'parquet' uses columnar format."""
 
     def _make_df_mock(self, count, schema_fields=None):
         """Create a mock DataFrame with a schema for DDB JSON testing."""
@@ -668,6 +670,8 @@ class TestRunFindDdbJson:
         df = MagicMock()
         df.cache.return_value = df
         df.count.return_value = count
+        df.write = MagicMock()
+        df.write.mode.return_value = df.write
         if schema_fields:
             df.schema = StructType(schema_fields)
         else:
@@ -677,12 +681,15 @@ class TestRunFindDdbJson:
         mock_row = MagicMock()
         mock_row.__getitem__ = lambda self, key: "val"
         df.limit.return_value.collect.return_value = [mock_row] * min(count, 10)
+        df.limit.return_value.toJSON.return_value.collect.return_value = ['{"pk":"val"}'] * min(count, 10)
+        df.toJSON.return_value = MagicMock()
         return df
 
-    def test_find_calls_write_ddb_json_to_s3(
+    def test_find_ddb_json_calls_write_ddb_json_to_s3(
         self, monkeypatch, table_info_mocks, boto3_session_mock, base_args
     ):
-        """write_ddb_json_to_s3(records, location) is called."""
+        """--format ddb-json calls write_ddb_json_to_s3(records, location)."""
+        base_args['format'] = 'ddb-json'
         df = self._make_df_mock(2)
         write_mock = MagicMock()
         monkeypatch.setattr(find_module, 'read_dynamodb_dataframe', lambda *a, **kw: df)
@@ -692,17 +699,42 @@ class TestRunFindDdbJson:
 
         write_mock.assert_called_once_with(df, "s3://my-bucket/output/run-123")
 
-    def test_find_does_not_use_spark_session(
+    def test_find_json_default_uses_spark_json_writer(
         self, monkeypatch, table_info_mocks, boto3_session_mock, base_args
     ):
-        """SparkSession is no longer imported — no schema re-inference path."""
-        assert not hasattr(find_module, 'SparkSession'), \
-            "SparkSession import removed — no re-inference path"
+        """Default --format json uses SparkSession JSON writer (backward-compat)."""
+        base_args['format'] = 'json'
+        df = self._make_df_mock(2)
+        spark_session_mock = MagicMock()
+        json_df = MagicMock()
+        spark_session_mock.read.json.return_value = json_df
+        monkeypatch.setattr(find_module, 'SparkSession', MagicMock(return_value=spark_session_mock))
+        monkeypatch.setattr(find_module, 'read_dynamodb_dataframe', lambda *a, **kw: df)
+        monkeypatch.setattr(find_module, 'write_ddb_json_to_s3', MagicMock())
 
-    def test_find_prints_top_n_in_ddb_json(
+        find_module.run(MagicMock(), MagicMock(), MagicMock(), base_args)
+
+        json_df.write.mode.assert_called_once_with("overwrite")
+
+    def test_find_parquet_uses_parquet_writer(
+        self, monkeypatch, table_info_mocks, boto3_session_mock, base_args
+    ):
+        """--format parquet writes via records.write.parquet()."""
+        base_args['format'] = 'parquet'
+        df = self._make_df_mock(2)
+        monkeypatch.setattr(find_module, 'read_dynamodb_dataframe', lambda *a, **kw: df)
+        monkeypatch.setattr(find_module, 'write_ddb_json_to_s3', MagicMock())
+
+        find_module.run(MagicMock(), MagicMock(), MagicMock(), base_args)
+
+        df.write.mode.assert_called_once_with("overwrite")
+        df.write.mode.return_value.parquet.assert_called_once_with("s3://my-bucket/output/run-123")
+
+    def test_find_ddb_json_prints_top_n_in_ddb_json(
         self, monkeypatch, table_info_mocks, boto3_session_mock, base_args, capsys
     ):
-        """Top-N preview prints DynamoDB JSON format."""
+        """Top-N preview prints DynamoDB JSON format when --format ddb-json."""
+        base_args['format'] = 'ddb-json'
         df = self._make_df_mock(15)
         monkeypatch.setattr(find_module, 'read_dynamodb_dataframe', lambda *a, **kw: df)
         monkeypatch.setattr(find_module, 'write_ddb_json_to_s3', MagicMock())
@@ -715,10 +747,45 @@ class TestRunFindDdbJson:
         assert 'Wrote 15 items in DynamoDB JSON format' in out
         assert '"S"' in out
 
+    def test_find_json_prints_top_n_as_plain_json(
+        self, monkeypatch, table_info_mocks, boto3_session_mock, base_args, capsys
+    ):
+        """Top-N preview uses toJSON() for plain json format."""
+        base_args['format'] = 'json'
+        df = self._make_df_mock(3)
+        spark_session_mock = MagicMock()
+        spark_session_mock.read.json.return_value = MagicMock()
+        monkeypatch.setattr(find_module, 'SparkSession', MagicMock(return_value=spark_session_mock))
+        monkeypatch.setattr(find_module, 'read_dynamodb_dataframe', lambda *a, **kw: df)
+        monkeypatch.setattr(find_module, 'write_ddb_json_to_s3', MagicMock())
+
+        find_module.run(MagicMock(), MagicMock(), MagicMock(), base_args)
+
+        out = capsys.readouterr().out
+        assert '3 matching items:' in out
+        assert 'Wrote 3 items in JSON format' in out
+
+    def test_find_format_defaults_to_json(
+        self, monkeypatch, table_info_mocks, boto3_session_mock, base_args
+    ):
+        """Missing format key defaults to 'json'."""
+        base_args.pop('format', None)
+        df = self._make_df_mock(1)
+        spark_session_mock = MagicMock()
+        spark_session_mock.read.json.return_value = MagicMock()
+        monkeypatch.setattr(find_module, 'SparkSession', MagicMock(return_value=spark_session_mock))
+        monkeypatch.setattr(find_module, 'read_dynamodb_dataframe', lambda *a, **kw: df)
+        monkeypatch.setattr(find_module, 'write_ddb_json_to_s3', MagicMock())
+
+        find_module.run(MagicMock(), MagicMock(), MagicMock(), base_args)
+
+        spark_session_mock.read.json.assert_called_once()
+
     def test_find_count_le_top_n_prints_all(
         self, monkeypatch, table_info_mocks, boto3_session_mock, base_args, capsys
     ):
         """count <= 10 prints 'N matching items:' header."""
+        base_args['format'] = 'ddb-json'
         df = self._make_df_mock(3)
         monkeypatch.setattr(find_module, 'read_dynamodb_dataframe', lambda *a, **kw: df)
         monkeypatch.setattr(find_module, 'write_ddb_json_to_s3', MagicMock())
@@ -733,6 +800,7 @@ class TestRunFindDdbJson:
         self, monkeypatch, table_info_mocks, boto3_session_mock, base_args
     ):
         """records.cache() called before count."""
+        base_args['format'] = 'ddb-json'
         df = self._make_df_mock(1)
         monkeypatch.setattr(find_module, 'read_dynamodb_dataframe', lambda *a, **kw: df)
         monkeypatch.setattr(find_module, 'write_ddb_json_to_s3', MagicMock())
