@@ -28,6 +28,7 @@ _init_mod.__package__ = "python_modules.shared.rate_limiter"
 _init_spec.loader.exec_module(_init_mod)
 
 RateLimiterAggregator = _init_mod.RateLimiterAggregator
+RateLimiterWorker = _init_mod.RateLimiterWorker
 RateLimiterSharedConfig = _init_mod.RateLimiterSharedConfig
 
 
@@ -49,3 +50,33 @@ class TestRateLimiterAggregatorInit:
         ]
         assert len(initializing_records) == 1
         assert initializing_records[0].levelno == logging.DEBUG
+
+    def test_shutdown_message_logged_at_debug(self, shared_config, caplog):
+        with patch.object(
+            _init_mod, "DistributedDynamoDBMonitorAggregator"
+        ), patch.object(_init_mod, "Session"):
+            agg = RateLimiterAggregator(shared_config)
+            with caplog.at_level(logging.DEBUG, logger="rate_limiter_tests"):
+                agg.shutdown()
+
+        shutdown_records = [
+            r for r in caplog.records if "Shutting down" in r.message
+        ]
+        assert len(shutdown_records) == 1
+        assert shutdown_records[0].levelno == logging.DEBUG
+
+
+class TestRateLimiterWorkerShutdown:
+    def test_shutdown_message_logged_at_debug(self, shared_config, caplog):
+        with patch.object(
+            _init_mod, "DistributedDynamoDBMonitorWorker"
+        ), patch.object(_init_mod, "Session"):
+            worker = RateLimiterWorker(shared_config)
+            with caplog.at_level(logging.DEBUG, logger="rate_limiter_tests"):
+                worker.shutdown()
+
+        shutdown_records = [
+            r for r in caplog.records if "Shutting down" in r.message
+        ]
+        assert len(shutdown_records) == 1
+        assert shutdown_records[0].levelno == logging.DEBUG
