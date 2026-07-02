@@ -351,6 +351,37 @@ class TestAddGlueJobRole:
         bootstrap.iam_client.attach_role_policy.assert_not_called()
         bootstrap.iam_client.put_role_policy.assert_not_called()
 
+    def test_refresh_updates_trust_policy_to_match_fresh_bootstrap(self, bootstrap):
+        # Reviewer feedback: on a version-mismatch refresh of an existing role,
+        # the code re-applies attached/inline policies but the trust policy
+        # (AssumeRolePolicyDocument) is only set at create_role time. If the
+        # trust_policy definition changes and the version is bumped, a refreshed
+        # role would keep its stale trust policy — NOT matching a fresh
+        # bootstrap. The refresh must also update the assume-role (trust) policy.
+        from infrastructure.constants import ROLE_TYPE_READ_ONLY
+        bootstrap._prompt_for_role = MagicMock()
+
+        class EntityAlreadyExistsException(Exception):
+            pass
+        bootstrap.iam_client.exceptions.EntityAlreadyExistsException = (
+            EntityAlreadyExistsException
+        )
+        bootstrap.iam_client.create_role.side_effect = EntityAlreadyExistsException()
+
+        # Version mismatch → refresh path.
+        bootstrap._get_glue_job_details = MagicMock(return_value={
+            'Job': {'DefaultArguments': {'--bulk-dynamodb-version': '0.old'}}
+        })
+
+        bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_ONLY})
+
+        # The trust policy must be re-applied so the refreshed role ends up with
+        # the same trust policy a fresh bootstrap would create.
+        bootstrap.iam_client.update_assume_role_policy.assert_called_once()
+        kwargs = bootstrap.iam_client.update_assume_role_policy.call_args.kwargs
+        trust = json.loads(kwargs['PolicyDocument'])
+        assert trust['Statement'][0]['Principal']['Service'] == 'glue.amazonaws.com'
+
     def test_role_already_exists_refreshes_when_no_deployed_version(self, bootstrap):
         from infrastructure.constants import ROLE_TYPE_READ_ONLY
         bootstrap._prompt_for_role = MagicMock()
