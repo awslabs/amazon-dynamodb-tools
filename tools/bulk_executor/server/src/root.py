@@ -83,8 +83,9 @@ else:
         action_script_function = getattr(module, action_script_function_name)
         try:
             action_script_function(job, spark_context, glue_context, parsed_args)  # Run the function
-        except BulkExecutorError as e: # if any custom logging is needed before bubbling the exception
-            raise
+        except BulkExecutorError as e:
+            log.error(f"BulkExecutorError: {e}")
+            sys.exit(str(e))
         except Exception as e:
             raise # Just let it propagate
     else:

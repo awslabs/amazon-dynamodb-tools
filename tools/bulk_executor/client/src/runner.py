@@ -420,6 +420,15 @@ class BulkDynamoDbRunner:
                 time.sleep(1)
                 job_run_state = self._get_job_run_state(job_run_id)
 
+    def _clean_error_message(self, exception):
+        """Extract a human-readable message from an exception without traceback noise."""
+        if hasattr(exception, 'response'):
+            error_info = exception.response.get('Error', {})
+            message = error_info.get('Message') or str(exception)
+        else:
+            message = str(exception)
+        return message
+
     def run(self, args, script_args):
         log.debug(f"XArgs: {args}")
         log.debug(f"Script args: {script_args}")
@@ -433,6 +442,18 @@ class BulkDynamoDbRunner:
             log.info("Job not executed.")
             return
 
+        try:
+            self._execute_job(glue_job_arguments, args)
+        except SystemExit:
+            raise
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            error_message = self._clean_error_message(e)
+            log.error(error_message)
+            sys.exit(f"Error: {error_message}")
+
+    def _execute_job(self, glue_job_arguments, args):
         log.info("""
 
 The bulk executor job cost consists of DynamoDB and Glue costs
