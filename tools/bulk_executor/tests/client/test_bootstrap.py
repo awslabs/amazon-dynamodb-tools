@@ -319,6 +319,14 @@ class TestAddGlueJobRole:
             f"Expected a warning mentioning deployed version '0.old' and local version '{VERSION}', "
             f"got: {warning_messages}"
         )
+        # Reviewer feedback: warning must clearly explain what will happen and why
+        msg = next(m for m in warning_messages if '0.old' in m)
+        assert 'IAM policies will be re-applied' in msg, (
+            f"Warning must explain that IAM policies will be re-applied, got: {msg}"
+        )
+        assert 'redeploy' in msg.lower(), (
+            f"Warning must suggest redeploying the Glue job to resolve, got: {msg}"
+        )
 
     def test_role_already_exists_skips_refresh_when_version_matches(self, bootstrap):
         from infrastructure.constants import ROLE_TYPE_READ_ONLY
