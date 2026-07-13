@@ -1070,6 +1070,7 @@ class TestRunStateBranches:
         _wire_run_dependencies(bulk_runner, final_state=runner_module.SUCCEEDED_STATE)
         import logging as _logging
         with caplog.at_level(_logging.INFO):
+            # A successful job must NOT raise SystemExit — it exits 0.
             bulk_runner.run({}, [])
         assert any('completed successfully' in m for m in caplog.messages)
 
@@ -1077,35 +1078,47 @@ class TestRunStateBranches:
         _wire_run_dependencies(bulk_runner, final_state=runner_module.STOPPING_STATE)
         import logging as _logging
         with caplog.at_level(_logging.INFO):
-            bulk_runner.run({}, [])
+            # Non-success terminal state must exit non-zero (issue #137).
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('stopping' in m for m in caplog.messages)
 
     def test_stopped_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.STOPPED_STATE)
         import logging as _logging
         with caplog.at_level(_logging.INFO):
-            bulk_runner.run({}, [])
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('stopped' in m for m in caplog.messages)
 
     def test_failed_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.FAILED_STATE)
         import logging as _logging
         with caplog.at_level(_logging.INFO):
-            bulk_runner.run({}, [])
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('failed' in m.lower() for m in caplog.messages)
 
     def test_timeout_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.TIMEOUT_STATE)
         import logging as _logging
         with caplog.at_level(_logging.INFO):
-            bulk_runner.run({}, [])
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('timed out' in m for m in caplog.messages)
 
     def test_unhandled_state_logs_error(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state='WEIRD_STATE')
         import logging as _logging
         with caplog.at_level(_logging.ERROR):
-            bulk_runner.run({}, [])
+            # An unrecognized terminal state is treated as failure, not success.
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('Unhandled Job State' in m for m in caplog.messages)
 
     def test_starts_job_with_arguments(self, bulk_runner):
@@ -1144,7 +1157,9 @@ class TestRunErrorMessageLogging:
                                error_message='something exploded')
         import logging as _logging
         with caplog.at_level(_logging.ERROR):
-            bulk_runner.run({}, [])
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('something exploded' in m for m in caplog.messages)
 
     def test_no_error_message_branch(self, bulk_runner, caplog):

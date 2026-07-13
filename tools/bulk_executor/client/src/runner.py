@@ -483,7 +483,11 @@ You can run the script with the --XWaitForDPU parameter in order to print the us
         job_run_state = self._get_job_run_state(job_run_id)
         job_run_error_message = self._get_job_run_error_message(job_run_id)
 
+        # Only SUCCEEDED is a clean exit; every other terminal state is a
+        # failure the caller must be able to detect via the process exit code
+        # (issue #137: a failed job must "show the effort failed", not exit 0).
         job_end_message = None
+        job_failed = True
         if job_run_state == STOPPING_STATE:
             job_end_message = "Job is stopping."
         elif job_run_state == STOPPED_STATE:
@@ -494,6 +498,7 @@ You can run the script with the --XWaitForDPU parameter in order to print the us
             job_end_message = "Job timed out."
         elif job_run_state == SUCCEEDED_STATE:
             job_end_message = "Job completed successfully."
+            job_failed = False
         else:
             log.error(f"Unhandled Job State: {job_run_state}")
 
@@ -511,3 +516,8 @@ You can run the script with the --XWaitForDPU parameter in order to print the us
 
         if job_run_error_message:
             log.error(job_run_error_message)
+
+        # Propagate failure to the process exit code so callers (and the shell)
+        # can detect it. The Glue-side error message has already been printed.
+        if job_failed:
+            sys.exit(1)
