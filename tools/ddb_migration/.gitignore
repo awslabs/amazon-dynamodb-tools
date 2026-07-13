@@ -1,0 +1,15 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv
+venv
+.pytest_cache
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Demo artifacts
+demo/config.env
+demo/.demo_state
+*.zip
