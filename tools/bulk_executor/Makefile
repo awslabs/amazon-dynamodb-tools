@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install test test-client test-server coverage clean test-e2e test-e2e-connector test-e2e-cleanup test-e2e-security test-e2e-security-simulator test-e2e-security-real test-e2e-commands test-e2e-whole-system
+.PHONY: help install test test-client test-server coverage clean test-e2e test-e2e-connector test-e2e-cleanup test-e2e-security test-e2e-security-simulator test-e2e-security-real test-e2e-commands test-e2e-whole-system test-e2e-max-rate
 
 VENV := .venv
 PIP := $(VENV)/bin/pip
@@ -26,6 +26,7 @@ help:
 	@echo "  make test-e2e-security-real         Security tier 2 only: real temp IAM user + bootstrap"
 	@echo "  make test-e2e-commands              Bulk-command smokes against transient tables"
 	@echo "  make test-e2e-whole-system          True e2e: 60k load round-trip + observed rate enforcement"
+	@echo "  make test-e2e-max-rate              EXPENSIVE: prove load beats the old 60k connector ceiling (~\$$ per run)"
 	@echo "  make test-e2e-cleanup               Delete orphaned items left by a crashed e2e run"
 
 install:
@@ -102,7 +103,17 @@ test-e2e-commands:
 test-e2e-whole-system:
 	$(PYTEST) tests/e2e/whole_system -s -v --tb=short --no-cov \
 	  --override-ini="testpaths=tests/e2e" \
+	  -m "not max_rate" \
 	  --e2e-suite="whole-system (round-trip + rate enforcement)"
+
+# EXPENSIVE: writes millions of items and provisions warm throughput to prove
+# the new connector sustains a write rate above the legacy 60k ceiling. Not in
+# the default sweep. Tune via BULK_E2E_MAXRATE_WCU / _ITEMS / _PARTITIONS.
+test-e2e-max-rate:
+	$(PYTEST) tests/e2e/whole_system -s -v --tb=short --no-cov \
+	  --override-ini="testpaths=tests/e2e" \
+	  -m "max_rate" \
+	  --e2e-suite="max-rate (beats legacy 60k ceiling)"
 
 test-e2e-cleanup:
 	$(VENV)/bin/python -m tests.e2e.helpers.cleanup

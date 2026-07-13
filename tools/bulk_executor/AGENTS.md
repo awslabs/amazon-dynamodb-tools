@@ -54,8 +54,8 @@ Steps:
 Example (illustrative format only — always use your own fresh `make test` numbers, not these):
 
 ```markdown
-![tests](https://img.shields.io/badge/tests-1335%20passing-brightgreen)
-![line coverage](https://img.shields.io/badge/line%20coverage-94.2%25-brightgreen)
+![tests](https://img.shields.io/badge/tests-1330%20passing-brightgreen)
+![line coverage](https://img.shields.io/badge/line%20coverage-94.1%25-brightgreen)
 ![branch coverage](https://img.shields.io/badge/branch%20coverage-91.7%25-brightgreen)
 ```
 

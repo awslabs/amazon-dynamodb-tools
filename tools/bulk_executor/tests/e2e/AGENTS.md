@@ -37,10 +37,15 @@ make test-e2e-connector      # ~10 min
 make test-e2e-commands       # ~15 min
 make test-e2e-security       # ~3 min
 make test-e2e-whole-system   # ~7 min (60k load: round-trip + observed rate enforcement)
+make test-e2e-max-rate       # EXPENSIVE, opt-in: prove load beats the old 60k connector ceiling
 make test-e2e-cleanup        # sweep orphaned transient tables
 ```
 
 Requires AWS creds + a one-time `./bulk bootstrap`. First run prompts for account/region/test tables → cached in `.e2e-config` (gitignored). **Never run these in tight loops** — each Glue job costs real money and ~2 min of cold start.
+
+### The `max_rate` tier is expensive and opt-in
+
+`whole_system/test_load_exceeds_legacy_ceiling.py` proves the DataFrame connector sustains a write rate **above the legacy 60k WCU/s ceiling** (the old connector's 40k-on-demand-assumption × 1.5x percent cap). To *observe* >60k it must write **millions of tiny items** (1 WCU each) across thousands of partition keys into a table **pre-warmed** to the target rate — so it costs real money (order of a few dollars of DynamoDB write + Glue DPU per run) and takes several minutes. It is marked `max_rate` and **excluded from `make test-e2e-whole-system`** (`-m "not max_rate"`); run it deliberately via `make test-e2e-max-rate`. Tune cost/volume with `BULK_E2E_MAXRATE_WCU` / `_ITEMS` / `_PARTITIONS`. It guards against a vacuous pass the same way the round-trip test does: if warm throughput never provisioned or the fixture was too small to fill a hot CloudWatch minute, it fails loudly instead of green.
 
 ### Deploying the branch-under-test to Glue first
 
