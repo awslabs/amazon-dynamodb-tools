@@ -194,11 +194,10 @@ class BootstrapInfrastructure:
         if not deployed_version:
             return True
         if deployed_version != VERSION:
-            log.warning(
-                f"Version mismatch: deployed Glue job is v{deployed_version}, "
-                f"but you are running v{VERSION} locally. "
-                f"IAM policies will be re-applied to ensure the role has permissions "
-                f"required by v{VERSION}. To resolve this mismatch, redeploy the Glue job."
+            log.info(
+                f"Version mismatch (deployed Glue job is v{deployed_version}, "
+                f"local is v{VERSION}); refreshing the role's IAM policies to "
+                f"match the version being bootstrapped."
             )
             return True
         return False

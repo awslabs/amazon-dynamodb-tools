@@ -294,7 +294,7 @@ class TestAddGlueJobRole:
         bootstrap.iam_client.attach_role_policy.assert_called()
         bootstrap.iam_client.put_role_policy.assert_called()
 
-    def test_version_mismatch_logs_warning_with_both_versions(self, bootstrap, caplog):
+    def test_version_mismatch_logs_info_with_both_versions(self, bootstrap, caplog):
         import logging
         from infrastructure.constants import ROLE_TYPE_READ_ONLY
         from __version__ import __version__ as VERSION
@@ -311,22 +311,75 @@ class TestAddGlueJobRole:
             'Job': {'DefaultArguments': {'--bulk-dynamodb-version': '0.old'}}
         })
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.INFO):
             bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_ONLY})
 
-        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-        assert any('0.old' in m and VERSION in m for m in warning_messages), (
-            f"Expected a warning mentioning deployed version '0.old' and local version '{VERSION}', "
-            f"got: {warning_messages}"
+        # Reviewer feedback (#233): a version mismatch during bootstrap is the
+        # expected reason someone is bootstrapping, so it is INFO, not WARNING.
+        info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
+        mismatch_msgs = [m for m in info_messages if '0.old' in m and VERSION in m]
+        assert mismatch_msgs, (
+            f"Expected an info message mentioning deployed version '0.old' and "
+            f"local version '{VERSION}', got: {info_messages}"
         )
-        # Reviewer feedback: warning must clearly explain what will happen and why
-        msg = next(m for m in warning_messages if '0.old' in m)
-        assert 'IAM policies will be re-applied' in msg, (
-            f"Warning must explain that IAM policies will be re-applied, got: {msg}"
+        # It must NOT be logged at WARNING (or higher) -- nothing is wrong.
+        loud = [
+            r.message for r in caplog.records
+            if r.levelno >= logging.WARNING and '0.old' in r.message
+        ]
+        assert not loud, f"Version mismatch must not log at WARNING or above, got: {loud}"
+
+        msg = mismatch_msgs[0]
+        # Must explain what happens (policies refreshed) without telling the user
+        # to redeploy -- they are already mid-bootstrap.
+        assert 'refresh' in msg.lower(), (
+            f"Message must explain the role's IAM policies are being refreshed, got: {msg}"
         )
-        assert 'redeploy' in msg.lower(), (
-            f"Warning must suggest redeploying the Glue job to resolve, got: {msg}"
+        assert 'redeploy' not in msg.lower(), (
+            f"Message must not tell the user to redeploy mid-bootstrap, got: {msg}"
         )
+
+    def test_version_mismatch_message_is_direction_agnostic(self, bootstrap, caplog):
+        # Reviewer feedback (#233): the logic must work when the client is OLDER
+        # as well as NEWER than the deployed job. The message must not assume the
+        # local version is the newer one (no "upgrade"/"you are ahead" phrasing).
+        import logging
+        from infrastructure.constants import ROLE_TYPE_READ_ONLY
+        from __version__ import __version__ as VERSION
+        bootstrap._prompt_for_role = MagicMock()
+
+        class EntityAlreadyExistsException(Exception):
+            pass
+        bootstrap.iam_client.exceptions.EntityAlreadyExistsException = (
+            EntityAlreadyExistsException
+        )
+        bootstrap.iam_client.create_role.side_effect = EntityAlreadyExistsException()
+
+        # Deployed job is on a higher version than the local client, i.e. the
+        # local client is behind what is deployed. Use a neutral label so the
+        # assertions below check the message wording, not the version value.
+        deployed_version = '99999'
+        bootstrap._get_glue_job_details = MagicMock(return_value={
+            'Job': {'DefaultArguments': {'--bulk-dynamodb-version': deployed_version}}
+        })
+
+        with caplog.at_level(logging.INFO):
+            bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_ONLY})
+
+        # Refresh still happens regardless of direction.
+        bootstrap.iam_client.attach_role_policy.assert_called()
+        bootstrap.iam_client.put_role_policy.assert_called()
+
+        msg = next(
+            m for m in (r.message for r in caplog.records)
+            if deployed_version in m and VERSION in m
+        )
+        lowered = msg.lower()
+        for directional in ('upgrade', 'downgrade', 'newer', 'older', 'ahead', 'behind'):
+            assert directional not in lowered, (
+                f"Message must be direction-agnostic (works for older or newer "
+                f"clients); found '{directional}' in: {msg}"
+            )
 
     def test_role_already_exists_skips_refresh_when_version_matches(self, bootstrap):
         from infrastructure.constants import ROLE_TYPE_READ_ONLY
