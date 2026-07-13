@@ -1,7 +1,7 @@
 """Tier 2 e2e: the REAL built-in Glue role exists with the expected shape.
 
 Why this exists (the gap it closes): the role-refresh test
-(``test_real_role_refresh.py``) proves the refresh *logic* on a throwaway
+(``test_glue_role_refresh.py``) proves the refresh *logic* on a throwaway
 role, and the positive bootstrap test asserts bootstrap *exits 0* — but until
 this test, nothing asserted that the actual
 ``AWSGlueServiceRoleBulkDynamoDB-*`` role is present on the account with the

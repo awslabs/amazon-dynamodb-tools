@@ -70,7 +70,7 @@ def simulator_passed(request) -> bool:
     if reporter is None:
         return True
     failed = reporter.stats.get("failed", [])
-    sim_failed = [r for r in failed if "test_simulator" in r.nodeid]
+    sim_failed = [r for r in failed if "test_iam_policy_simulated" in r.nodeid]
     return not sim_failed
 
 

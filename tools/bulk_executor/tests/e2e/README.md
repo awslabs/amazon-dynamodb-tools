@@ -73,24 +73,31 @@ connector by design).
 
 ### Security / bootstrap coverage (`make test-e2e-security`)
 
-The security suite validates the IAM story around `bulk bootstrap`. Its tests
-form deliberate **layers** — each proves something the others can't, so read
-why all four exist before collapsing them:
+The security suite validates the IAM story around `bulk bootstrap`, split
+across **two vectors** the filenames name explicitly:
 
-| Test | Proves | Touches shared state? |
-|------|--------|-----------------------|
-| `test_simulator.py` | The documented README policy allows every bootstrap action, and removing any statement denies at least one (via `iam:SimulateCustomPolicy`). Tier-1 oracle, no resources created. | No |
-| `test_real_bootstrap.py` | The documented policy *actually* bootstraps a real account (temp IAM user, real `bulk bootstrap`), **and the built-in role is created with the right shape** (not just exit 0 — see invariant #1). Random-negative rotation removes one action per run and asserts bootstrap fails. | Yes — bootstraps/tears-down the shared `bulk_dynamodb` job; guarded by `preserve_shared_glue_job`. |
-| `test_real_builtin_role.py` | The **real** `AWSGlueServiceRoleBulkDynamoDB-*` role exists *right now* with the fresh-bootstrap trust policy + required managed policies. Pure read. | No (read-only) |
-| `test_real_role_refresh.py` | The version-mismatch **role-refresh logic** converges a stale trust policy to the fresh-bootstrap shape, against real IAM. | No — runs on a **throwaway** role it creates and deletes. |
+- `test_iam_policy_*` — is the *documented bootstrap policy* correct (complete + minimal)?
+- `test_glue_role_*` — is the *Glue execution role* it produces correct (exists, shaped right, self-heals)?
+
+Each test proves something the others can't, so read why all four exist before
+collapsing them:
+
+| Test | Vector | Proves | Touches shared state? |
+|------|--------|--------|-----------------------|
+| `test_iam_policy_simulated.py` | policy | The documented README policy allows every bootstrap action, and removing any statement denies at least one (via `iam:SimulateCustomPolicy`). Tier-1 oracle, no resources created. | No |
+| `test_iam_policy_live.py` | policy | The documented policy *actually* bootstraps a real account (temp IAM user, real `bulk bootstrap`), **and the built-in role is created with the right shape** (not just exit 0 — see invariant #1). Random-negative rotation removes one action per run and asserts bootstrap fails. | Yes — bootstraps/tears-down the shared `bulk_dynamodb` job; guarded by `preserve_shared_glue_job`. |
+| `test_glue_role_shape.py` | role | The **real** `AWSGlueServiceRoleBulkDynamoDB-*` role exists *right now* with the fresh-bootstrap trust policy + required managed policies. Pure read. | No (read-only) |
+| `test_glue_role_refresh.py` | role | The version-mismatch **role-refresh logic** converges a stale trust policy to the fresh-bootstrap shape, against real IAM. | No — runs on a **throwaway** role it creates and deletes. |
 
 **Why the split (the key tradeoff):** the refresh test uses a *throwaway* role
 so it has zero blast radius (safe under parallel runs and during a live Glue
 job — it never mutates the shared role). But a throwaway role proves only the
 *logic*; it says nothing about whether the *real* built-in role exists or is
-correctly shaped. `test_real_builtin_role.py` (read-only) and the role-creation
-assertion inside `test_real_bootstrap.py` close that gap. Existence + shape +
-refresh-logic are three separate claims, so they are three separate checks.
+correctly shaped. `test_glue_role_shape.py` (read-only) and the role-creation
+assertion inside `test_iam_policy_live.py` close that gap. Existence + shape +
+refresh-logic are three separate claims on three different resources (a
+persistent role, a freshly-bootstrapped role, a throwaway role), so they are
+three separate checks.
 
 The shared assertion `assert_builtin_role_shape(region, access)` lives in
 `helpers/assertions.py` and intentionally hardcodes the expected role name /

@@ -81,12 +81,12 @@ test-e2e-security:
 	  --e2e-suite="security (IAM doc validation)"
 
 test-e2e-security-simulator:
-	$(PYTEST) tests/e2e/security/test_simulator.py -s -v --tb=short --no-cov \
+	$(PYTEST) tests/e2e/security/test_iam_policy_simulated.py -s -v --tb=short --no-cov \
 	  --override-ini="testpaths=tests/e2e" \
 	  --e2e-suite="security simulator"
 
 test-e2e-security-real:
-	$(PYTEST) tests/e2e/security/test_real_bootstrap.py -s -v --tb=short --no-cov \
+	$(PYTEST) tests/e2e/security/test_iam_policy_live.py -s -v --tb=short --no-cov \
 	  --override-ini="testpaths=tests/e2e" \
 	  --e2e-suite="security real-bootstrap"
 
