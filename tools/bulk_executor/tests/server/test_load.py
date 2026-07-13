@@ -344,16 +344,22 @@ class TestRunWritePath:
     glueContext.write_dynamic_frame_from_options(connection_type='dynamodb', ...)
     call to write_dynamodb_dataframe(glue_context, dynamicFrame, table_name,
     parsed_args) from python_modules.shared.glue_connector. These tests assert
-    against that wrapper boundary: load is responsible for repartition(30),
+    against that wrapper boundary: load is responsible for repartition(100),
     calling the wrapper with the right arguments, and wrapping any failure with
     get_error_message. The wrapper's own behavior (DynamicFrame->DataFrame
     conversion, dynamodb.output.tableName, XMaxWriteRate throughput) is covered
     in tests/server/test_glue_connector.py.
     """
 
-    def test_repartition_30_and_write(self, monkeypatch):
-        """Lines 107-110: repartitions to 30 and calls the wrapper with the
-        repartitioned frame, glue_context, table name, and parsed_args."""
+    def test_repartition_100_and_write(self, monkeypatch):
+        """Repartitions to 100 and calls the wrapper with the repartitioned
+        frame, glue_context, table name, and parsed_args.
+
+        100, not 30: at 30 Spark write tasks a 120k --XMaxWriteRate request
+        only delivered ~86k observed WCU/s (72% of target) against a 220-worker
+        cluster — parallelism, not the connector rate, was the ceiling. At 100
+        tasks the same request lands ~118k (99%). See
+        tests/e2e/whole_system/test_load_exceeds_legacy_ceiling.py."""
         monkeypatch.setattr(load_module, 'check_s3_file_exists', lambda uri: True)
         df = MagicMock()
         df.count.return_value = 10
@@ -372,7 +378,7 @@ class TestRunWritePath:
         args = {'table': 'my-tbl', 's3_path': 's3://b/k', 'format': 'json'}
         load_module.run(MagicMock(), MagicMock(), glue_ctx, args)
 
-        df.repartition.assert_called_once_with(30)
+        df.repartition.assert_called_once_with(100)
         repartitioned.toDF.assert_called_once()
         write_mock.assert_called_once_with(
             glue_ctx, repartitioned.toDF(), 'my-tbl', args, write_rate=40000)
@@ -410,7 +416,7 @@ class TestRunWritePath:
     # ::test_uses_dataframe_write_format_dynamodb (asserts
     # opts['dynamodb.output.tableName'] == 'out-tbl'). The remaining contract
     # load still owns — passing the table name through to the wrapper — is
-    # verified by test_repartition_30_and_write above.
+    # verified by test_repartition_100_and_write above.
 
 
 # DELETED: TestRunThroughputConfigs::test_throughput_configs_called_with_write_modes.

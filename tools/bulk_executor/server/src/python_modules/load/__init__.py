@@ -109,7 +109,7 @@ def run(job, spark_context, glue_context, parsed_args):
         write_rate = throughput.get("dynamodb.throughput.write")
         write_rate = int(write_rate) if write_rate is not None else None
 
-        df = dynamicFrame.repartition(30).toDF()
+        df = dynamicFrame.repartition(100).toDF()
         write_dynamodb_dataframe(
             glue_context, df, table_name, parsed_args, write_rate=write_rate)
         log.info(f"Wrote {count} items to '{table_name}'")
