@@ -417,22 +417,6 @@ class BulkDynamoDbRunner:
                 time.sleep(1)
                 job_run_state = self._get_job_run_state(job_run_id)
 
-    def _log_user_specified_rates(self, args):
-        """Report throughput rates that are already fixed at dispatch time.
-
-        Only the user-supplied --XMaxWriteRate / --XMaxReadRate are known
-        client-side before the job starts; when they are absent the effective
-        rate is auto-detected on the Glue worker from table capacity / account
-        quota and reported in the job logs. We deliberately stay silent in that
-        case rather than guess a number the client cannot yet know.
-        """
-        write_rate = args.get('XMaxWriteRate')
-        if write_rate is not None:
-            log.info(f"Max write rate set to specified limit: {write_rate} WCUs (user-specified)")
-        read_rate = args.get('XMaxReadRate')
-        if read_rate is not None:
-            log.info(f"Max read rate set to specified limit: {read_rate} RCUs (user-specified)")
-
     def run(self, args, script_args):
         log.debug(f"XArgs: {args}")
         log.debug(f"Script args: {script_args}")
@@ -456,8 +440,6 @@ The DynamoDB cost will be estimated below
 The Glue cost estimation isn't provided since it is based on DPU hours being used by the job, which is hard to estimate in advance
 You can run the script with the --XWaitForDPU parameter in order to print the used Glue DPU hours at the end of the job
 """)
-
-        self._log_user_specified_rates(args)
 
         log.info("Starting Bulk Executor Glue Job...")
 

@@ -151,23 +151,12 @@ class TestLoadRateRoundTrip:
             # 1. Job truly succeeded (not just ./bulk exit 0).
             perf = assert_glue_succeeded("load", result, region)
 
-            # 1a. #182 point 1 — load must *state* the write rate, in two
-            #     places for two audiences:
-            #       - client-side, BEFORE dispatch (stderr, from log.info), so a
-            #         user sees the rate they set before paying for the Glue run;
-            #       - server-side, DURING the run (stdout, live-tailed from the
-            #         Glue worker), confirming the connector resolved the same
-            #         rate it was handed.
-            #     Enforcement (point 2 below) is necessary but not sufficient;
-            #     the original ask was that load *says* what rate it uses.
-            client_line = str(WRITE_RATE_CEILING) in result.stderr and (
-                "write rate" in result.stderr.lower()
-            )
-            assert client_line, (
-                "load did not state the user-specified write rate client-side "
-                f"before dispatch (looked for '{WRITE_RATE_CEILING}' + 'write "
-                f"rate' in stderr). stderr tail:\n{result.stderr[-2000:]}"
-            )
+            # 1a. #182 point 1 — load must *state* the write rate it uses,
+            #     reported in one place regardless of how the rate was
+            #     determined: server-side, DURING the run (stdout, live-tailed
+            #     from the Glue worker). Enforcement (point 2 below) is
+            #     necessary but not sufficient; the original ask was that load
+            #     *says* what rate it uses.
             assert "Max write rate set to specified limit" in result.stdout, (
                 "server-side connector did not log the resolved write rate "
                 "during the run (expected 'Max write rate set to specified "

@@ -1030,54 +1030,6 @@ class TestWatchForInterrupt:
         bulk_runner._stop_glue_job.assert_not_called()
 
 
-# --- _log_user_specified_rates ---------------------------------------------
-
-
-class TestLogUserSpecifiedRates:
-    """Tests for pre-dispatch reporting of user-fixed throughput rates.
-
-    Only --XMaxWriteRate / --XMaxReadRate are known at dispatch; when absent the
-    effective rate is auto-detected server-side and reported in the job logs, so
-    the client stays silent rather than printing a number it cannot know yet.
-    """
-
-    def test_logs_write_rate_when_specified(self, bulk_runner, caplog):
-        import logging as _logging
-        with caplog.at_level(_logging.INFO):
-            bulk_runner._log_user_specified_rates({'XMaxWriteRate': 5000})
-        assert any('Max write rate set to specified limit: 5000 WCUs' in m
-                   for m in caplog.messages)
-
-    def test_logs_read_rate_when_specified(self, bulk_runner, caplog):
-        import logging as _logging
-        with caplog.at_level(_logging.INFO):
-            bulk_runner._log_user_specified_rates({'XMaxReadRate': 3000})
-        assert any('Max read rate set to specified limit: 3000 RCUs' in m
-                   for m in caplog.messages)
-
-    def test_logs_both_rates_when_both_specified(self, bulk_runner, caplog):
-        import logging as _logging
-        with caplog.at_level(_logging.INFO):
-            bulk_runner._log_user_specified_rates(
-                {'XMaxWriteRate': 5000, 'XMaxReadRate': 3000})
-        assert any('write rate' in m and '5000' in m for m in caplog.messages)
-        assert any('read rate' in m and '3000' in m for m in caplog.messages)
-
-    def test_silent_when_no_rates_specified(self, bulk_runner, caplog):
-        import logging as _logging
-        with caplog.at_level(_logging.INFO):
-            bulk_runner._log_user_specified_rates({'XDebug': True})
-        assert not any('rate' in m.lower() for m in caplog.messages)
-
-    def test_write_rate_zero_is_reported(self, bulk_runner, caplog):
-        # 0 is a real user-supplied value distinct from absent; report it.
-        import logging as _logging
-        with caplog.at_level(_logging.INFO):
-            bulk_runner._log_user_specified_rates({'XMaxWriteRate': 0})
-        assert any('Max write rate set to specified limit: 0 WCUs' in m
-                   for m in caplog.messages)
-
-
 # --- run() ------------------------------------------------------------------
 
 
@@ -1160,19 +1112,6 @@ class TestRunStateBranches:
         _wire_run_dependencies(bulk_runner, final_state=runner_module.SUCCEEDED_STATE)
         bulk_runner.run({'XDebug': True}, ['--table', 'tbl'])
         bulk_runner._start_glue_job.assert_called_once()
-
-    def test_reports_user_write_rate_before_dispatch(self, bulk_runner, caplog):
-        # The rate statement must be emitted, and it must precede job start so a
-        # user can see the rate and Ctrl-C before paying for the Glue run.
-        _wire_run_dependencies(bulk_runner, final_state=runner_module.SUCCEEDED_STATE)
-        order = []
-        bulk_runner._log_user_specified_rates = MagicMock(
-            side_effect=lambda args: order.append('rate'))
-        bulk_runner._start_glue_job = MagicMock(
-            side_effect=lambda *a: order.append('start') or 'jr-1')
-        bulk_runner.run({'XMaxWriteRate': 5000}, [])
-        assert order.index('rate') < order.index('start')
-
 
 class TestRunDpuFormatting:
     """Tests for DPU-hours branching in run() (lines 482-489)."""
