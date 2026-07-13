@@ -130,7 +130,21 @@ class BootstrapInfrastructure:
             log.debug(f'Role ARN: {response["Role"]["Arn"]}')
         except self.iam_client.exceptions.EntityAlreadyExistsException as e:
             log.info(f"Found Bulk Executor Glue Job Role: {role_name}")
-            return # Roles exists. No additional actions needed.
+            if not self._needs_role_refresh():
+                return
+            # The role already exists, so create_role (which sets the trust
+            # policy) was skipped. Re-apply the trust policy on refresh so the
+            # role ends up with the same AssumeRolePolicyDocument a fresh
+            # bootstrap would create, not the one baked in when it was first made.
+            try:
+                self.iam_client.update_assume_role_policy(
+                    RoleName=role_name,
+                    PolicyDocument=json.dumps(trust_policy)
+                )
+                log.debug(f'Refreshed trust policy on role {role_name}')
+            except Exception as e:
+                log.error(f'Unexpected error: {e}')
+                exit(1)
         except Exception as e:
             log.error(f'Unexpected error: {e}')
             exit(1)
@@ -171,6 +185,23 @@ class BootstrapInfrastructure:
         except Exception as e:
             log.error(f'Unexpected error: {e}')
             exit(1)
+
+    def _needs_role_refresh(self):
+        job_details = self._get_glue_job_details()
+        if not job_details:
+            return True
+        deployed_version = job_details['Job']['DefaultArguments'].get('--bulk-dynamodb-version')
+        if not deployed_version:
+            return True
+        if deployed_version != VERSION:
+            log.warning(
+                f"Version mismatch: deployed Glue job is v{deployed_version}, "
+                f"but you are running v{VERSION} locally. "
+                f"IAM policies will be re-applied to ensure the role has permissions "
+                f"required by v{VERSION}. To resolve this mismatch, redeploy the Glue job."
+            )
+            return True
+        return False
 
     def _is_existing_role(self, role_name):
         try:

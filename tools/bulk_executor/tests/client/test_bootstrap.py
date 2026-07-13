@@ -259,11 +259,148 @@ class TestAddGlueJobRole:
         )
         bootstrap.iam_client.create_role.side_effect = EntityAlreadyExistsException()
 
+        # Version matches — no refresh needed
+        from __version__ import __version__ as VERSION
+        bootstrap._get_glue_job_details = MagicMock(return_value={
+            'Job': {'DefaultArguments': {'--bulk-dynamodb-version': VERSION}}
+        })
+
         bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_ONLY})
 
         # Early return — no policy attachments
         bootstrap.iam_client.attach_role_policy.assert_not_called()
         bootstrap.iam_client.put_role_policy.assert_not_called()
+
+    def test_role_already_exists_refreshes_policies_on_version_mismatch(self, bootstrap):
+        from infrastructure.constants import ROLE_TYPE_READ_ONLY
+        bootstrap._prompt_for_role = MagicMock()
+
+        class EntityAlreadyExistsException(Exception):
+            pass
+        bootstrap.iam_client.exceptions.EntityAlreadyExistsException = (
+            EntityAlreadyExistsException
+        )
+        bootstrap.iam_client.create_role.side_effect = EntityAlreadyExistsException()
+
+        # Simulate a version mismatch: Glue job has an older version
+        bootstrap._get_glue_job_details = MagicMock(return_value={
+            'Job': {'DefaultArguments': {'--bulk-dynamodb-version': '0'}}
+        })
+
+        bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_ONLY})
+
+        # Despite the role already existing, policies MUST be refreshed
+        # because the version changed.
+        bootstrap.iam_client.attach_role_policy.assert_called()
+        bootstrap.iam_client.put_role_policy.assert_called()
+
+    def test_version_mismatch_logs_warning_with_both_versions(self, bootstrap, caplog):
+        import logging
+        from infrastructure.constants import ROLE_TYPE_READ_ONLY
+        from __version__ import __version__ as VERSION
+        bootstrap._prompt_for_role = MagicMock()
+
+        class EntityAlreadyExistsException(Exception):
+            pass
+        bootstrap.iam_client.exceptions.EntityAlreadyExistsException = (
+            EntityAlreadyExistsException
+        )
+        bootstrap.iam_client.create_role.side_effect = EntityAlreadyExistsException()
+
+        bootstrap._get_glue_job_details = MagicMock(return_value={
+            'Job': {'DefaultArguments': {'--bulk-dynamodb-version': '0.old'}}
+        })
+
+        with caplog.at_level(logging.WARNING):
+            bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_ONLY})
+
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any('0.old' in m and VERSION in m for m in warning_messages), (
+            f"Expected a warning mentioning deployed version '0.old' and local version '{VERSION}', "
+            f"got: {warning_messages}"
+        )
+        # Reviewer feedback: warning must clearly explain what will happen and why
+        msg = next(m for m in warning_messages if '0.old' in m)
+        assert 'IAM policies will be re-applied' in msg, (
+            f"Warning must explain that IAM policies will be re-applied, got: {msg}"
+        )
+        assert 'redeploy' in msg.lower(), (
+            f"Warning must suggest redeploying the Glue job to resolve, got: {msg}"
+        )
+
+    def test_role_already_exists_skips_refresh_when_version_matches(self, bootstrap):
+        from infrastructure.constants import ROLE_TYPE_READ_ONLY
+        bootstrap._prompt_for_role = MagicMock()
+
+        class EntityAlreadyExistsException(Exception):
+            pass
+        bootstrap.iam_client.exceptions.EntityAlreadyExistsException = (
+            EntityAlreadyExistsException
+        )
+        bootstrap.iam_client.create_role.side_effect = EntityAlreadyExistsException()
+
+        # Simulate version match: Glue job has same version as local
+        from __version__ import __version__ as VERSION
+        bootstrap._get_glue_job_details = MagicMock(return_value={
+            'Job': {'DefaultArguments': {'--bulk-dynamodb-version': VERSION}}
+        })
+
+        bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_ONLY})
+
+        # Version matches — no need to refresh policies
+        bootstrap.iam_client.attach_role_policy.assert_not_called()
+        bootstrap.iam_client.put_role_policy.assert_not_called()
+
+    def test_refresh_updates_trust_policy_to_match_fresh_bootstrap(self, bootstrap):
+        # Reviewer feedback: on a version-mismatch refresh of an existing role,
+        # the code re-applies attached/inline policies but the trust policy
+        # (AssumeRolePolicyDocument) is only set at create_role time. If the
+        # trust_policy definition changes and the version is bumped, a refreshed
+        # role would keep its stale trust policy — NOT matching a fresh
+        # bootstrap. The refresh must also update the assume-role (trust) policy.
+        from infrastructure.constants import ROLE_TYPE_READ_ONLY
+        bootstrap._prompt_for_role = MagicMock()
+
+        class EntityAlreadyExistsException(Exception):
+            pass
+        bootstrap.iam_client.exceptions.EntityAlreadyExistsException = (
+            EntityAlreadyExistsException
+        )
+        bootstrap.iam_client.create_role.side_effect = EntityAlreadyExistsException()
+
+        # Version mismatch → refresh path.
+        bootstrap._get_glue_job_details = MagicMock(return_value={
+            'Job': {'DefaultArguments': {'--bulk-dynamodb-version': '0.old'}}
+        })
+
+        bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_ONLY})
+
+        # The trust policy must be re-applied so the refreshed role ends up with
+        # the same trust policy a fresh bootstrap would create.
+        bootstrap.iam_client.update_assume_role_policy.assert_called_once()
+        kwargs = bootstrap.iam_client.update_assume_role_policy.call_args.kwargs
+        trust = json.loads(kwargs['PolicyDocument'])
+        assert trust['Statement'][0]['Principal']['Service'] == 'glue.amazonaws.com'
+
+    def test_role_already_exists_refreshes_when_no_deployed_version(self, bootstrap):
+        from infrastructure.constants import ROLE_TYPE_READ_ONLY
+        bootstrap._prompt_for_role = MagicMock()
+
+        class EntityAlreadyExistsException(Exception):
+            pass
+        bootstrap.iam_client.exceptions.EntityAlreadyExistsException = (
+            EntityAlreadyExistsException
+        )
+        bootstrap.iam_client.create_role.side_effect = EntityAlreadyExistsException()
+
+        # No Glue job exists yet (first bootstrap with pre-existing role)
+        bootstrap._get_glue_job_details = MagicMock(return_value=None)
+
+        bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_ONLY})
+
+        # No deployed version to compare → must refresh to be safe
+        bootstrap.iam_client.attach_role_policy.assert_called()
+        bootstrap.iam_client.put_role_policy.assert_called()
 
     def test_unexpected_create_role_error_exits(self, bootstrap):
         from infrastructure.constants import ROLE_TYPE_READ_ONLY
