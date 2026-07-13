@@ -144,6 +144,30 @@ class TestWriteDataFrame:
         # on-demand tables.
         assert opts['dynamodb.throughput.write'] == '75000'
 
+    def test_write_rate_above_legacy_60k_ceiling_passes_through(self):
+        # The legacy connector hard-capped on-demand writes at 60k WCU/s
+        # (40k assumption x the 1.5x percent cap). The DataFrame connector
+        # takes dynamodb.throughput.write as an absolute integer, so a rate
+        # above 60k must pass straight through unclamped. This is the cheap,
+        # offline mirror of tests/e2e/whole_system/test_load_exceeds_legacy_
+        # ceiling.py, which proves the same 120k rate is *sustained* on real
+        # Glue; keep the two values in sync.
+        df = MagicMock(spec=['write', 'schema'])
+        df.schema = MagicMock()
+        writer = MagicMock()
+        writer.option.return_value = writer
+        writer.mode.return_value = writer
+        df.write.format.return_value = writer
+
+        glue_connector.write_dynamodb_dataframe(
+            glue_context=MagicMock(),
+            df=df,
+            table_name='out-tbl',
+            parsed_args={'XMaxWriteRate': 120000},
+        )
+        opts = {args[0]: args[1] for args, _ in writer.option.call_args_list}
+        assert opts['dynamodb.throughput.write'] == '120000'
+
     def test_explicit_write_rate_overrides_parsed_args(self):
         df = MagicMock(spec=['write', 'schema'])
         df.schema = MagicMock()
