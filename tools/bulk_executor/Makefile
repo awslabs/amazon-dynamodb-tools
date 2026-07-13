@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install test test-client test-server coverage clean test-e2e test-e2e-connector test-e2e-cleanup test-e2e-security test-e2e-security-simulator test-e2e-security-real test-e2e-commands
+.PHONY: help install test test-client test-server coverage clean test-e2e test-e2e-connector test-e2e-cleanup test-e2e-security test-e2e-security-simulator test-e2e-security-real test-e2e-commands test-e2e-whole-system
 
 VENV := .venv
 PIP := $(VENV)/bin/pip
@@ -25,6 +25,7 @@ help:
 	@echo "  make test-e2e-security-simulator    Security tier 1 only: iam:SimulateCustomPolicy"
 	@echo "  make test-e2e-security-real         Security tier 2 only: real temp IAM user + bootstrap"
 	@echo "  make test-e2e-commands              Bulk-command smokes against transient tables"
+	@echo "  make test-e2e-whole-system          True e2e: 60k load round-trip + observed rate enforcement"
 	@echo "  make test-e2e-cleanup               Delete orphaned items left by a crashed e2e run"
 
 install:
@@ -97,6 +98,11 @@ test-e2e-commands:
 	$(PYTEST) tests/e2e/commands -s -v --tb=short --no-cov \
 	  --override-ini="testpaths=tests/e2e" \
 	  --e2e-suite="bulk commands"
+
+test-e2e-whole-system:
+	$(PYTEST) tests/e2e/whole_system -s -v --tb=short --no-cov \
+	  --override-ini="testpaths=tests/e2e" \
+	  --e2e-suite="whole-system (round-trip + rate enforcement)"
 
 test-e2e-cleanup:
 	$(VENV)/bin/python -m tests.e2e.helpers.cleanup
