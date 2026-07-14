@@ -1,0 +1,518 @@
+"""Unit tests for issue #89 capacity-vs-request warnings in table_info.
+
+Covers the helpers and the wiring inside get_dynamodb_throughput_configs that
+warn when a user-specified XMaxReadRate / XMaxWriteRate exceeds what the table
+can actually deliver. Maps to Jason's review checks on PR #231:
+
+- Check #2: provisioned, NO autoscaling, request > provisioned  -> hard warn
+- Check #3: provisioned, WITH autoscaling, request > autoscaling max -> hard warn
+- #89 nuance: provisioned < request <= autoscaling max -> softer "will scale up" note
+- Check #4: on-demand, request > table's OnDemandThroughput max -> hard warn
+- Check #5: on-demand, no table max, request > account quota -> hard warn
+
+Explicitly OUT OF SCOPE here (follow-up PR): check #1, the timeout /
+time-remaining warning, which needs runner/phase context, not table_info.
+
+Functions/branches exercised:
+- _bare_table_name: plain name, ARN, ARN+index, malformed ARN
+- _autoscaling_max_capacity: target present, absent, lookup raises
+- _effective_capacity_ceiling: all four billing-mode branches + None fallbacks
+- _warn_if_rate_exceeds_capacity: hard warn, soft note, at/under ceiling silent
+- get_dynamodb_throughput_configs: read+write wiring, user-only rates,
+  graceful degradation, return value unchanged.
+"""
+
+import importlib.util
+import logging
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import botocore.exceptions
+import pytest
+
+# Load the real table_info module (same pattern as test_table_info.py): the
+# repo conftest mocks python_modules.shared.table_info so verb modules import
+# cleanly, but here we want the real implementation loaded from disk.
+sys.modules.pop('python_modules.shared.table_info', None)
+sys.modules.pop('shared.table_info', None)
+
+_TABLE_INFO_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "server/src/python_modules/shared/table_info.py"
+)
+_spec = importlib.util.spec_from_file_location(
+    "python_modules.shared.table_info", str(_TABLE_INFO_PATH)
+)
+table_info = importlib.util.module_from_spec(_spec)
+sys.modules['python_modules.shared.table_info'] = table_info
+_spec.loader.exec_module(table_info)
+
+
+# --- Fixtures ---------------------------------------------------------------
+
+
+@pytest.fixture
+def boto3_mock(monkeypatch):
+    """Dispatching boto3 mock exposing per-service client mocks."""
+    mock = MagicMock()
+    mock.Session.return_value.region_name = 'us-east-1'
+
+    dynamodb_client = MagicMock()
+    service_quotas_client = MagicMock()
+    autoscaling_client = MagicMock()
+
+    def client_factory(name, **kwargs):
+        if name == 'dynamodb':
+            return dynamodb_client
+        if name == 'service-quotas':
+            return service_quotas_client
+        if name == 'application-autoscaling':
+            return autoscaling_client
+        return MagicMock()
+
+    mock.client.side_effect = client_factory
+    mock.dynamodb_client = dynamodb_client
+    mock.service_quotas_client = service_quotas_client
+    mock.autoscaling_client = autoscaling_client
+
+    monkeypatch.setattr(table_info, 'boto3', mock)
+    return mock
+
+
+def _no_autoscaling(boto3_mock):
+    """Configure the autoscaling client to report no scalable targets."""
+    boto3_mock.autoscaling_client.describe_scalable_targets.return_value = {
+        'ScalableTargets': []
+    }
+
+
+def _autoscaling_max(boto3_mock, max_capacity):
+    """Configure the autoscaling client to report a target with MaxCapacity."""
+    boto3_mock.autoscaling_client.describe_scalable_targets.return_value = {
+        'ScalableTargets': [{'MaxCapacity': max_capacity, 'MinCapacity': 5}]
+    }
+
+
+@pytest.fixture
+def provisioned_table():
+    return {
+        'Table': {
+            'BillingModeSummary': {'BillingMode': 'PROVISIONED'},
+            'ProvisionedThroughput': {
+                'ReadCapacityUnits': 1000,
+                'WriteCapacityUnits': 500,
+            },
+        }
+    }
+
+
+@pytest.fixture
+def ondemand_table_with_limits():
+    return {
+        'Table': {
+            'BillingModeSummary': {'BillingMode': 'PAY_PER_REQUEST'},
+            'OnDemandThroughput': {
+                'MaxReadRequestUnits': 25000,
+                'MaxWriteRequestUnits': 15000,
+            },
+        }
+    }
+
+
+@pytest.fixture
+def ondemand_table_no_limits():
+    return {
+        'Table': {
+            'BillingModeSummary': {'BillingMode': 'PAY_PER_REQUEST'},
+        }
+    }
+
+
+def _capacity_warnings(caplog):
+    """Return log messages that are the #89 capacity warnings (hard or soft)."""
+    return [
+        m for m in caplog.messages
+        if 'exceeds the table' in m or 'autoscaling will need to scale up' in m.lower()
+    ]
+
+
+# --- _bare_table_name -------------------------------------------------------
+
+
+class TestBareTableName:
+    def test_plain_name_returned_unchanged(self):
+        assert table_info._bare_table_name('my-table') == 'my-table'
+
+    def test_arn_yields_table_name(self):
+        arn = 'arn:aws:dynamodb:us-east-1:123456789012:table/my-table'
+        assert table_info._bare_table_name(arn) == 'my-table'
+
+    def test_arn_with_index_yields_table_name(self):
+        arn = 'arn:aws:dynamodb:us-east-1:123456789012:table/my-table/index/gsi1'
+        assert table_info._bare_table_name(arn) == 'my-table'
+
+    def test_arn_with_stream_suffix_yields_table_name(self):
+        arn = 'arn:aws:dynamodb:us-east-1:1:table/my-table:stream:2024-01-01'
+        assert table_info._bare_table_name(arn) == 'my-table'
+
+    def test_non_table_arn_returned_unchanged(self):
+        arn = 'arn:aws:dynamodb:us-east-1:1:backup/foo'
+        assert table_info._bare_table_name(arn) == arn
+
+    def test_malformed_arn_returned_unchanged(self):
+        # startswith arn: but _parse_arn raises -> return as-is
+        assert table_info._bare_table_name('arn:broken') == 'arn:broken'
+
+    def test_none_returned_unchanged(self):
+        assert table_info._bare_table_name(None) is None
+
+
+# --- _autoscaling_max_capacity ----------------------------------------------
+
+
+class TestAutoscalingMaxCapacity:
+    def test_returns_max_when_target_present(self, boto3_mock):
+        _autoscaling_max(boto3_mock, 8000)
+        assert (
+            table_info._autoscaling_max_capacity('t', 'us-east-1', 'read') == 8000
+        )
+
+    def test_returns_none_when_no_target(self, boto3_mock):
+        _no_autoscaling(boto3_mock)
+        assert (
+            table_info._autoscaling_max_capacity('t', 'us-east-1', 'write') is None
+        )
+
+    def test_write_dimension_uses_write_scalable_dimension(self, boto3_mock):
+        _autoscaling_max(boto3_mock, 3000)
+        table_info._autoscaling_max_capacity('t', 'us-east-1', 'write')
+        _, kwargs = boto3_mock.autoscaling_client.describe_scalable_targets.call_args
+        assert kwargs['ScalableDimension'] == 'dynamodb:table:WriteCapacityUnits'
+
+    def test_read_dimension_uses_read_scalable_dimension(self, boto3_mock):
+        _autoscaling_max(boto3_mock, 3000)
+        table_info._autoscaling_max_capacity('t', 'us-east-1', 'read')
+        _, kwargs = boto3_mock.autoscaling_client.describe_scalable_targets.call_args
+        assert kwargs['ScalableDimension'] == 'dynamodb:table:ReadCapacityUnits'
+
+    def test_lookup_failure_raises(self, boto3_mock):
+        # The helper raises on API failure; the ceiling resolver catches it and
+        # skips the warning (distinguishing "no autoscaling" from "unknown").
+        boto3_mock.autoscaling_client.describe_scalable_targets.side_effect = (
+            RuntimeError('boom')
+        )
+        with pytest.raises(RuntimeError):
+            table_info._autoscaling_max_capacity('t', 'us-east-1', 'read')
+
+    def test_arn_table_name_stripped_for_resource_id(self, boto3_mock):
+        _autoscaling_max(boto3_mock, 8000)
+        arn = 'arn:aws:dynamodb:us-east-1:1:table/my-table'
+        table_info._autoscaling_max_capacity(arn, 'us-east-1', 'read')
+        _, kwargs = boto3_mock.autoscaling_client.describe_scalable_targets.call_args
+        assert kwargs['ResourceIds'] == ['table/my-table']
+
+
+# --- _effective_capacity_ceiling --------------------------------------------
+
+
+class TestEffectiveCapacityCeiling:
+    def test_provisioned_no_autoscaling(self, boto3_mock, provisioned_table):
+        _no_autoscaling(boto3_mock)
+        ceiling, source, floor = table_info._effective_capacity_ceiling(
+            provisioned_table['Table'], False, 'us-east-1', 't', 'read'
+        )
+        assert (ceiling, floor) == (1000, None)
+        assert 'provisioned' in source
+
+    def test_provisioned_with_autoscaling(self, boto3_mock, provisioned_table):
+        _autoscaling_max(boto3_mock, 9000)
+        ceiling, source, floor = table_info._effective_capacity_ceiling(
+            provisioned_table['Table'], False, 'us-east-1', 't', 'read'
+        )
+        assert (ceiling, floor) == (9000, 1000)
+        assert 'autoscaling' in source
+
+    def test_ondemand_table_max(self, boto3_mock, ondemand_table_with_limits):
+        ceiling, source, floor = table_info._effective_capacity_ceiling(
+            ondemand_table_with_limits['Table'], True, 'us-east-1', 't', 'write'
+        )
+        assert (ceiling, floor) == (15000, None)
+        assert 'on-demand' in source
+
+    def test_ondemand_falls_back_to_quota(self, boto3_mock, ondemand_table_no_limits):
+        boto3_mock.service_quotas_client.get_service_quota.return_value = {
+            'Quota': {'Value': 40000}
+        }
+        ceiling, source, floor = table_info._effective_capacity_ceiling(
+            ondemand_table_no_limits['Table'], True, 'us-east-1', 't', 'read'
+        )
+        assert (ceiling, floor) == (40000, None)
+        assert 'quota' in source
+
+    def test_ondemand_no_max_no_quota_returns_none(self, boto3_mock, ondemand_table_no_limits):
+        boto3_mock.service_quotas_client.get_service_quota.side_effect = (
+            RuntimeError('unavailable')
+        )
+        boto3_mock.service_quotas_client.get_aws_default_service_quota.side_effect = (
+            RuntimeError('unavailable')
+        )
+        ceiling, source, floor = table_info._effective_capacity_ceiling(
+            ondemand_table_no_limits['Table'], True, 'us-east-1', 't', 'read'
+        )
+        assert ceiling is None
+
+    def test_provisioned_missing_capacity_returns_none(self, boto3_mock):
+        ceiling, source, floor = table_info._effective_capacity_ceiling(
+            {}, False, 'us-east-1', 't', 'read'
+        )
+        assert ceiling is None
+
+    def test_ondemand_max_of_zero_falls_back_to_quota(self, boto3_mock):
+        # DynamoDB uses 0 / absent to mean "no table-level cap set", not a
+        # literal zero ceiling — must fall through to the account quota.
+        boto3_mock.service_quotas_client.get_service_quota.return_value = {
+            'Quota': {'Value': 40000}
+        }
+        table_desc = {
+            'BillingModeSummary': {'BillingMode': 'PAY_PER_REQUEST'},
+            'OnDemandThroughput': {'MaxReadRequestUnits': 0},
+        }
+        ceiling, source, floor = table_info._effective_capacity_ceiling(
+            table_desc, True, 'us-east-1', 't', 'read'
+        )
+        assert (ceiling, source) == (40000, "account quota")
+
+
+# --- Check #2: provisioned, no autoscaling ----------------------------------
+
+
+class TestProvisionedNoAutoscalingWarning:
+    def test_read_request_above_provisioned_warns(
+        self, boto3_mock, provisioned_table, caplog
+    ):
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        _no_autoscaling(boto3_mock)
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '5000'}, table_name='t', modes=['read']
+            )
+        warnings = _capacity_warnings(caplog)
+        assert any(
+            'exceeds' in m and '1000' in m and 'read' in m for m in warnings
+        ), warnings
+
+    def test_write_request_above_provisioned_warns(
+        self, boto3_mock, provisioned_table, caplog
+    ):
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        _no_autoscaling(boto3_mock)
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxWriteRate': '5000'}, table_name='t', modes=['write']
+            )
+        assert any(
+            'exceeds' in m and '500' in m and 'write' in m
+            for m in _capacity_warnings(caplog)
+        )
+
+    def test_request_at_provisioned_no_warning(
+        self, boto3_mock, provisioned_table, caplog
+    ):
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        _no_autoscaling(boto3_mock)
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '1000'}, table_name='t', modes=['read']
+            )
+        assert _capacity_warnings(caplog) == []
+
+
+# --- Check #3 + #89 nuance: provisioned with autoscaling --------------------
+
+
+class TestProvisionedAutoscalingWarning:
+    def test_request_above_autoscaling_max_hard_warns(
+        self, boto3_mock, provisioned_table, caplog
+    ):
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        _autoscaling_max(boto3_mock, 4000)
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '9000'}, table_name='t', modes=['read']
+            )
+        assert any(
+            'exceeds' in m and 'autoscaling maximum' in m and '4000' in m
+            for m in _capacity_warnings(caplog)
+        )
+
+    def test_request_between_floor_and_max_soft_note(
+        self, boto3_mock, provisioned_table, caplog
+    ):
+        # provisioned read = 1000, autoscaling max = 8000; request 4000 is
+        # above the floor but reachable via scaling -> softer note, not "exceeds".
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        _autoscaling_max(boto3_mock, 8000)
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '4000'}, table_name='t', modes=['read']
+            )
+        warnings = _capacity_warnings(caplog)
+        assert any('scale up' in m.lower() for m in warnings), warnings
+        assert not any('exceeds' in m for m in warnings), warnings
+
+    def test_request_at_or_below_floor_no_warning(
+        self, boto3_mock, provisioned_table, caplog
+    ):
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        _autoscaling_max(boto3_mock, 8000)
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '900'}, table_name='t', modes=['read']
+            )
+        assert _capacity_warnings(caplog) == []
+
+
+# --- Check #4: on-demand with table max -------------------------------------
+
+
+class TestOnDemandTableMaxWarning:
+    def test_read_request_above_table_max_warns(
+        self, boto3_mock, ondemand_table_with_limits, caplog
+    ):
+        boto3_mock.dynamodb_client.describe_table.return_value = ondemand_table_with_limits
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '30000'}, table_name='t', modes=['read']
+            )
+        assert any(
+            'exceeds' in m and '25000' in m and 'on-demand' in m
+            for m in _capacity_warnings(caplog)
+        )
+
+    def test_request_at_table_max_no_warning(
+        self, boto3_mock, ondemand_table_with_limits, caplog
+    ):
+        boto3_mock.dynamodb_client.describe_table.return_value = ondemand_table_with_limits
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '25000'}, table_name='t', modes=['read']
+            )
+        assert _capacity_warnings(caplog) == []
+
+
+# --- Check #5: on-demand, no table max, account quota -----------------------
+
+
+class TestOnDemandQuotaWarning:
+    def test_request_above_account_quota_warns(
+        self, boto3_mock, ondemand_table_no_limits, caplog
+    ):
+        boto3_mock.dynamodb_client.describe_table.return_value = ondemand_table_no_limits
+        boto3_mock.service_quotas_client.get_service_quota.return_value = {
+            'Quota': {'Value': 40000}
+        }
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '50000'}, table_name='t', modes=['read']
+            )
+        assert any(
+            'exceeds' in m and '40000' in m and 'quota' in m
+            for m in _capacity_warnings(caplog)
+        )
+
+    def test_request_below_quota_no_warning(
+        self, boto3_mock, ondemand_table_no_limits, caplog
+    ):
+        boto3_mock.dynamodb_client.describe_table.return_value = ondemand_table_no_limits
+        boto3_mock.service_quotas_client.get_service_quota.return_value = {
+            'Quota': {'Value': 40000}
+        }
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '30000'}, table_name='t', modes=['read']
+            )
+        assert _capacity_warnings(caplog) == []
+
+
+# --- Wiring guarantees ------------------------------------------------------
+
+
+class TestWiringGuarantees:
+    def test_no_warning_when_rate_table_derived(
+        self, boto3_mock, provisioned_table, caplog
+    ):
+        # No XMax* supplied: read_rate is derived from provisioned capacity and
+        # by definition cannot exceed it -> no capacity warning.
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        _no_autoscaling(boto3_mock)
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={}, table_name='t', modes=['read']
+            )
+        assert _capacity_warnings(caplog) == []
+
+    def test_both_dimensions_warn_independently(
+        self, boto3_mock, provisioned_table, caplog
+    ):
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        _no_autoscaling(boto3_mock)
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '9000', 'XMaxWriteRate': '9000'},
+                table_name='t', modes=['read', 'write'],
+            )
+        warnings = _capacity_warnings(caplog)
+        assert any('read' in m and '1000' in m for m in warnings)
+        assert any('write' in m and '500' in m for m in warnings)
+
+    def test_autoscaling_lookup_failure_skips_warning(
+        self, boto3_mock, provisioned_table, caplog
+    ):
+        # If autoscaling lookup raises we can't tell whether the table could
+        # scale to meet the request, so we skip the warning entirely rather
+        # than emit a false "exceeds provisioned" — and never crash the job.
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        boto3_mock.autoscaling_client.describe_scalable_targets.side_effect = (
+            RuntimeError('boom')
+        )
+        with caplog.at_level(logging.DEBUG):
+            opts = table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '5000'}, table_name='t', modes=['read']
+            )
+        assert opts == {'dynamodb.throughput.read': '5000'}
+        assert _capacity_warnings(caplog) == []
+
+    def test_return_value_unchanged_by_warning_logic(
+        self, boto3_mock, provisioned_table, caplog
+    ):
+        # The connector options must be exactly the user rate regardless of the
+        # capacity warning firing (warnings are observational only).
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        _no_autoscaling(boto3_mock)
+        with caplog.at_level(logging.DEBUG):
+            opts = table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '9000', 'XMaxWriteRate': '9000'},
+                table_name='t', modes=['read', 'write'],
+            )
+        assert opts == {
+            'dynamodb.throughput.read': '9000',
+            'dynamodb.throughput.write': '9000',
+        }
+
+    def test_uses_log_warning_not_deprecated_warn(
+        self, boto3_mock, provisioned_table, monkeypatch, caplog
+    ):
+        # log.warn is deprecated; ensure the capacity warning path calls
+        # log.warning. We assert the record level is WARNING.
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        _no_autoscaling(boto3_mock)
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '5000'}, table_name='t', modes=['read']
+            )
+        capacity_records = [
+            r for r in caplog.records if 'exceeds the table' in r.getMessage()
+        ]
+        assert capacity_records
+        assert all(r.levelno == logging.WARNING for r in capacity_records)

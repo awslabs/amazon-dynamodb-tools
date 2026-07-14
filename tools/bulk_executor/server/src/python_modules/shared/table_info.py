@@ -298,6 +298,127 @@ def get_and_print_table_copy_write_cost(source_info, target_info):
         return od_cost
     return 0
 
+def _bare_table_name(table_ref):
+    """Return the plain table name for a table ref that may be an ARN.
+
+    Autoscaling resource IDs need the bare name (`table/<name>`), whereas the
+    caller may hand us a full ARN (from which we also derive the region).
+    """
+    if table_ref and table_ref.startswith("arn:"):
+        try:
+            resource = _parse_arn(table_ref).get("resource", "")
+        except ValueError:
+            return table_ref
+        if resource.startswith("table/"):
+            # resource may carry a trailing /index/... or :stream:...; the
+            # table name is the first path segment after "table/".
+            return resource[len("table/"):].split("/")[0].split(":")[0]
+        return table_ref
+    return table_ref
+
+
+def _autoscaling_max_capacity(table_name, region_name, dimension):
+    """Return the autoscaling MaxCapacity for a provisioned table dimension.
+
+    `dimension` is 'read' or 'write'. Returns None when the table genuinely
+    has no autoscaling target on that dimension. Raises on API failure so the
+    caller can distinguish "no autoscaling" (safe to treat as hard-provisioned)
+    from "unknown" (must skip the capacity warning to avoid a false positive).
+    """
+    scalable_dimension = (
+        'dynamodb:table:ReadCapacityUnits' if dimension == 'read'
+        else 'dynamodb:table:WriteCapacityUnits'
+    )
+    autoscaling = boto3.client('application-autoscaling', region_name=region_name)
+    resource_id = f'table/{_bare_table_name(table_name)}'
+    response = autoscaling.describe_scalable_targets(
+        ServiceNamespace='dynamodb',
+        ResourceIds=[resource_id],
+        ScalableDimension=scalable_dimension,
+    )
+    targets = response.get('ScalableTargets', [])
+    if targets:
+        return int(targets[0]['MaxCapacity'])
+    return None
+
+
+def _effective_capacity_ceiling(table_desc, is_on_demand, region_name, table_name, dimension):
+    """Resolve the effective throughput ceiling for a user-requested rate.
+
+    Returns a (ceiling, source, soft_floor) tuple describing the most the
+    table can actually deliver on `dimension` ('read' or 'write'):
+
+    - Provisioned, no autoscaling  → (provisioned CU, "provisioned capacity", None)
+    - Provisioned with autoscaling → (autoscaling max, "autoscaling maximum", provisioned CU)
+    - On-demand with a table max    → (table max, "table's on-demand maximum", None)
+    - On-demand, no table max       → (account quota, "account quota", None)
+
+    `soft_floor` is the current provisioned level when autoscaling can climb
+    above it — a request between the floor and ceiling gets a gentler note
+    rather than a hard warning. `ceiling` is None when it can't be determined
+    (e.g. quota lookup failed), signalling the caller to skip the warning.
+    """
+    if is_on_demand:
+        on_demand_throughput = table_desc.get('OnDemandThroughput', {})
+        key = 'MaxReadRequestUnits' if dimension == 'read' else 'MaxWriteRequestUnits'
+        table_max = on_demand_throughput.get(key)
+        if isinstance(table_max, (int, float)) and table_max:
+            return int(table_max), "table's on-demand maximum", None
+        quota_name = (
+            "Table-level read throughput limit" if dimension == 'read'
+            else "Table-level write throughput limit"
+        )
+        quota = get_quota_value(quota_name, region_name)
+        if quota is not None:
+            return int(quota), "account quota", None
+        return None, None, None
+
+    key = 'ReadCapacityUnits' if dimension == 'read' else 'WriteCapacityUnits'
+    provisioned = table_desc.get('ProvisionedThroughput', {}).get(key)
+    if not (isinstance(provisioned, (int, float)) and provisioned):
+        return None, None, None
+    provisioned = int(provisioned)
+    try:
+        autoscaling_max = _autoscaling_max_capacity(table_name, region_name, dimension)
+    except Exception as e:
+        # Can't tell whether autoscaling would lift the ceiling; skip the
+        # warning rather than emit a false "exceeds provisioned" for a table
+        # that may well autoscale above the request.
+        log.info(f"[{table_name}] Warning: Could not retrieve autoscaling settings: {str(e)}")
+        return None, None, None
+    if autoscaling_max is not None:
+        return autoscaling_max, "autoscaling maximum", provisioned
+    return provisioned, "provisioned capacity", None
+
+
+def _warn_if_rate_exceeds_capacity(table_name, dimension, user_rate, table_desc,
+                                    is_on_demand, region_name):
+    """Warn when a user-specified rate exceeds what the table can deliver.
+
+    Implements issue #89 checks 2-5: a hard warning when the request is above
+    the effective ceiling (provisioned/autoscaling-max/on-demand-max/quota),
+    and a softer note when autoscaling can scale up from the current
+    provisioned level to meet the request.
+    """
+    ceiling, source, soft_floor = _effective_capacity_ceiling(
+        table_desc, is_on_demand, region_name, table_name, dimension
+    )
+    if ceiling is None:
+        return
+    user_rate = int(user_rate)
+    if user_rate > ceiling:
+        log.warning(
+            f"[{table_name}] Requested {dimension} rate {user_rate} exceeds the "
+            f"table's {source} of {ceiling}; the table cannot deliver this rate."
+        )
+    elif soft_floor is not None and user_rate > soft_floor:
+        log.warning(
+            f"[{table_name}] Requested {dimension} rate {user_rate} is above the "
+            f"current provisioned {dimension} capacity of {soft_floor}; autoscaling "
+            f"will need to scale up (toward its maximum of {ceiling}) to meet it."
+        )
+
+
 def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connector"):
     region_name = _region_from_table_ref(table_name) or _default_region()
     if not region_name:
@@ -312,6 +433,12 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
     # Get table description to determine if it's on-demand or provisioned
     read_rate = args.get('XMaxReadRate', None)   # User set read rate
     write_rate = args.get('XMaxWriteRate', None) # User set write rate
+
+    # Preserve the raw user-specified rates before the branches below may
+    # overwrite read_rate/write_rate with table-derived values; only these
+    # user requests can meaningfully exceed the table's capacity (#89).
+    user_read_rate = read_rate
+    user_write_rate = write_rate
 
     try:
         response = dynamodb.describe_table(TableName=table_name)
@@ -354,7 +481,13 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
                 log.info(f"[{table_name}] Max read rate set internally by Glue (no provisioned level found)") # shouldn't happen
 
         if read_rate is not None and int(read_rate) < MIN_RECOMMENDED_READ_RATE:
-            log.warn(f"[{table_name}] Read rate {read_rate} less than recommended value of {MIN_RECOMMENDED_READ_RATE}.")
+            log.warning(f"[{table_name}] Read rate {read_rate} less than recommended value of {MIN_RECOMMENDED_READ_RATE}.")
+
+        if user_read_rate:
+            _warn_if_rate_exceeds_capacity(
+                table_name, "read", user_read_rate, table_desc,
+                is_on_demand_table, region_name,
+            )
 
     # Handle write throughput
     if "write" in modes:
@@ -387,7 +520,13 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
                 log.info(f"[{table_name}] Max write rate set internally by Glue (no provisioned level found)")
 
         if write_rate is not None and int(write_rate) < MIN_RECOMMENDED_WRITE_RATE:
-            log.warn(f"[{table_name}] Write rate {write_rate} less than recommended value of {MIN_RECOMMENDED_WRITE_RATE}.")
+            log.warning(f"[{table_name}] Write rate {write_rate} less than recommended value of {MIN_RECOMMENDED_WRITE_RATE}.")
+
+        if user_write_rate:
+            _warn_if_rate_exceeds_capacity(
+                table_name, "write", user_write_rate, table_desc,
+                is_on_demand_table, region_name,
+            )
 
     if format == "connector":
         connection_options = {}
