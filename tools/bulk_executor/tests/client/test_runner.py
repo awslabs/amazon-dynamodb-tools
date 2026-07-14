@@ -1136,7 +1136,6 @@ class TestRunStateBranches:
         bulk_runner.run({'XDebug': True}, ['--table', 'tbl'])
         bulk_runner._start_glue_job.assert_called_once()
 
-
 class TestRunDpuFormatting:
     """Tests for DPU-hours branching in run() (lines 482-489)."""
 

@@ -104,9 +104,14 @@ def run(job, spark_context, glue_context, parsed_args):
         session = boto3.Session()
         print_dynamodb_table_info(session, table_name, count, check_dynamic_frame_avg_size(dynamicFrame))
 
-        df = dynamicFrame.repartition(30).toDF()
+        throughput = get_dynamodb_throughput_configs(
+            parsed_args, table_name, modes=["write"], format="connector")
+        write_rate = throughput.get("dynamodb.throughput.write")
+        write_rate = int(write_rate) if write_rate is not None else None
+
+        df = dynamicFrame.repartition(100).toDF()
         write_dynamodb_dataframe(
-            glue_context, df, table_name, parsed_args)
+            glue_context, df, table_name, parsed_args, write_rate=write_rate)
         log.info(f"Wrote {count} items to '{table_name}'")
     except Exception as e:
         raise Exception(f"Error in writing to table: {get_error_message(e)}") from None

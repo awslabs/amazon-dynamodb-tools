@@ -1,8 +1,8 @@
 # Bulk Executor for Amazon DynamoDB
 
-![tests](https://img.shields.io/badge/tests-1219%20passing-brightgreen)
-![line coverage](https://img.shields.io/badge/line%20coverage-95.4%25-brightgreen)
-![branch coverage](https://img.shields.io/badge/branch%20coverage-92.2%25-brightgreen)
+![tests](https://img.shields.io/badge/tests-1330%20passing-brightgreen)
+![line coverage](https://img.shields.io/badge/line%20coverage-94.1%25-brightgreen)
+![branch coverage](https://img.shields.io/badge/branch%20coverage-91.7%25-brightgreen)
 
 Bulk Executor for Amazon DynamoDB lets you efficiently run bulk commands against even large tables. It:
 
@@ -616,13 +616,15 @@ Bulk Executor has two test layers, both driven from the Makefile in `tools/bulk_
 * **Unit tests** (`make test`) — fast, offline, no AWS. `awsglue` and `pyspark` are mocked, so the full client + server suite runs in seconds. This is what CI and most development relies on. See [`tests/README.md`](tests/README.md).
 * **End-to-end tests** (`make test-e2e-*`) — opt-in, run **real Glue jobs against real DynamoDB tables** in your own account. These verify the pieces unit tests can't: the live Glue connector, real bootstrap IAM, and the command orchestration end to end (important after a Glue runtime upgrade). They never run as part of `make test`. See [`tests/e2e/README.md`](tests/e2e/README.md).
 
-The e2e harness has three suites:
+The e2e harness has these suites:
 
 | Suite | Command | What it checks |
 |-------|---------|----------------|
 | Connector | `make test-e2e-connector` | `count`/`find`/`sql`/`load` against the live DynamoDB DataFrame connector |
 | Commands  | `make test-e2e-commands`  | `fill`/`update`/`delete`/`copy`/`diff` orchestration, each against its own transient table |
 | Security  | `make test-e2e-security`  | the documented bootstrap IAM policy actually bootstraps (and is minimal) |
+| Whole-system | `make test-e2e-whole-system` | true end-to-end: 60k `load` round-trip fidelity + observed write-rate enforcement from CloudWatch |
+| Max-rate | `make test-e2e-max-rate` | **expensive, opt-in:** proves `load` sustains a write rate above the old connector's 60k WCU/s ceiling (millions of items + pre-warmed table) |
 
 Each command/connector smoke creates its own short-lived table (`bulk-e2e-<command>-<random>`, tagged `ephemeral=true`) and **tears it down in a `finally` block** even on failure — the suite never touches your existing tables. If a run is hard-killed mid-test, sweep any orphans with `make test-e2e-cleanup`. The first e2e run prompts once for account/region/test-table config and caches it in `tests/e2e/.e2e-config` (gitignored, per-developer).
 
