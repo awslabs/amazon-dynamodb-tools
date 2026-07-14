@@ -1232,3 +1232,33 @@ class TestRunMiscBehavior:
 
         out = capsys.readouterr().out
         assert '8' in out
+
+
+class TestRunLimitErrorViaWrapper:
+    """Issue #137 case 2, asserted against the current wrapper boundary
+    (read_dynamodb_dataframe), not the legacy DynamicFrame path. `--limit -1`
+    passes int() but Spark's .limit() rejects it; find.py must surface that as
+    a BulkExecutorError so root.py can print a clean one-line message."""
+
+    def test_negative_limit_raises_bulk_executor_error(
+        self, monkeypatch, table_info_mocks, boto3_session_mock
+    ):
+        monkeypatch.setattr(find_module, 'get_error_message', lambda e: str(e))
+
+        records = MagicMock()
+        records.limit.side_effect = RuntimeError(
+            "[INVALID_LIMIT_LIKE_EXPRESSION.IS_NEGATIVE] The limit like "
+            'expression "-1" is invalid ... but got -1.'
+        )
+        monkeypatch.setattr(
+            find_module, 'read_dynamodb_dataframe',
+            lambda *a, **k: records,
+        )
+
+        args = {
+            'splits': '200', 'table': 't',
+            'where': None, 'orderby': None, 'limit': '-1',
+            'XAction': 'count',
+        }
+        with pytest.raises(find_module.BulkExecutorError, match="Invalid 'limit'"):
+            find_module.run(MagicMock(), MagicMock(), MagicMock(), args)

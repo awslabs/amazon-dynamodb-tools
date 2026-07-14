@@ -9,6 +9,17 @@ from infrastructure.constants import (
 from utils.logger import log
 
 
+EXCLUDED_DIRS = {'__pycache__', '.pytest_cache', '.mypy_cache', '.git'}
+EXCLUDED_DIR_SUFFIXES = ('.egg-info',)
+EXCLUDED_EXTENSIONS = ('.pyc', '.pyo')
+
+
+def _is_excluded_dir(dirname):
+    if dirname in EXCLUDED_DIRS:
+        return True
+    return any(dirname.endswith(suffix) for suffix in EXCLUDED_DIR_SUFFIXES)
+
+
 def zip_module():
     return _zip_module(PYTHON_MODULE_CLIENT_DIR_PATH, PYTHON_MODULE_CLIENT_ZIP_PATH)
 
@@ -28,7 +39,13 @@ def _zip_module(source_path, zip_path):
             zipf.writestr(parent_dir + '/', '')
 
             for root, dirs, files in os.walk(source_path):
+                # Prune excluded directories in-place so os.walk skips them
+                dirs[:] = [d for d in dirs if not _is_excluded_dir(d)]
+
                 for file in files:
+                    if any(file.endswith(ext) for ext in EXCLUDED_EXTENSIONS):
+                        continue
+
                     file_path = os.path.join(root, file)
 
                     # Skip any symlinked files out of an abundance of caution

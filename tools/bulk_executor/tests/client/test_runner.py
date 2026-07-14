@@ -841,6 +841,16 @@ class TestGetGlueJobArguments:
         result = bulk_runner._get_glue_job_arguments({}, ['--key', None])
         assert '--key' not in result
 
+    def test_fill_verb_includes_faker_module(self, bulk_runner):
+        result = bulk_runner._get_glue_job_arguments({}, ['--verb', 'fill', '--table', 't'])
+        assert '--additional-python-modules' in result
+        assert 'faker' in result['--additional-python-modules']
+
+    def test_non_fill_verb_excludes_faker_module(self, bulk_runner):
+        result = bulk_runner._get_glue_job_arguments({}, ['--verb', 'copy', '--table', 't'])
+        assert '--additional-python-modules' not in result or \
+            'faker' not in result.get('--additional-python-modules', '')
+
 
 # --- _assert_expected_script_args -------------------------------------------
 
@@ -1070,6 +1080,7 @@ class TestRunStateBranches:
         _wire_run_dependencies(bulk_runner, final_state=runner_module.SUCCEEDED_STATE)
         import logging as _logging
         with caplog.at_level(_logging.INFO):
+            # A successful job must NOT raise SystemExit — it exits 0.
             bulk_runner.run({}, [])
         assert any('completed successfully' in m for m in caplog.messages)
 
@@ -1077,35 +1088,47 @@ class TestRunStateBranches:
         _wire_run_dependencies(bulk_runner, final_state=runner_module.STOPPING_STATE)
         import logging as _logging
         with caplog.at_level(_logging.INFO):
-            bulk_runner.run({}, [])
+            # Non-success terminal state must exit non-zero (issue #137).
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('stopping' in m for m in caplog.messages)
 
     def test_stopped_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.STOPPED_STATE)
         import logging as _logging
         with caplog.at_level(_logging.INFO):
-            bulk_runner.run({}, [])
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('stopped' in m for m in caplog.messages)
 
     def test_failed_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.FAILED_STATE)
         import logging as _logging
         with caplog.at_level(_logging.INFO):
-            bulk_runner.run({}, [])
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('failed' in m.lower() for m in caplog.messages)
 
     def test_timeout_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.TIMEOUT_STATE)
         import logging as _logging
         with caplog.at_level(_logging.INFO):
-            bulk_runner.run({}, [])
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('timed out' in m for m in caplog.messages)
 
     def test_unhandled_state_logs_error(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state='WEIRD_STATE')
         import logging as _logging
         with caplog.at_level(_logging.ERROR):
-            bulk_runner.run({}, [])
+            # An unrecognized terminal state is treated as failure, not success.
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('Unhandled Job State' in m for m in caplog.messages)
 
     def test_starts_job_with_arguments(self, bulk_runner):
@@ -1143,7 +1166,9 @@ class TestRunErrorMessageLogging:
                                error_message='something exploded')
         import logging as _logging
         with caplog.at_level(_logging.ERROR):
-            bulk_runner.run({}, [])
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('something exploded' in m for m in caplog.messages)
 
     def test_no_error_message_branch(self, bulk_runner, caplog):
@@ -1154,6 +1179,78 @@ class TestRunErrorMessageLogging:
             bulk_runner.run({}, [])
         # No ERROR-level log lines should be emitted.
         assert not any(rec.levelname == 'ERROR' for rec in caplog.records)
+
+
+# --- Clean error messages (no tracebacks) -----------------------------------
+
+
+class TestCleanErrorMessages:
+    """Bad parameters or runtime failures produce clean human-readable errors,
+    never raw Python tracebacks (issue #137)."""
+
+    def test_run_catches_unexpected_exception_and_exits_cleanly(self, bulk_runner):
+        """If _start_glue_job raises an unhandled exception, run() should
+        sys.exit with a clean message instead of propagating a traceback."""
+        bulk_runner._get_glue_job_arguments = MagicMock(return_value={})
+        bulk_runner._assert_expected_script_args = MagicMock()
+        bulk_runner._start_glue_job = MagicMock(
+            side_effect=RuntimeError('something unexpected went wrong')
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            bulk_runner.run({}, [])
+        exit_msg = str(exc_info.value)
+        assert 'Traceback' not in exit_msg
+        assert 'something unexpected went wrong' in exit_msg
+
+    def test_run_catches_client_error_and_exits_with_clean_message(self, bulk_runner):
+        """A ClientError during job start produces a clean exit message."""
+        bulk_runner._get_glue_job_arguments = MagicMock(return_value={})
+        bulk_runner._assert_expected_script_args = MagicMock()
+        err = ClientError(
+            {'Error': {'Code': 'InvalidInputException', 'Message': 'Parameter X is invalid'}},
+            'StartJobRun',
+        )
+        bulk_runner._start_glue_job = MagicMock(side_effect=err)
+        with pytest.raises(SystemExit) as exc_info:
+            bulk_runner.run({}, [])
+        exit_msg = str(exc_info.value)
+        assert 'Traceback' not in exit_msg
+        assert 'Parameter X is invalid' in exit_msg
+
+    def test_run_catches_value_error_from_post_start_code(self, bulk_runner):
+        """A ValueError in post-start code (e.g. bad state) exits cleanly."""
+        bulk_runner._get_glue_job_arguments = MagicMock(return_value={})
+        bulk_runner._assert_expected_script_args = MagicMock()
+        bulk_runner._start_glue_job = MagicMock(return_value='jr-1')
+        bulk_runner._watch_glue_job = MagicMock()
+        bulk_runner._watch_for_interrupt = MagicMock(
+            side_effect=ValueError('invalid job run id format')
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            bulk_runner.run({}, [])
+        exit_msg = str(exc_info.value)
+        assert 'Traceback' not in exit_msg
+        assert 'invalid job run id format' in exit_msg
+
+    def test_run_keyboard_interrupt_still_propagates(self, bulk_runner):
+        """KeyboardInterrupt should not be swallowed by error handling."""
+        bulk_runner._get_glue_job_arguments = MagicMock(return_value={})
+        bulk_runner._assert_expected_script_args = MagicMock()
+        bulk_runner._start_glue_job = MagicMock(side_effect=KeyboardInterrupt)
+        with pytest.raises(KeyboardInterrupt):
+            bulk_runner.run({}, [])
+
+    def test_exit_messages_do_not_contain_exception_class_prefix(self, bulk_runner):
+        """Error messages shown to users should not include 'ExceptionName:' prefix."""
+        bulk_runner._get_glue_job_arguments = MagicMock(return_value={})
+        bulk_runner._assert_expected_script_args = MagicMock()
+        bulk_runner._start_glue_job = MagicMock(
+            side_effect=RuntimeError('bad input value')
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            bulk_runner.run({}, [])
+        exit_msg = str(exc_info.value)
+        assert not exit_msg.startswith('RuntimeError')
 
 
 # --- Module constants -------------------------------------------------------

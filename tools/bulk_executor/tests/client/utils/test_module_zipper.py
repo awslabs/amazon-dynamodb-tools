@@ -226,3 +226,164 @@ class TestZipModuleInternalFailure:
         assert result is False
         mock_log.error.assert_called_once()
         assert "write failed" in mock_log.error.call_args.args[0]
+
+
+# --- Exclusion of __pycache__ and dev cruft -----------------------------------
+
+class TestZipModuleExclusions:
+    """Tests for excluding __pycache__, .pyc, and dev-only files from zip."""
+
+    def test_pycache_dirs_excluded(self, tmp_path):
+        """__pycache__ directories and their contents must not appear in the zip."""
+        source = tmp_path / "modules"
+        source.mkdir()
+        (source / "main.py").write_text("print('main')")
+        pycache = source / "__pycache__"
+        pycache.mkdir()
+        (pycache / "main.cpython-311.pyc").write_bytes(b"\x00" * 10)
+        (pycache / "util.cpython-311.pyc").write_bytes(b"\x00" * 10)
+
+        zip_path = tmp_path / "out.zip"
+
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(source), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert 'modules/main.py' in names
+        assert not any('__pycache__' in n for n in names)
+
+    def test_nested_pycache_excluded(self, tmp_path):
+        """__pycache__ nested inside subdirectories must also be excluded."""
+        source = tmp_path / "modules"
+        source.mkdir()
+        sub = source / "sub"
+        sub.mkdir()
+        (sub / "helper.py").write_text("pass")
+        pycache = sub / "__pycache__"
+        pycache.mkdir()
+        (pycache / "helper.cpython-311.pyc").write_bytes(b"\x00" * 10)
+
+        zip_path = tmp_path / "out.zip"
+
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(source), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert 'modules/sub/helper.py' in names
+        assert not any('__pycache__' in n for n in names)
+
+    def test_pyc_files_excluded_even_outside_pycache(self, tmp_path):
+        """.pyc files are excluded even if they sit outside __pycache__."""
+        source = tmp_path / "modules"
+        source.mkdir()
+        (source / "main.py").write_text("print('main')")
+        (source / "stale.pyc").write_bytes(b"\x00" * 10)
+
+        zip_path = tmp_path / "out.zip"
+
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(source), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert 'modules/main.py' in names
+        assert not any(n.endswith('.pyc') for n in names)
+
+    def test_pyo_files_excluded(self, tmp_path):
+        """.pyo (optimized bytecode) files are excluded."""
+        source = tmp_path / "modules"
+        source.mkdir()
+        (source / "main.py").write_text("pass")
+        (source / "main.pyo").write_bytes(b"\x00" * 10)
+
+        zip_path = tmp_path / "out.zip"
+
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(source), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert 'modules/main.py' in names
+        assert not any(n.endswith('.pyo') for n in names)
+
+    def test_dev_cruft_files_excluded(self, tmp_path):
+        """Dev-only files (.pytest_cache, .mypy_cache, .egg-info) are excluded."""
+        source = tmp_path / "modules"
+        source.mkdir()
+        (source / "main.py").write_text("pass")
+
+        # .pytest_cache dir
+        pytest_cache = source / ".pytest_cache"
+        pytest_cache.mkdir()
+        (pytest_cache / "CACHEDIR.TAG").write_text("tag")
+
+        # .mypy_cache dir
+        mypy_cache = source / ".mypy_cache"
+        mypy_cache.mkdir()
+        (mypy_cache / "cache.json").write_text("{}")
+
+        # .egg-info dir
+        egg = source / "pkg.egg-info"
+        egg.mkdir()
+        (egg / "PKG-INFO").write_text("meta")
+
+        zip_path = tmp_path / "out.zip"
+
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(source), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert 'modules/main.py' in names
+        assert not any('.pytest_cache' in n for n in names)
+        assert not any('.mypy_cache' in n for n in names)
+        assert not any('.egg-info' in n for n in names)
+
+    def test_dot_git_excluded(self, tmp_path):
+        """.git directory must not end up in the zip."""
+        source = tmp_path / "modules"
+        source.mkdir()
+        (source / "main.py").write_text("pass")
+        git_dir = source / ".git"
+        git_dir.mkdir()
+        (git_dir / "config").write_text("[core]")
+
+        zip_path = tmp_path / "out.zip"
+
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(source), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert 'modules/main.py' in names
+        assert not any('.git' in n for n in names)
+
+    def test_legitimate_files_preserved_after_exclusions(self, tmp_path):
+        """Exclusions don't accidentally remove legitimate source files."""
+        source = tmp_path / "modules"
+        source.mkdir()
+        (source / "__init__.py").write_text("")
+        (source / "main.py").write_text("pass")
+        sub = source / "sub"
+        sub.mkdir()
+        (sub / "__init__.py").write_text("")
+        (sub / "helper.py").write_text("pass")
+        # cruft interspersed
+        pycache = source / "__pycache__"
+        pycache.mkdir()
+        (pycache / "main.cpython-311.pyc").write_bytes(b"\x00")
+
+        zip_path = tmp_path / "out.zip"
+
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(source), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert 'modules/__init__.py' in names
+        assert 'modules/main.py' in names
+        assert 'modules/sub/__init__.py' in names
+        assert 'modules/sub/helper.py' in names
+        assert not any('__pycache__' in n for n in names)

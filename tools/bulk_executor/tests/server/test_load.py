@@ -246,14 +246,14 @@ class TestReadDataGlueFrameCreation:
 # --- run() ------------------------------------------------------------------
 
 class TestRunS3Check:
-    """run() exits early if S3 file doesn't exist."""
+    """run() raises BulkExecutorError if S3 file doesn't exist."""
 
-    def test_returns_early_when_s3_file_missing(self, monkeypatch):
-        """Line 79-81: check_s3_file_exists returns False -> early return."""
+    def test_raises_when_s3_file_missing(self, monkeypatch):
+        """Line 79-81: check_s3_file_exists returns False -> BulkExecutorError."""
         monkeypatch.setattr(load_module, 'check_s3_file_exists', lambda uri: False)
         args = {'table': 't', 's3_path': 's3://b/missing'}
-        result = load_module.run(MagicMock(), MagicMock(), MagicMock(), args)
-        assert result is None
+        with pytest.raises(load_module.BulkExecutorError, match="doesn't exist"):
+            load_module.run(MagicMock(), MagicMock(), MagicMock(), args)
 
 
 class TestRunDynamicFrameCount:
@@ -536,13 +536,22 @@ class TestCheckS3FileExists:
         monkeypatch.setattr(load_module.boto3, 'client', lambda svc: s3_client)
         assert load_module.check_s3_file_exists('s3://bucket/key') is False
 
-    def test_non_404_error_re_raised(self, monkeypatch):
-        """Line 152-153: non-404 ClientError is re-raised."""
+    def test_403_error_raises_bulk_executor_error(self, monkeypatch):
+        """Line 152-153: 403 ClientError raises BulkExecutorError with access denied message."""
         s3_client = MagicMock()
-        error_response = {'Error': {'Code': '403'}}
+        error_response = {'Error': {'Code': '403', 'Message': 'Forbidden'}}
         s3_client.head_object.side_effect = load_module.ClientError(error_response, 'HeadObject')
         monkeypatch.setattr(load_module.boto3, 'client', lambda svc: s3_client)
-        with pytest.raises(load_module.ClientError):
+        with pytest.raises(load_module.BulkExecutorError, match="Access denied"):
+            load_module.check_s3_file_exists('s3://bucket/key')
+
+    def test_other_error_raises_bulk_executor_error(self, monkeypatch):
+        """Non-404/403 ClientError raises BulkExecutorError with S3 error message."""
+        s3_client = MagicMock()
+        error_response = {'Error': {'Code': '500', 'Message': 'Internal Server Error'}}
+        s3_client.head_object.side_effect = load_module.ClientError(error_response, 'HeadObject')
+        monkeypatch.setattr(load_module.boto3, 'client', lambda svc: s3_client)
+        with pytest.raises(load_module.BulkExecutorError, match="S3 error"):
             load_module.check_s3_file_exists('s3://bucket/key')
 
     def test_invalid_uri_raises_valueerror(self, monkeypatch):

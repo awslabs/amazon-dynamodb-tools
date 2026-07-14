@@ -52,19 +52,19 @@ admin creds inside its `finally` block to scrub partial bootstrap state.
 
 ## What each test asserts
 
-### `test_simulator.py::test_full_policy_allows_every_documented_action`
+### `test_iam_policy_simulated.py::test_full_policy_allows_every_documented_action`
 
 Every action listed in the README policy must evaluate as `allowed` against
 the policy. If this fails, the README has a typo, a misspelled action, or a
 resource scope too narrow to authorize the documented action.
 
-### `test_simulator.py::test_removing_statement_denies_at_least_one_action[<sid>]`
+### `test_iam_policy_simulated.py::test_removing_statement_denies_at_least_one_action[<sid>]`
 
 Removing each Sid from the policy must cause at least one of its actions to
 become denied. If this fails, the Sid is decorative — either over-specified
 or another Sid grants the same actions.
 
-### `test_real_bootstrap.py::test_documented_policy_can_actually_bootstrap`
+### `test_iam_policy_live.py::test_documented_policy_can_actually_bootstrap`
 
 Creates a temp IAM user with the README policy attached, invokes
 `bulk bootstrap --XRole READ-ONLY` with those credentials, asserts exit 0,

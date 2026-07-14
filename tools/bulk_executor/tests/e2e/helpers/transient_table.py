@@ -104,15 +104,17 @@ def transient_table(
     region: str,
     *,
     has_sort_key: bool = True,
+    pitr: bool = True,
     label: str = "command",
     warm_write_units: int | None = None,
     warm_read_units: int | None = None,
     wait_for_warm: bool = False,
 ) -> Iterator[str]:
-    """Yield the name of a freshly-created PAY_PER_REQUEST DynamoDB table with PITR.
+    """Yield the name of a freshly-created PAY_PER_REQUEST DynamoDB table.
 
     label: short string included in the table name for debuggability ('fill', 'copy-src', etc).
     has_sort_key: if True, schema is pk(S)+sk(S); else just pk(S).
+    pitr: if True (default), enables PITR before yielding.
     warm_write_units / warm_read_units: pre-provision the table's warm
         throughput (WCU/s, RCU/s) at create time so a high-rate write test is
         not bottlenecked by DynamoDB's own cold-start ramp. Costs real money
@@ -155,8 +157,9 @@ def transient_table(
     try:
         ddb.create_table(**create_kwargs)
         _wait_for_active(ddb, table_name)
-        _enable_pitr_with_retry(ddb, table_name)
-        _wait_for_pitr(ddb, table_name)
+        if pitr:
+            _enable_pitr_with_retry(ddb, table_name)
+            _wait_for_pitr(ddb, table_name)
         if wait_for_warm and warm_write_units is not None:
             _wait_for_warm_throughput(ddb, table_name, warm_write_units)
 

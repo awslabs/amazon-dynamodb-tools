@@ -29,6 +29,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.e2e.helpers.assertions import assert_builtin_role_shape
 from tests.e2e.security.policy import all_actions, policy_without_action
 from tests.e2e.security.temp_user import temp_iam_user_with_policy
 
@@ -69,7 +70,7 @@ def simulator_passed(request) -> bool:
     if reporter is None:
         return True
     failed = reporter.stats.get("failed", [])
-    sim_failed = [r for r in failed if "test_simulator" in r.nodeid]
+    sim_failed = [r for r in failed if "test_iam_policy_simulated" in r.nodeid]
     return not sim_failed
 
 
@@ -109,6 +110,13 @@ def test_documented_policy_can_actually_bootstrap(
                 f"Look in stderr above for AccessDenied messages naming the "
                 f"missing action(s), then update README and re-run."
             )
+
+        # Exit 0 is necessary but NOT sufficient (see AGENTS.md invariant #1:
+        # assert the resulting state, not just the exit code). Prove the
+        # built-in role was actually created with the fresh-bootstrap shape
+        # (exists, glue-only trust policy, required managed policies attached)
+        # before we tear it down.
+        assert_builtin_role_shape(e2e_config.aws_region, "READ-ONLY")
 
         # Clean up so the next run starts fresh and we don't leave artifacts.
         teardown = _run_bulk(

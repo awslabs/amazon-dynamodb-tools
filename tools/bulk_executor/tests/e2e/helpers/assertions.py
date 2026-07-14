@@ -33,6 +33,75 @@ def deployed_job_role_name(region: str) -> str:
     return job["Job"]["DefaultArguments"]["--glue-job-role-name"]
 
 
+# Built-in role naming + the managed policies bootstrap attaches. Kept here
+# (not imported from client/src) so the assertion is an INDEPENDENT oracle:
+# if bootstrap's own constants drift, this test still checks the contract we
+# actually expect on the account, and the mismatch surfaces as a failure.
+_BUILTIN_ROLE_PREFIX = "AWSGlueServiceRoleBulkDynamoDB"
+_GLUE_SERVICE_MANAGED_POLICY = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
+_DDB_MANAGED_POLICY = {
+    "READ-WRITE": "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess",
+    "READ-ONLY": "arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess",
+}
+
+
+def builtin_role_name(region: str, access: str) -> str:
+    """The built-in Glue role name a fresh bootstrap creates for ``access``
+    ('READ-WRITE' or 'READ-ONLY'). Mirrors bootstrap._get_role_name."""
+    role_id = "DdbReadWrite" if access == "READ-WRITE" else "DdbReadOnly"
+    return f"{_BUILTIN_ROLE_PREFIX}-{role_id}-{region}"
+
+
+def assert_builtin_role_shape(region: str, access: str) -> None:
+    """Assert the REAL built-in Glue role exists with the fresh-bootstrap shape.
+
+    This is the existence/shape oracle the throwaway role-refresh test can't
+    provide: the refresh test proves the *logic* on a disposable role, but says
+    nothing about whether the actual ``AWSGlueServiceRoleBulkDynamoDB-*`` role
+    is present and correctly formed on the account. Checks:
+
+      1. the role exists (``iam.get_role``),
+      2. its trust policy allows exactly ``glue.amazonaws.com``, and
+      3. the README-required managed policies are attached (the Glue service
+         role + the DynamoDB access policy matching ``access``).
+
+    Read-only: never mutates the role, so it's parallel-safe and has no blast
+    radius. Raises AssertionError (not skip) if the role is missing/misshapen —
+    a missing built-in role is a real regression, not an environmental gap.
+    """
+    iam = boto3.client("iam")
+    role_name = builtin_role_name(region, access)
+
+    try:
+        role = iam.get_role(RoleName=role_name)["Role"]
+    except iam.exceptions.NoSuchEntityException:
+        raise AssertionError(
+            f"Built-in Glue role {role_name!r} does not exist. A "
+            f"'{access}' bootstrap should have created it. Run "
+            f"'./bulk bootstrap --XRole {access}' and re-check."
+        )
+
+    principals = []
+    for stmt in role["AssumeRolePolicyDocument"]["Statement"]:
+        svc = stmt.get("Principal", {}).get("Service")
+        principals.extend(svc if isinstance(svc, list) else [svc])
+    assert principals == ["glue.amazonaws.com"], (
+        f"Built-in role {role_name!r} trust policy is not the fresh-bootstrap "
+        f"shape: expected only ['glue.amazonaws.com'], got {principals!r}."
+    )
+
+    attached = {
+        p["PolicyArn"]
+        for p in iam.list_attached_role_policies(RoleName=role_name)["AttachedPolicies"]
+    }
+    required = {_GLUE_SERVICE_MANAGED_POLICY, _DDB_MANAGED_POLICY[access]}
+    missing = required - attached
+    assert not missing, (
+        f"Built-in role {role_name!r} is missing required managed policies: "
+        f"{sorted(missing)}. Attached: {sorted(attached)}."
+    )
+
+
 def require_write_capable_job(region: str) -> None:
     """Fail the suite fast if the deployed Glue job can't write.
 

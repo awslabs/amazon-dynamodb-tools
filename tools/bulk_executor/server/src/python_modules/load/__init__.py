@@ -5,6 +5,7 @@ import re
 import sys
 from awsglue.transforms import Filter, Map
 from botocore.exceptions import ClientError
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.errors import *
 from python_modules.shared.logger import log
 from python_modules.shared.pricing import PricingUtility
@@ -78,8 +79,7 @@ def run(job, spark_context, glue_context, parsed_args):
     s3_path = parsed_args.get('s3_path')
 
     if not check_s3_file_exists(s3_path):
-        log.error("The S3 uri provided doesn't exist / is not a file")
-        return
+        raise BulkExecutorError(f"The S3 path '{s3_path}' doesn't exist or is not accessible")
 
     dynamicFrame = read_data(glue_context, s3_path, parsed_args)
 
@@ -143,13 +143,20 @@ def check_s3_file_exists(s3_uri):
         s3.head_object(Bucket=bucket_name, Key=key)
         return True
     except ClientError as e:
-        if e.response['Error']['Code'] == '404':
+        error_code = e.response['Error']['Code']
+        if error_code == '404':
             # Check if it's a prefix containing objects
             resp = s3.list_objects_v2(Bucket=bucket_name, Prefix=key, MaxKeys=1)
             return resp.get('KeyCount', 0) > 0
+        elif error_code in ('403', 'AccessDenied'):
+            raise BulkExecutorError(
+                f"Access denied to S3 path 's3://{bucket_name}/{key}'. "
+                f"Check that your IAM role has s3:GetObject permission on this bucket."
+            ) from None
         else:
-            # Something else went wrong
-            raise
+            raise BulkExecutorError(
+                f"S3 error checking 's3://{bucket_name}/{key}': {e.response['Error'].get('Message', str(e))}"
+            ) from None
 
 def get_mappings_from_s3(s3_uri):
     # Initialize S3 client
