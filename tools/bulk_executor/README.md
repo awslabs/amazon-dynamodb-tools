@@ -25,13 +25,13 @@ Here are some example use cases:
 # https://spark.apache.org/docs/latest/api/sql/index.html
 # This sample finds items where the a attribute is larger than the b attribute, 
 # the ts is before 2024, and val is from the given set.
-./bulk count --table t --where "a > b and ts < '2024' and val = ('x' or 'y')"
+./bulk count --table t --where "a > b and ts < '2024' and val IN ('x', 'y')"
 
 
 # It's possible to print the results instead of counting
 # The first 10 items appear on the command line, one item per line
 # Large result sets are written to S3
-./bulk find --table t --where "a > b and ts < '2024' and val = ('x' or 'y')"
+./bulk find --table t --where "a > b and ts < '2024' and val IN ('x', 'y')"
 
 # Print the 100 oldest items, using the Connector, no GSI required
 ./bulk find --table t --orderby timestamp --limit 100
