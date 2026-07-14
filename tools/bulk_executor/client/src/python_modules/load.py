@@ -82,8 +82,6 @@ def run(env_configs):
 
     if format_type == "csv":
         for arg in vars(args):
-            log.info(f"arg: {arg} with value {getattr(args, arg)}")
-
             if arg not in ALLOWED_ARGUMENTS_CSV_LOAD and not arg.startswith("X"):
                 parser.error(f'argument [{arg}] is not allowed for load commands using CSV format')
             elif arg == "withHeader":
