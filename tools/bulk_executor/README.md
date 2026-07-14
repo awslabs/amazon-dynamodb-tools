@@ -636,7 +636,7 @@ You're encouraged to write your own scripts if you have needs beyond those suppo
 
 If writing a custom script, it's important to do proper exception handling.
 
-* When in the Glue driver code block (main control flow), if the problem is a developer-type problem indicating a code issue, you can just let the underlying exception propagate and kill execution. Glue handles it nicely.
-* When in the Glue driver code block, if the problem is instead a user-input type problem, you can notice the issue and raise it as `raise Exception("reason") from None`. This will halt execution and the `from None` (useful when inside an `except` clause) will suppress the original exception. We don't need bit stack traces for user-input type problems.
+* When in the Glue driver code block (main control flow), if the problem is a developer-type problem indicating a code issue, you can just let the underlying exception propagate and kill execution. Glue handles it nicely. The user sees a stack trace.
+* When in the Glue driver code block, if the problem is instead a user-input type problem, you can notice the issue and raise it as `raise BulkExecutorError("reason") from None`. This will halt execution and the `from None` (useful when inside an `except` clause) will suppress the original exception. We don't need big stack traces for user-input type problems. The use of `BulkExecutorError` will ensure elegant handling and the user will see no stack trace.
 * When in a Glue executor code block (the code being run in parallel), do NOT raise an exception. If you do, usually lots of workers hit the same issue and it generates a fireworks of error output. Instead, use the `error_accumulator` pattern that the `fill` verb (and others) demonstrate. Add a description of the problem to the `error_accumulator` and return. In the driver code, find the first accumulated error and raise it.
 
