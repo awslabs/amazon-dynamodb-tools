@@ -13,18 +13,33 @@ from unittest.mock import MagicMock
 import pytest
 
 
-# Real modules; conftest mocks shared, so substitute the real ones.
-sys.modules.pop('python_modules.shared.glue_connector', None)
-sys.modules.pop('shared.glue_connector', None)
-
 _REPO_ROOT = Path(__file__).resolve().parents[2] / "server/src"
 
 
 def _load_real(module_path: str, file_path: Path):
+    """Load the real module for this test file only.
+
+    conftest installs a Mock at ``python_modules.shared.glue_connector`` so
+    verb-side tests can import the wrapper as a black box. We need the real
+    implementation here, but must NOT leave it in sys.modules — doing so
+    swaps the real (describe_table-calling) get_dynamodb_throughput_configs
+    into every downstream test that imports a verb (test_sql, test_load, ...).
+    So we set it only for the duration of exec_module, then restore whatever
+    conftest had there.
+    """
+    saved = {name: sys.modules.get(name)
+             for name in (module_path, 'shared.glue_connector')}
     spec = importlib.util.spec_from_file_location(module_path, str(file_path))
     mod = importlib.util.module_from_spec(spec)
     sys.modules[module_path] = mod
-    spec.loader.exec_module(mod)
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        for name, original in saved.items():
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
     return mod
 
 
@@ -32,6 +47,22 @@ glue_connector = _load_real(
     "python_modules.shared.glue_connector",
     _REPO_ROOT / "python_modules/shared/glue_connector.py",
 )
+
+
+@pytest.fixture(autouse=True)
+def throughput_configs(monkeypatch):
+    """Replace get_dynamodb_throughput_configs with a controllable MagicMock.
+
+    Rate resolution + logging is the responsibility of
+    get_dynamodb_throughput_configs (covered by test_table_info.py); the
+    wrapper's only job is to apply whatever connector options it returns.
+    Tests set `.return_value` to the connector-format dict they want applied.
+    Defaults to {} (no throughput override). Autouse so no test hits the real
+    describe_table.
+    """
+    mock = MagicMock(return_value={})
+    monkeypatch.setattr(glue_connector, 'get_dynamodb_throughput_configs', mock)
+    return mock
 
 
 # --- Fixtures ---------------------------------------------------------------
@@ -70,17 +101,34 @@ class TestReadDataFrame:
         assert opts['dynamodb.input.tableName'] == 'my-table'
         assert opts['dynamodb.splits'] == '300'
         assert opts['dynamodb.consistentRead'] == 'false'
-        # Without XMaxReadRate, no direct throughput option should be set --
-        # let the connector use its 0.5 ratio default.
-        assert 'dynamodb.throughput.read' not in opts
 
-    def test_xmax_read_rate_passes_through_as_direct_int(self, glue_context):
+    def test_read_rate_resolved_via_throughput_configs(self, glue_context, throughput_configs):
+        # Issue #236: even without --XMaxReadRate, the wrapper delegates to
+        # get_dynamodb_throughput_configs, which resolves the rate from the
+        # table (quota/provisioned/on-demand) AND logs it. Whatever connector
+        # options it returns must be applied to the reader.
+        throughput_configs.return_value = {'dynamodb.throughput.read': '120000'}
         glue_connector.read_dynamodb_dataframe(
-            glue_context, 't', {'XMaxReadRate': 12345}, splits=200
+            glue_context, 't', {}, splits=200
+        )
+        throughput_configs.assert_called_once_with(
+            {}, 't', modes=['read'], format='connector'
         )
         reader = glue_context.spark_session.read.format.return_value
         opts = {args[0]: args[1] for args, _ in reader.option.call_args_list}
-        assert opts['dynamodb.throughput.read'] == '12345'
+        assert opts['dynamodb.throughput.read'] == '120000'
+
+    def test_no_throughput_option_when_configs_empty(self, glue_context, throughput_configs):
+        # When the resolver returns nothing (e.g. describe/quota lookups all
+        # failed), the wrapper sets no throughput option and lets the connector
+        # fall back to its own 0.5 ratio default.
+        throughput_configs.return_value = {}
+        glue_connector.read_dynamodb_dataframe(
+            glue_context, 't', {}, splits=200
+        )
+        reader = glue_context.spark_session.read.format.return_value
+        opts = {args[0]: args[1] for args, _ in reader.option.call_args_list}
+        assert 'dynamodb.throughput.read' not in opts
 
     def test_load_is_called_and_dataframe_returned(self, glue_context):
         result = glue_connector.read_dynamodb_dataframe(
