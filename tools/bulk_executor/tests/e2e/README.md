@@ -108,13 +108,13 @@ surfaces as a failure.
 
 ### Capacity-warning coverage (`make test-e2e-capacity-warnings`)
 
-Issue #89 makes `load` warn when a requested `--XMaxReadRate`/`--XMaxWriteRate`
-exceeds what the table can actually deliver. The warning fires at
-**throughput-config setup** — before any data moves — so these tests use tiny
-(~20-row) fixtures and assert the exact warning substring in the **live Glue
-job's log stream** (LiveTail → `result.stdout`), after confirming
-`JobRunState == SUCCEEDED`. This is the E2E proof that the unit-tested warning
-logic actually surfaces on a real job.
+Issue #89 makes bulk warn when a requested `--XMaxReadRate`/`--XMaxWriteRate`
+(or the effective table-derived rate) is too high or too low for the table. The
+warnings fire at **throughput-config setup** — before any data moves — so these
+tests use tiny fixtures (checks 2-5) or a read-only `count` (check 1) and assert
+the exact warning substring in the **live Glue job's log stream** (LiveTail),
+after confirming `JobRunState == SUCCEEDED`. This is the E2E proof that the
+unit-tested warning logic actually surfaces on a real job.
 
 | Scenario | Table shape | Request | Expected live warning |
 |----------|-------------|---------|-----------------------|
@@ -122,10 +122,17 @@ logic actually surfaces on a real job.
 | provisioned + autoscaling, above max | PROVISIONED + AS max 100 | 1000 | hard: *exceeds the table's autoscaling maximum* |
 | provisioned + autoscaling, within range | PROVISIONED 5 + AS max 100 | ~52 | soft: *autoscaling will need to scale up* (not the hard warn) |
 | on-demand table max | PAY_PER_REQUEST, MaxWriteRequestUnits 100 | 1000 | hard: *on-demand maximum* |
+| rate too slow for job timeout (check 1) | persistent `write_table` (millions of existing items), tiny `load` | `--XMaxWriteRate 100` | *the job will likely time out before finishing* — job still SUCCEEDS |
 | missing autoscaling permission | PROVISIONED, Glue role without `DescribeScalableTargets` | 500 | visibility: *the requested-rate capacity check is skipped* — job still SUCCEEDS |
 
-The first four live in `whole_system/test_capacity_warnings.py` (transient
-tables, own throughput shape). The missing-permission scenario lives in
+The first five live in `whole_system/test_capacity_warnings.py`. Scenarios 1-4
+use transient tables (own throughput shape); scenario 5 (check 1) loads a tiny
+CSV into the persistent `write_table`, because the timeout estimate keys off
+DescribeTable's `ItemCount` (which reads 0 for ~6h after a fresh fill — a
+transient table would false-green). Only ~20 rows are actually written, so the
+estimate warns on the target's millions of existing items while the job still
+finishes fast; it guards with an explicit item-count assertion and refuses to
+pass on a too-small table. The missing-permission scenario lives in
 `security/test_capacity_warning_missing_perm.py` because it must repoint the
 shared job's execution role (see the security table above). The Makefile target
 runs both files serially in one process so the role-flip never overlaps the
