@@ -720,6 +720,37 @@ class TestGetAndPrintDynamoDBTableInfo:
         assert result['write_pricing_category'] == 'std_wcu_pricing'
         assert result['read_pricing_category'] == 'std_rcu_pricing'
 
+    def test_autoscaling_describe_denied_does_not_crash_print(
+        self, boto3_mock, full_provisioned_response, caplog
+    ):
+        # Issue #89: the Auto Scaling Settings block in the info-print is a
+        # best-effort DIAGNOSTIC. If the Glue role lacks
+        # application-autoscaling:DescribeScalableTargets, the describe call
+        # raises AccessDenied — this must NOT take the whole job down at
+        # info-print time (a provisioned load previously crashed here, before
+        # any data moved). Instead: log an honest "could not read ... skipping"
+        # note naming the permission, and still return the table metadata.
+        import logging
+        boto3_mock.dynamodb_client.describe_table.return_value = full_provisioned_response
+        boto3_mock.autoscaling_client.describe_scalable_targets.side_effect = (
+            RuntimeError(
+                'AccessDeniedException: not authorized to perform: '
+                'application-autoscaling:DescribeScalableTargets'
+            )
+        )
+        with caplog.at_level(logging.DEBUG):
+            result = table_info.get_and_print_dynamodb_table_info('my-table')
+        # Did not crash; metadata came back intact.
+        assert result['billing_mode'] == 'PROVISIONED'
+        assert result['item_count'] == 1000000
+        # Honest skip note, naming the missing permission.
+        skip = [
+            m for m in caplog.messages
+            if 'Could not read autoscaling settings' in m
+            and 'DescribeScalableTargets' in m
+        ]
+        assert skip, caplog.messages
+
     def test_provisioned_table_quiet_mode(
         self, boto3_mock, full_provisioned_response, caplog
     ):

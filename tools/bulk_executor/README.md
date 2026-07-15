@@ -1,6 +1,6 @@
 # Bulk Executor for Amazon DynamoDB
 
-![tests](https://img.shields.io/badge/tests-1395%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-1396%20passing-brightgreen)
 ![line coverage](https://img.shields.io/badge/line%20coverage-94.6%25-brightgreen)
 ![branch coverage](https://img.shields.io/badge/branch%20coverage-90.4%25-brightgreen)
 
@@ -626,6 +626,7 @@ The e2e harness has these suites:
 | Security  | `make test-e2e-security`  | the documented bootstrap IAM policy actually bootstraps (and is minimal) |
 | Whole-system | `make test-e2e-whole-system` | true end-to-end: 60k `load` round-trip fidelity + observed write-rate enforcement from CloudWatch |
 | Max-rate | `make test-e2e-max-rate` | **expensive, opt-in:** proves `load` sustains a write rate above the old connector's 60k WCU/s ceiling (millions of items + pre-warmed table) |
+| Capacity warnings | `make test-e2e-capacity-warnings` | issue #89: `load --XMaxWriteRate` above a table's ceiling emits the right warning live (provisioned / autoscaling-max / autoscaling-soft-note / on-demand-max), plus the missing-`DescribeScalableTargets` visibility degradation — asserted in the real Glue job's log stream |
 
 Each command/connector smoke creates its own short-lived table (`bulk-e2e-<command>-<random>`, tagged `ephemeral=true`) and **tears it down in a `finally` block** even on failure — the suite never touches your existing tables. If a run is hard-killed mid-test, sweep any orphans with `make test-e2e-cleanup`. The first e2e run prompts once for account/region/test-table config and caches it in `tests/e2e/.e2e-config` (gitignored, per-developer).
 

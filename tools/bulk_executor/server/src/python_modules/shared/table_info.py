@@ -127,34 +127,48 @@ def get_and_print_dynamodb_table_info(table_name, index_name=None, quiet=False):
             ]
 
         if not quiet:
-            for dimension in scalable_dimensions:
-                scalable_target = autoscaling.describe_scalable_targets(
-                    ServiceNamespace='dynamodb',
-                    ResourceIds=[resource_id],
-                    ScalableDimension=dimension
-                )
-
-                if scalable_target['ScalableTargets']:
-                    target = scalable_target['ScalableTargets'][0]
-                    min_capacity = target['MinCapacity']
-                    max_capacity = target['MaxCapacity']
-                    log.info(f"- {dimension.split(':')[-1]}:")
-                    log.info(f"  Auto Scaling Enabled: Yes")
-                    log.info(f"  Min Capacity: {min_capacity:,}")
-                    log.info(f"  Max Capacity: {max_capacity:,}")
-
-                    # Get scaling policies
-                    policies = autoscaling.describe_scaling_policies(
+            # This is a best-effort DIAGNOSTIC print. The autoscaling lookup
+            # must never crash the job (issue #89): if the Glue role lacks
+            # application-autoscaling:DescribeScalableTargets, note that we
+            # couldn't read the settings and move on — the actual load/read
+            # proceeds and the capacity check in get_dynamodb_throughput_configs
+            # degrades separately. An unguarded call here previously took the
+            # whole job down at info-print time, before any data moved.
+            try:
+                for dimension in scalable_dimensions:
+                    scalable_target = autoscaling.describe_scalable_targets(
                         ServiceNamespace='dynamodb',
-                        ResourceId=resource_id,
+                        ResourceIds=[resource_id],
                         ScalableDimension=dimension
                     )
-                    for policy in policies['ScalingPolicies']:
-                        target_value = policy['TargetTrackingScalingPolicyConfiguration']['TargetValue']
-                        log.info(f"  Target Value: {target_value}")
-                else:
-                    log.info(f"- {dimension.split(':')[-1]}:")
-                    log.info(f"  Auto Scaling Enabled: No")
+
+                    if scalable_target['ScalableTargets']:
+                        target = scalable_target['ScalableTargets'][0]
+                        min_capacity = target['MinCapacity']
+                        max_capacity = target['MaxCapacity']
+                        log.info(f"- {dimension.split(':')[-1]}:")
+                        log.info(f"  Auto Scaling Enabled: Yes")
+                        log.info(f"  Min Capacity: {min_capacity:,}")
+                        log.info(f"  Max Capacity: {max_capacity:,}")
+
+                        # Get scaling policies
+                        policies = autoscaling.describe_scaling_policies(
+                            ServiceNamespace='dynamodb',
+                            ResourceId=resource_id,
+                            ScalableDimension=dimension
+                        )
+                        for policy in policies['ScalingPolicies']:
+                            target_value = policy['TargetTrackingScalingPolicyConfiguration']['TargetValue']
+                            log.info(f"  Target Value: {target_value}")
+                    else:
+                        log.info(f"- {dimension.split(':')[-1]}:")
+                        log.info(f"  Auto Scaling Enabled: No")
+            except Exception as e:
+                log.info(
+                    f"- Could not read autoscaling settings ({str(e)}); skipping "
+                    f"this diagnostic. Grant application-autoscaling:"
+                    f"DescribeScalableTargets to the Glue role to see them."
+                )
 
     else:
         if index_name:
