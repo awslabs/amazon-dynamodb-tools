@@ -470,7 +470,7 @@ class TestWiringGuarantees:
         self, boto3_mock, provisioned_table, caplog
     ):
         # If autoscaling lookup raises we can't tell whether the table could
-        # scale to meet the request, so we skip the warning entirely rather
+        # scale to meet the request, so we skip the capacity warning rather
         # than emit a false "exceeds provisioned" — and never crash the job.
         boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
         boto3_mock.autoscaling_client.describe_scalable_targets.side_effect = (
@@ -482,6 +482,28 @@ class TestWiringGuarantees:
             )
         assert opts == {'dynamodb.throughput.read': '5000'}
         assert _capacity_warnings(caplog) == []
+
+    def test_autoscaling_lookup_failure_warns_visibility_lost(
+        self, boto3_mock, provisioned_table, caplog
+    ):
+        # Jason's option (b): when the role can't read autoscaling targets we
+        # proceed, but must surface that we're doing so without visibility into
+        # the table's metrics (and point at the missing permission).
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        boto3_mock.autoscaling_client.describe_scalable_targets.side_effect = (
+            RuntimeError('AccessDeniedException')
+        )
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '5000'}, table_name='t', modes=['read']
+            )
+        visibility = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING
+            and 'without knowledge of the table' in r.message
+            and 'DescribeScalableTargets' in r.message
+        ]
+        assert visibility, [r.message for r in caplog.records]
 
     def test_return_value_unchanged_by_warning_logic(
         self, boto3_mock, provisioned_table, caplog

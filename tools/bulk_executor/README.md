@@ -1,8 +1,8 @@
 # Bulk Executor for Amazon DynamoDB
 
-![tests](https://img.shields.io/badge/tests-1392%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-1395%20passing-brightgreen)
 ![line coverage](https://img.shields.io/badge/line%20coverage-94.6%25-brightgreen)
-![branch coverage](https://img.shields.io/badge/branch%20coverage-90.5%25-brightgreen)
+![branch coverage](https://img.shields.io/badge/branch%20coverage-90.4%25-brightgreen)
 
 Bulk Executor for Amazon DynamoDB lets you efficiently run bulk commands against even large tables. It:
 
@@ -327,6 +327,7 @@ If you provide a custom IAM role for your AWS Glue job:
 * Attach the managed policy `AWSGlueServiceRole` to grant Glue its baseline execution permissions.
 * Attach `ServiceQuotasReadOnlyAccess` to allow the job to read service quota information (used to detect account-level read/write limits), or for maximum lockdown allow the `pricing:GetProducts` action.
 * Attach `AWSPriceListServiceFullAccess` to allow the job to query AWS pricing APIs (used to estimate DynamoDB operation costs), or for maximum lockdown allow the `servicequotas:GetServiceQuota` and `servicequotas:GetAWSDefaultServiceQuota` actions.
+* Allow the `application-autoscaling:DescribeScalableTargets` action (used to detect a provisioned table's autoscaling maximum when warning that a requested rate exceeds the table's capacity). This action does not support resource-level scoping, so it must be granted on `"Resource": "*"`. If the role lacks this permission the job still runs — it simply skips the autoscaling-aware capacity warning and logs that it is proceeding without visibility into the table's autoscaling settings.
 * Add custom IAM permissions for DynamoDB access. You may attach `AmazonDynamoDBReadOnlyAccess` or `AmazonDynamoDBFullAccess`, or define a more restrictive policy targeting specific tables.
 
 ### Security: Consider adjusting S3 bucket behaviors

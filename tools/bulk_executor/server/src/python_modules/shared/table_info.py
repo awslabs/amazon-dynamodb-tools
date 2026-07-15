@@ -382,9 +382,17 @@ def _effective_capacity_ceiling(table_desc, is_on_demand, region_name, table_nam
         autoscaling_max = _autoscaling_max_capacity(table_name, region_name, dimension)
     except Exception as e:
         # Can't tell whether autoscaling would lift the ceiling; skip the
-        # warning rather than emit a false "exceeds provisioned" for a table
-        # that may well autoscale above the request.
-        log.info(f"[{table_name}] Warning: Could not retrieve autoscaling settings: {str(e)}")
+        # capacity warning rather than emit a false "exceeds provisioned" for a
+        # table that may well autoscale above the request. This is the expected
+        # path when the Glue role lacks application-autoscaling:DescribeScalableTargets
+        # (issue #89) — proceed, but surface that we're doing so without
+        # visibility into the table's autoscaling settings.
+        log.warning(
+            f"[{table_name}] Could not read autoscaling settings for the {dimension} "
+            f"dimension ({str(e)}); proceeding without knowledge of the table's "
+            f"autoscaling metrics, so the requested-rate capacity check is skipped. "
+            f"Grant application-autoscaling:DescribeScalableTargets to enable it."
+        )
         return None, None, None
     if autoscaling_max is not None:
         return autoscaling_max, "autoscaling maximum", provisioned
