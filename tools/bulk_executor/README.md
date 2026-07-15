@@ -1,8 +1,8 @@
 # Bulk Executor for Amazon DynamoDB
 
-![tests](https://img.shields.io/badge/tests-1396%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-1412%20passing-brightgreen)
 ![line coverage](https://img.shields.io/badge/line%20coverage-94.6%25-brightgreen)
-![branch coverage](https://img.shields.io/badge/branch%20coverage-90.4%25-brightgreen)
+![branch coverage](https://img.shields.io/badge/branch%20coverage-90.6%25-brightgreen)
 
 Bulk Executor for Amazon DynamoDB lets you efficiently run bulk commands against even large tables. It:
 
@@ -596,6 +596,8 @@ If you set a very low maximum read rate (below say 200) the effective maximum ma
 These are provided as `--X` flags even though they're actually implemented inside the scripts, using libraries provided by the harness.
 
 With `diff` which reads from two tables, the max read rate is applied per table.
+
+At the start of a run the effective rate is also checked against the table's size: if moving the table's data at that rate would take longer than the Glue job timeout (`--XTimeout`, default 60 minutes), a warning is logged that the job will likely time out before finishing — raise the rate or the timeout. The check applies whether the rate was set explicitly or derived from the table's capacity, and is observational only (it never blocks the run). Conversely, a rate below the recommended minimum, or above what the table can actually deliver (its provisioned/autoscaling/on-demand ceiling), is warned about too.
 
 ## Cost management
 

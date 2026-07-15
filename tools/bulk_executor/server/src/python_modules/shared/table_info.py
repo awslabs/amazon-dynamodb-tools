@@ -11,6 +11,10 @@ from .pricing import PricingUtility
 MIN_RECOMMENDED_READ_RATE = 100
 MIN_RECOMMENDED_WRITE_RATE = 100
 
+# Glue's default job timeout (minutes). Mirrors client GlueJobDefaults.Timeout;
+# used only as a fallback for the duration estimate when --XTimeout is unset.
+DEFAULT_JOB_TIMEOUT_MINUTES = 60
+
 def get_quota_value(quota_name, region_name):
     """
     Get the value of a specific DynamoDB quota from Service Quotas API.
@@ -441,6 +445,57 @@ def _warn_if_rate_exceeds_capacity(table_name, dimension, user_rate, table_desc,
         )
 
 
+def _warn_if_job_may_timeout(table_name, dimension, rate, table_desc, timeout_minutes):
+    """Warn when the effective rate is too low to finish before the job times out.
+
+    Implements issue #89 check 1: estimate how long moving the table's data will
+    take at `rate` capacity units/second and, if that exceeds the Glue job
+    timeout (default 60 min), warn that the job will likely time out before the
+    work completes. The rate may be user-specified or table-derived — either way
+    a rate that is technically valid but too small for the table's size is worth
+    surfacing.
+
+    Uses the same unit formulas as the cost estimators:
+    - read  → ceil(size_bytes / 8096) read units for a full scan
+    - write → item_count * ceil(avg_item_size / 1024) write units
+
+    Estimation is best-effort; missing/zero metadata simply skips the check.
+    """
+    try:
+        rate = int(rate)
+    except (TypeError, ValueError):
+        return
+    if rate <= 0:
+        return
+
+    size_bytes = int(table_desc.get('TableSizeBytes', 0) or 0)
+    item_count = int(table_desc.get('ItemCount', 0) or 0)
+
+    if dimension == "read":
+        total_units = math.ceil(size_bytes / 8096) if size_bytes else 0
+    else:
+        if item_count <= 0 or size_bytes <= 0:
+            total_units = 0
+        else:
+            avg_units_per_item = math.ceil((size_bytes / item_count) / 1024)
+            total_units = item_count * avg_units_per_item
+
+    if total_units <= 0:
+        return
+
+    estimated_seconds = total_units / rate
+    timeout_seconds = timeout_minutes * 60
+    if estimated_seconds > timeout_seconds:
+        estimated_minutes = estimated_seconds / 60
+        log.warning(
+            f"[{table_name}] Estimated {dimension} time of ~{estimated_minutes:,.0f} min "
+            f"at {rate:,} units/sec for ~{total_units:,} {dimension} units exceeds the "
+            f"job timeout of {timeout_minutes:,} min; the job will likely time out before "
+            f"finishing. Increase the rate (e.g. --XMax{dimension.capitalize()}Rate) or the "
+            f"timeout (--XTimeout)."
+        )
+
+
 def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connector"):
     region_name = _region_from_table_ref(table_name) or _default_region()
     if not region_name:
@@ -451,6 +506,13 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
         modes = ("read", "write")
 
     DEFAULT_ON_DEMAND_CAPACITY = 40000
+
+    # Job timeout drives the "will this finish in time?" estimate (#89 check 1).
+    timeout_minutes = args.get('XTimeout', DEFAULT_JOB_TIMEOUT_MINUTES)
+    try:
+        timeout_minutes = int(timeout_minutes)
+    except (TypeError, ValueError):
+        timeout_minutes = DEFAULT_JOB_TIMEOUT_MINUTES
 
     # Get table description to determine if it's on-demand or provisioned
     read_rate = args.get('XMaxReadRate', None)   # User set read rate
@@ -511,6 +573,11 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
                 is_on_demand_table, region_name,
             )
 
+        if read_rate is not None:
+            _warn_if_job_may_timeout(
+                table_name, "read", read_rate, table_desc, timeout_minutes,
+            )
+
     # Handle write throughput
     if "write" in modes:
         if write_rate:
@@ -548,6 +615,11 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
             _warn_if_rate_exceeds_capacity(
                 table_name, "write", user_write_rate, table_desc,
                 is_on_demand_table, region_name,
+            )
+
+        if write_rate is not None:
+            _warn_if_job_may_timeout(
+                table_name, "write", write_rate, table_desc, timeout_minutes,
             )
 
     if format == "connector":

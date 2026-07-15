@@ -9,17 +9,20 @@ can actually deliver. Maps to Jason's review checks on PR #231:
 - #89 nuance: provisioned < request <= autoscaling max -> softer "will scale up" note
 - Check #4: on-demand, request > table's OnDemandThroughput max -> hard warn
 - Check #5: on-demand, no table max, request > account quota -> hard warn
-
-Explicitly OUT OF SCOPE here (follow-up PR): check #1, the timeout /
-time-remaining warning, which needs runner/phase context, not table_info.
+- Check #1: effective rate too low to move the table's data before the job
+  timeout (default 60 min) -> "will likely time out" warn. The rate may be
+  user-specified or table-derived; the estimate uses the table metadata
+  already read here, so it lives in table_info alongside checks 2-5.
 
 Functions/branches exercised:
 - _bare_table_name: plain name, ARN, ARN+index, malformed ARN
 - _autoscaling_max_capacity: target present, absent, lookup raises
 - _effective_capacity_ceiling: all four billing-mode branches + None fallbacks
 - _warn_if_rate_exceeds_capacity: hard warn, soft note, at/under ceiling silent
+- _warn_if_job_may_timeout: read scan-units, write item-units, under/over
+  timeout, custom --XTimeout, zero/missing metadata, non-numeric rate.
 - get_dynamodb_throughput_configs: read+write wiring, user-only rates,
-  graceful degradation, return value unchanged.
+  graceful degradation, return value unchanged, timeout wiring.
 """
 
 import importlib.util
@@ -135,6 +138,11 @@ def _capacity_warnings(caplog):
         m for m in caplog.messages
         if 'exceeds the table' in m or 'autoscaling will need to scale up' in m.lower()
     ]
+
+
+def _timeout_warnings(caplog):
+    """Return log messages that are the #89 check-1 job-timeout warnings."""
+    return [m for m in caplog.messages if 'will likely time out' in m]
 
 
 # --- _bare_table_name -------------------------------------------------------
@@ -436,6 +444,147 @@ class TestOnDemandQuotaWarning:
 
 
 # --- Wiring guarantees ------------------------------------------------------
+
+
+# --- _warn_if_job_may_timeout (check #1) ------------------------------------
+
+
+class TestWarnIfJobMayTimeout:
+    def test_read_slow_rate_warns(self, caplog):
+        # 1,000,000 read units (8096 * 1e6 bytes) at 100 u/s = ~166 min > 60 min.
+        table_desc = {'TableSizeBytes': 8096 * 1_000_000, 'ItemCount': 1_000_000}
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'read', 100, table_desc, 60)
+        warns = _timeout_warnings(caplog)
+        assert warns and 'read' in warns[0]
+
+    def test_read_fast_rate_no_warn(self, caplog):
+        table_desc = {'TableSizeBytes': 8096 * 1_000_000, 'ItemCount': 1_000_000}
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'read', 100_000, table_desc, 60)
+        assert _timeout_warnings(caplog) == []
+
+    def test_write_slow_rate_warns(self, caplog):
+        # 1,000,000 items * 1 write unit each at 100 u/s = ~166 min > 60 min.
+        table_desc = {'TableSizeBytes': 1024 * 1_000_000, 'ItemCount': 1_000_000}
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'write', 100, table_desc, 60)
+        warns = _timeout_warnings(caplog)
+        assert warns and 'write' in warns[0]
+
+    def test_write_large_items_multiply_units(self, caplog):
+        # 4KB items -> 4 write units each, so 100k items = 400k units; at 50 u/s
+        # that is 8000s = ~133 min > 60 min.
+        table_desc = {'TableSizeBytes': 4096 * 100_000, 'ItemCount': 100_000}
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'write', 50, table_desc, 60)
+        assert _timeout_warnings(caplog)
+
+    def test_custom_timeout_suppresses_warning(self, caplog):
+        # Same slow read that warns at 60 min stays quiet with a 7-day timeout.
+        table_desc = {'TableSizeBytes': 8096 * 1_000_000, 'ItemCount': 1_000_000}
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'read', 100, table_desc, 10080)
+        assert _timeout_warnings(caplog) == []
+
+    def test_zero_size_skips_read(self, caplog):
+        table_desc = {'TableSizeBytes': 0, 'ItemCount': 0}
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'read', 1, table_desc, 60)
+        assert _timeout_warnings(caplog) == []
+
+    def test_zero_items_skips_write(self, caplog):
+        table_desc = {'TableSizeBytes': 1024, 'ItemCount': 0}
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'write', 1, table_desc, 60)
+        assert _timeout_warnings(caplog) == []
+
+    def test_missing_metadata_skips(self, caplog):
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'read', 100, {}, 60)
+        assert _timeout_warnings(caplog) == []
+
+    def test_non_numeric_rate_skips(self, caplog):
+        table_desc = {'TableSizeBytes': 8096 * 1_000_000, 'ItemCount': 1_000_000}
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'read', 'abc', table_desc, 60)
+        assert _timeout_warnings(caplog) == []
+
+    def test_none_rate_skips(self, caplog):
+        table_desc = {'TableSizeBytes': 8096 * 1_000_000, 'ItemCount': 1_000_000}
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'read', None, table_desc, 60)
+        assert _timeout_warnings(caplog) == []
+
+    def test_zero_rate_skips(self, caplog):
+        table_desc = {'TableSizeBytes': 8096 * 1_000_000, 'ItemCount': 1_000_000}
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'read', 0, table_desc, 60)
+        assert _timeout_warnings(caplog) == []
+
+    def test_uses_log_warning_level(self, caplog):
+        table_desc = {'TableSizeBytes': 8096 * 1_000_000, 'ItemCount': 1_000_000}
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'read', 100, table_desc, 60)
+        records = [r for r in caplog.records if 'will likely time out' in r.getMessage()]
+        assert records and all(r.levelno == logging.WARNING for r in records)
+
+
+# --- check #1 wiring inside get_dynamodb_throughput_configs -----------------
+
+
+class TestTimeoutWiring:
+    def _big_provisioned(self):
+        return {
+            'Table': {
+                'BillingModeSummary': {'BillingMode': 'PROVISIONED'},
+                'ProvisionedThroughput': {
+                    'ReadCapacityUnits': 100,
+                    'WriteCapacityUnits': 100,
+                },
+                'TableSizeBytes': 8096 * 1_000_000,
+                'ItemCount': 1_000_000,
+            }
+        }
+
+    def test_table_derived_slow_rate_warns(self, boto3_mock, caplog):
+        # No XMax* given: read_rate derives from the 100 RCU provisioned level,
+        # which is far too slow for a 1M-read-unit table -> timeout warning.
+        boto3_mock.dynamodb_client.describe_table.return_value = self._big_provisioned()
+        _no_autoscaling(boto3_mock)
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={}, table_name='t', modes=['read']
+            )
+        assert _timeout_warnings(caplog)
+
+    def test_custom_xtimeout_suppresses(self, boto3_mock, caplog):
+        boto3_mock.dynamodb_client.describe_table.return_value = self._big_provisioned()
+        _no_autoscaling(boto3_mock)
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XTimeout': 10080}, table_name='t', modes=['read']
+            )
+        assert _timeout_warnings(caplog) == []
+
+    def test_non_numeric_xtimeout_falls_back_to_default(self, boto3_mock, caplog):
+        boto3_mock.dynamodb_client.describe_table.return_value = self._big_provisioned()
+        _no_autoscaling(boto3_mock)
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XTimeout': 'garbage'}, table_name='t', modes=['read']
+            )
+        # Falls back to the 60-min default, under which the slow rate warns.
+        assert _timeout_warnings(caplog)
+
+    def test_return_value_unchanged_by_timeout_warning(self, boto3_mock, caplog):
+        boto3_mock.dynamodb_client.describe_table.return_value = self._big_provisioned()
+        _no_autoscaling(boto3_mock)
+        with caplog.at_level(logging.DEBUG):
+            opts = table_info.get_dynamodb_throughput_configs(
+                args={}, table_name='t', modes=['read']
+            )
+        assert opts == {'dynamodb.throughput.read': '100'}
 
 
 class TestWiringGuarantees:
