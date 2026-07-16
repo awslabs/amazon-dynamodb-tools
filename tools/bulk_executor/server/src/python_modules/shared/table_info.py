@@ -1,5 +1,6 @@
 import math
 import os
+import time
 
 import boto3
 import botocore.exceptions
@@ -14,6 +15,22 @@ MIN_RECOMMENDED_WRITE_RATE = 100
 # Glue's default job timeout (minutes). Mirrors client GlueJobDefaults.Timeout;
 # used only as a fallback for the duration estimate when --XTimeout is unset.
 DEFAULT_JOB_TIMEOUT_MINUTES = 60
+
+# Monotonic reference captured when this module is first imported, which on a
+# Glue worker is at job startup (root.py imports the verb, which imports this).
+# The #89 check-1 timeout estimate races the next phase against the time
+# *remaining* before the job timeout, not the raw timeout: multi-phase verbs
+# (e.g. delete = scan then write) resolve a later phase's rate only after an
+# earlier phase has already consumed part of the budget, so that phase must
+# look at what's left. Using elapsed here needs no extra IAM (no glue:GetJobRun)
+# and no per-verb plumbing — every verb resolves its rate when the phase begins,
+# so a late phase automatically sees a shrunken budget.
+_JOB_START_MONOTONIC = time.monotonic()
+
+
+def _job_elapsed_minutes():
+    """Minutes elapsed since the job started (module import), never negative."""
+    return max(0.0, (time.monotonic() - _JOB_START_MONOTONIC) / 60.0)
 
 def get_quota_value(quota_name, region_name):
     """
@@ -445,15 +462,21 @@ def _warn_if_rate_exceeds_capacity(table_name, dimension, user_rate, table_desc,
         )
 
 
-def _warn_if_job_may_timeout(table_name, dimension, rate, table_desc, timeout_minutes):
-    """Warn when the effective rate is too low to finish before the job times out.
+def _warn_if_job_may_timeout(table_name, dimension, rate, table_desc, remaining_minutes):
+    """Warn when the effective rate is too low to finish in the time remaining.
 
     Implements issue #89 check 1: estimate how long moving the table's data will
-    take at `rate` capacity units/second and, if that exceeds the Glue job
-    timeout (default 60 min), warn that the job will likely time out before the
-    work completes. The rate may be user-specified or table-derived — either way
-    a rate that is technically valid but too small for the table's size is worth
-    surfacing.
+    take at `rate` capacity units/second and, if that exceeds the time *remaining*
+    before the Glue job times out, warn that the job will likely time out before
+    the work completes. The rate may be user-specified or table-derived — either
+    way a rate that is technically valid but too small for the table's size is
+    worth surfacing.
+
+    `remaining_minutes` is the budget for THIS phase — the job timeout minus the
+    time already elapsed — not the raw timeout. Multi-phase verbs (e.g. delete's
+    scan phase then write phase) call this as each phase begins, so a later phase
+    is measured against the time actually left, per Jason's PR #231 review. We
+    deliberately do not predict what future phases will need.
 
     Uses the same unit formulas as the cost estimators:
     - read  → ceil(size_bytes / 8096) read units for a full scan
@@ -484,15 +507,15 @@ def _warn_if_job_may_timeout(table_name, dimension, rate, table_desc, timeout_mi
         return
 
     estimated_seconds = total_units / rate
-    timeout_seconds = timeout_minutes * 60
-    if estimated_seconds > timeout_seconds:
+    remaining_seconds = max(0.0, remaining_minutes * 60)
+    if estimated_seconds > remaining_seconds:
         estimated_minutes = estimated_seconds / 60
         log.warning(
             f"[{table_name}] Estimated {dimension} time of ~{estimated_minutes:,.0f} min "
             f"at {rate:,} units/sec for ~{total_units:,} {dimension} units exceeds the "
-            f"job timeout of {timeout_minutes:,} min; the job will likely time out before "
-            f"finishing. Increase the rate (e.g. --XMax{dimension.capitalize()}Rate) or the "
-            f"timeout (--XTimeout)."
+            f"~{remaining_minutes:,.0f} min remaining before the job timeout; the job will "
+            f"likely time out before finishing. Increase the rate "
+            f"(e.g. --XMax{dimension.capitalize()}Rate) or the timeout (--XTimeout)."
         )
 
 
@@ -508,11 +531,15 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
     DEFAULT_ON_DEMAND_CAPACITY = 40000
 
     # Job timeout drives the "will this finish in time?" estimate (#89 check 1).
+    # We race the next phase against the time REMAINING (timeout minus elapsed),
+    # not the raw timeout: this function is called when each phase begins, so a
+    # late phase (e.g. delete's write after its scan) sees a shrunken budget.
     timeout_minutes = args.get('XTimeout', DEFAULT_JOB_TIMEOUT_MINUTES)
     try:
         timeout_minutes = int(timeout_minutes)
     except (TypeError, ValueError):
         timeout_minutes = DEFAULT_JOB_TIMEOUT_MINUTES
+    remaining_minutes = timeout_minutes - _job_elapsed_minutes()
 
     # Get table description to determine if it's on-demand or provisioned
     read_rate = args.get('XMaxReadRate', None)   # User set read rate
@@ -575,7 +602,7 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
 
         if read_rate is not None:
             _warn_if_job_may_timeout(
-                table_name, "read", read_rate, table_desc, timeout_minutes,
+                table_name, "read", read_rate, table_desc, remaining_minutes,
             )
 
     # Handle write throughput
@@ -619,7 +646,7 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
 
         if write_rate is not None:
             _warn_if_job_may_timeout(
-                table_name, "write", write_rate, table_desc, timeout_minutes,
+                table_name, "write", write_rate, table_desc, remaining_minutes,
             )
 
     if format == "connector":

@@ -10,19 +10,27 @@ can actually deliver. Maps to Jason's review checks on PR #231:
 - Check #4: on-demand, request > table's OnDemandThroughput max -> hard warn
 - Check #5: on-demand, no table max, request > account quota -> hard warn
 - Check #1: effective rate too low to move the table's data before the job
-  timeout (default 60 min) -> "will likely time out" warn. The rate may be
-  user-specified or table-derived; the estimate uses the table metadata
-  already read here, so it lives in table_info alongside checks 2-5.
+  runs out of time -> "will likely time out" warn. The budget is the time
+  *remaining* before the job timeout (timeout minus elapsed since job start),
+  NOT the raw timeout: multi-phase verbs (e.g. delete = scan then write)
+  resolve a later phase's rate only after an earlier phase has already
+  consumed part of the timeout, so that phase must race the time left. The
+  rate may be user-specified or table-derived; the estimate uses the table
+  metadata already read here, so it lives in table_info alongside checks 2-5.
 
 Functions/branches exercised:
 - _bare_table_name: plain name, ARN, ARN+index, malformed ARN
 - _autoscaling_max_capacity: target present, absent, lookup raises
 - _effective_capacity_ceiling: all four billing-mode branches + None fallbacks
 - _warn_if_rate_exceeds_capacity: hard warn, soft note, at/under ceiling silent
-- _warn_if_job_may_timeout: read scan-units, write item-units, under/over
-  timeout, custom --XTimeout, zero/missing metadata, non-numeric rate.
+- _job_elapsed_minutes: zero at import, grows with the monotonic clock, clamped
+  non-negative.
+- _warn_if_job_may_timeout: read scan-units, write item-units, under/over the
+  remaining budget, small-remaining vs full-timeout, zero/negative remaining,
+  zero/missing metadata, non-numeric rate.
 - get_dynamodb_throughput_configs: read+write wiring, user-only rates,
-  graceful degradation, return value unchanged, timeout wiring.
+  graceful degradation, return value unchanged, and that the timeout check
+  uses time remaining (timeout minus elapsed) rather than the raw timeout.
 """
 
 import importlib.util
@@ -446,6 +454,31 @@ class TestOnDemandQuotaWarning:
 # --- Wiring guarantees ------------------------------------------------------
 
 
+# --- _job_elapsed_minutes ---------------------------------------------------
+
+
+class TestJobElapsedMinutes:
+    """Elapsed wall-clock since the Glue job started, from the monotonic clock
+    reference captured at module import. Drives 'time remaining' for check #1."""
+
+    def test_zero_at_start(self, monkeypatch):
+        monkeypatch.setattr(table_info, '_JOB_START_MONOTONIC', 1000.0)
+        monkeypatch.setattr(table_info.time, 'monotonic', lambda: 1000.0)
+        assert table_info._job_elapsed_minutes() == 0.0
+
+    def test_grows_with_the_clock(self, monkeypatch):
+        monkeypatch.setattr(table_info, '_JOB_START_MONOTONIC', 1000.0)
+        monkeypatch.setattr(table_info.time, 'monotonic', lambda: 1000.0 + 120.0)
+        assert table_info._job_elapsed_minutes() == pytest.approx(2.0)
+
+    def test_clamped_non_negative_if_clock_regresses(self, monkeypatch):
+        # A monotonic clock should not go backwards, but never report negative
+        # elapsed (which would inflate the remaining budget past the timeout).
+        monkeypatch.setattr(table_info, '_JOB_START_MONOTONIC', 1000.0)
+        monkeypatch.setattr(table_info.time, 'monotonic', lambda: 999.0)
+        assert table_info._job_elapsed_minutes() == 0.0
+
+
 # --- _warn_if_job_may_timeout (check #1) ------------------------------------
 
 
@@ -529,6 +562,38 @@ class TestWarnIfJobMayTimeout:
         records = [r for r in caplog.records if 'will likely time out' in r.getMessage()]
         assert records and all(r.levelno == logging.WARNING for r in records)
 
+    def test_last_arg_is_remaining_budget_not_raw_timeout(self, caplog):
+        # A read that comfortably fits a full 60-min timeout (~17 min at
+        # 1000 u/s for 1M units) must still warn when only 10 min remain,
+        # because the budget is the time LEFT, not the original timeout.
+        table_desc = {'TableSizeBytes': 8096 * 1_000_000, 'ItemCount': 1_000_000}
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'read', 1000, table_desc, 10)
+        assert _timeout_warnings(caplog)
+
+    def test_same_rate_no_warn_with_full_budget(self, caplog):
+        # Same rate/table as above but the full 60 min available -> fits, quiet.
+        table_desc = {'TableSizeBytes': 8096 * 1_000_000, 'ItemCount': 1_000_000}
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'read', 1000, table_desc, 60)
+        assert _timeout_warnings(caplog) == []
+
+    def test_zero_remaining_budget_warns_when_work_left(self, caplog):
+        # No time left but data still to move -> always a timeout warning.
+        table_desc = {'TableSizeBytes': 8096 * 1_000_000, 'ItemCount': 1_000_000}
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'read', 100_000, table_desc, 0)
+        assert _timeout_warnings(caplog)
+
+    def test_warning_names_remaining_time(self, caplog):
+        # The message must frame the budget as time remaining, not the timeout,
+        # so a reader mid-job understands why a "fast enough" rate is flagged.
+        table_desc = {'TableSizeBytes': 8096 * 1_000_000, 'ItemCount': 1_000_000}
+        with caplog.at_level(logging.DEBUG):
+            table_info._warn_if_job_may_timeout('t', 'read', 1000, table_desc, 10)
+        warns = _timeout_warnings(caplog)
+        assert warns and 'remaining' in warns[0].lower()
+
 
 # --- check #1 wiring inside get_dynamodb_throughput_configs -----------------
 
@@ -585,6 +650,47 @@ class TestTimeoutWiring:
                 args={}, table_name='t', modes=['read']
             )
         assert opts == {'dynamodb.throughput.read': '100'}
+
+    def _fast_enough_for_full_timeout(self):
+        # 1M read units at 2000 RCU = ~8.3 min; fits a 60-min job comfortably,
+        # so with a full budget this must NOT warn.
+        return {
+            'Table': {
+                'BillingModeSummary': {'BillingMode': 'PROVISIONED'},
+                'ProvisionedThroughput': {
+                    'ReadCapacityUnits': 2000,
+                    'WriteCapacityUnits': 2000,
+                },
+                'TableSizeBytes': 8096 * 1_000_000,
+                'ItemCount': 1_000_000,
+            }
+        }
+
+    def test_elapsed_time_shrinks_the_budget(self, boto3_mock, monkeypatch, caplog):
+        # THE #89 check-1 regression: a rate that fits the full 60-min timeout
+        # must warn once most of the timeout is already gone. This is the
+        # multi-phase delete case — the write rate is resolved only after the
+        # scan has burned ~55 min, leaving ~5 min for an ~8-min job.
+        boto3_mock.dynamodb_client.describe_table.return_value = self._fast_enough_for_full_timeout()
+        _no_autoscaling(boto3_mock)
+        monkeypatch.setattr(table_info, '_job_elapsed_minutes', lambda: 55.0)
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XTimeout': 60}, table_name='t', modes=['read']
+            )
+        assert _timeout_warnings(caplog)
+
+    def test_no_warning_when_little_elapsed(self, boto3_mock, monkeypatch, caplog):
+        # Same rate/table/timeout, but early in the job: the full budget is
+        # available, the ~8-min job fits 60 min, so no warning.
+        boto3_mock.dynamodb_client.describe_table.return_value = self._fast_enough_for_full_timeout()
+        _no_autoscaling(boto3_mock)
+        monkeypatch.setattr(table_info, '_job_elapsed_minutes', lambda: 0.0)
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XTimeout': 60}, table_name='t', modes=['read']
+            )
+        assert _timeout_warnings(caplog) == []
 
 
 class TestWiringGuarantees:
