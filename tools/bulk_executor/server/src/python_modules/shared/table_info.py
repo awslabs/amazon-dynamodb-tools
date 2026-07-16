@@ -1,5 +1,6 @@
 import math
 import os
+import time
 
 import boto3
 import botocore.exceptions
@@ -10,6 +11,26 @@ from .pricing import PricingUtility
 
 MIN_RECOMMENDED_READ_RATE = 100
 MIN_RECOMMENDED_WRITE_RATE = 100
+
+# Glue's default job timeout (minutes). Mirrors client GlueJobDefaults.Timeout;
+# used only as a fallback for the duration estimate when --XTimeout is unset.
+DEFAULT_JOB_TIMEOUT_MINUTES = 60
+
+# Monotonic reference captured when this module is first imported, which on a
+# Glue worker is at job startup (root.py imports the verb, which imports this).
+# The #89 check-1 timeout estimate races the next phase against the time
+# *remaining* before the job timeout, not the raw timeout: multi-phase verbs
+# (e.g. delete = scan then write) resolve a later phase's rate only after an
+# earlier phase has already consumed part of the budget, so that phase must
+# look at what's left. Using elapsed here needs no extra IAM (no glue:GetJobRun)
+# and no per-verb plumbing — every verb resolves its rate when the phase begins,
+# so a late phase automatically sees a shrunken budget.
+_JOB_START_MONOTONIC = time.monotonic()
+
+
+def _job_elapsed_minutes():
+    """Minutes elapsed since the job started (module import), never negative."""
+    return max(0.0, (time.monotonic() - _JOB_START_MONOTONIC) / 60.0)
 
 def get_quota_value(quota_name, region_name):
     """
@@ -127,34 +148,48 @@ def get_and_print_dynamodb_table_info(table_name, index_name=None, quiet=False):
             ]
 
         if not quiet:
-            for dimension in scalable_dimensions:
-                scalable_target = autoscaling.describe_scalable_targets(
-                    ServiceNamespace='dynamodb',
-                    ResourceIds=[resource_id],
-                    ScalableDimension=dimension
-                )
-
-                if scalable_target['ScalableTargets']:
-                    target = scalable_target['ScalableTargets'][0]
-                    min_capacity = target['MinCapacity']
-                    max_capacity = target['MaxCapacity']
-                    log.info(f"- {dimension.split(':')[-1]}:")
-                    log.info(f"  Auto Scaling Enabled: Yes")
-                    log.info(f"  Min Capacity: {min_capacity:,}")
-                    log.info(f"  Max Capacity: {max_capacity:,}")
-
-                    # Get scaling policies
-                    policies = autoscaling.describe_scaling_policies(
+            # This is a best-effort DIAGNOSTIC print. The autoscaling lookup
+            # must never crash the job (issue #89): if the Glue role lacks
+            # application-autoscaling:DescribeScalableTargets, note that we
+            # couldn't read the settings and move on — the actual load/read
+            # proceeds and the capacity check in get_dynamodb_throughput_configs
+            # degrades separately. An unguarded call here previously took the
+            # whole job down at info-print time, before any data moved.
+            try:
+                for dimension in scalable_dimensions:
+                    scalable_target = autoscaling.describe_scalable_targets(
                         ServiceNamespace='dynamodb',
-                        ResourceId=resource_id,
+                        ResourceIds=[resource_id],
                         ScalableDimension=dimension
                     )
-                    for policy in policies['ScalingPolicies']:
-                        target_value = policy['TargetTrackingScalingPolicyConfiguration']['TargetValue']
-                        log.info(f"  Target Value: {target_value}")
-                else:
-                    log.info(f"- {dimension.split(':')[-1]}:")
-                    log.info(f"  Auto Scaling Enabled: No")
+
+                    if scalable_target['ScalableTargets']:
+                        target = scalable_target['ScalableTargets'][0]
+                        min_capacity = target['MinCapacity']
+                        max_capacity = target['MaxCapacity']
+                        log.info(f"- {dimension.split(':')[-1]}:")
+                        log.info(f"  Auto Scaling Enabled: Yes")
+                        log.info(f"  Min Capacity: {min_capacity:,}")
+                        log.info(f"  Max Capacity: {max_capacity:,}")
+
+                        # Get scaling policies
+                        policies = autoscaling.describe_scaling_policies(
+                            ServiceNamespace='dynamodb',
+                            ResourceId=resource_id,
+                            ScalableDimension=dimension
+                        )
+                        for policy in policies['ScalingPolicies']:
+                            target_value = policy['TargetTrackingScalingPolicyConfiguration']['TargetValue']
+                            log.info(f"  Target Value: {target_value}")
+                    else:
+                        log.info(f"- {dimension.split(':')[-1]}:")
+                        log.info(f"  Auto Scaling Enabled: No")
+            except Exception as e:
+                log.info(
+                    f"- Could not read autoscaling settings ({str(e)}); skipping "
+                    f"this diagnostic. Grant application-autoscaling:"
+                    f"DescribeScalableTargets to the Glue role to see them."
+                )
 
     else:
         if index_name:
@@ -298,6 +333,192 @@ def get_and_print_table_copy_write_cost(source_info, target_info):
         return od_cost
     return 0
 
+def _bare_table_name(table_ref):
+    """Return the plain table name for a table ref that may be an ARN.
+
+    Autoscaling resource IDs need the bare name (`table/<name>`), whereas the
+    caller may hand us a full ARN (from which we also derive the region).
+    """
+    if table_ref and table_ref.startswith("arn:"):
+        try:
+            resource = _parse_arn(table_ref).get("resource", "")
+        except ValueError:
+            return table_ref
+        if resource.startswith("table/"):
+            # resource may carry a trailing /index/... or :stream:...; the
+            # table name is the first path segment after "table/".
+            return resource[len("table/"):].split("/")[0].split(":")[0]
+        return table_ref
+    return table_ref
+
+
+def _autoscaling_max_capacity(table_name, region_name, dimension):
+    """Return the autoscaling MaxCapacity for a provisioned table dimension.
+
+    `dimension` is 'read' or 'write'. Returns None when the table genuinely
+    has no autoscaling target on that dimension. Raises on API failure so the
+    caller can distinguish "no autoscaling" (safe to treat as hard-provisioned)
+    from "unknown" (must skip the capacity warning to avoid a false positive).
+    """
+    scalable_dimension = (
+        'dynamodb:table:ReadCapacityUnits' if dimension == 'read'
+        else 'dynamodb:table:WriteCapacityUnits'
+    )
+    autoscaling = boto3.client('application-autoscaling', region_name=region_name)
+    resource_id = f'table/{_bare_table_name(table_name)}'
+    response = autoscaling.describe_scalable_targets(
+        ServiceNamespace='dynamodb',
+        ResourceIds=[resource_id],
+        ScalableDimension=scalable_dimension,
+    )
+    targets = response.get('ScalableTargets', [])
+    if targets:
+        return int(targets[0]['MaxCapacity'])
+    return None
+
+
+def _effective_capacity_ceiling(table_desc, is_on_demand, region_name, table_name, dimension):
+    """Resolve the effective throughput ceiling for a user-requested rate.
+
+    Returns a (ceiling, source, soft_floor) tuple describing the most the
+    table can actually deliver on `dimension` ('read' or 'write'):
+
+    - Provisioned, no autoscaling  → (provisioned CU, "provisioned capacity", None)
+    - Provisioned with autoscaling → (autoscaling max, "autoscaling maximum", provisioned CU)
+    - On-demand with a table max    → (table max, "table's on-demand maximum", None)
+    - On-demand, no table max       → (account quota, "account quota", None)
+
+    `soft_floor` is the current provisioned level when autoscaling can climb
+    above it — a request between the floor and ceiling gets a gentler note
+    rather than a hard warning. `ceiling` is None when it can't be determined
+    (e.g. quota lookup failed), signalling the caller to skip the warning.
+    """
+    if is_on_demand:
+        on_demand_throughput = table_desc.get('OnDemandThroughput', {})
+        key = 'MaxReadRequestUnits' if dimension == 'read' else 'MaxWriteRequestUnits'
+        table_max = on_demand_throughput.get(key)
+        if isinstance(table_max, (int, float)) and table_max:
+            return int(table_max), "table's on-demand maximum", None
+        quota_name = (
+            "Table-level read throughput limit" if dimension == 'read'
+            else "Table-level write throughput limit"
+        )
+        quota = get_quota_value(quota_name, region_name)
+        if quota is not None:
+            return int(quota), "account quota", None
+        return None, None, None
+
+    key = 'ReadCapacityUnits' if dimension == 'read' else 'WriteCapacityUnits'
+    provisioned = table_desc.get('ProvisionedThroughput', {}).get(key)
+    if not (isinstance(provisioned, (int, float)) and provisioned):
+        return None, None, None
+    provisioned = int(provisioned)
+    try:
+        autoscaling_max = _autoscaling_max_capacity(table_name, region_name, dimension)
+    except Exception as e:
+        # Can't tell whether autoscaling would lift the ceiling; skip the
+        # capacity warning rather than emit a false "exceeds provisioned" for a
+        # table that may well autoscale above the request. This is the expected
+        # path when the Glue role lacks application-autoscaling:DescribeScalableTargets
+        # (issue #89) — proceed, but surface that we're doing so without
+        # visibility into the table's autoscaling settings.
+        log.warning(
+            f"[{table_name}] Could not read autoscaling settings for the {dimension} "
+            f"dimension ({str(e)}); proceeding without knowledge of the table's "
+            f"autoscaling metrics, so the requested-rate capacity check is skipped. "
+            f"Grant application-autoscaling:DescribeScalableTargets to enable it."
+        )
+        return None, None, None
+    if autoscaling_max is not None:
+        return autoscaling_max, "autoscaling maximum", provisioned
+    return provisioned, "provisioned capacity", None
+
+
+def _warn_if_rate_exceeds_capacity(table_name, dimension, user_rate, table_desc,
+                                    is_on_demand, region_name):
+    """Warn when a user-specified rate exceeds what the table can deliver.
+
+    Implements issue #89 checks 2-5: a hard warning when the request is above
+    the effective ceiling (provisioned/autoscaling-max/on-demand-max/quota),
+    and a softer note when autoscaling can scale up from the current
+    provisioned level to meet the request.
+    """
+    ceiling, source, soft_floor = _effective_capacity_ceiling(
+        table_desc, is_on_demand, region_name, table_name, dimension
+    )
+    if ceiling is None:
+        return
+    user_rate = int(user_rate)
+    if user_rate > ceiling:
+        log.warning(
+            f"[{table_name}] Requested {dimension} rate {user_rate} exceeds the "
+            f"table's {source} of {ceiling}; the table cannot deliver this rate."
+        )
+    elif soft_floor is not None and user_rate > soft_floor:
+        log.warning(
+            f"[{table_name}] Requested {dimension} rate {user_rate} is above the "
+            f"current provisioned {dimension} capacity of {soft_floor}; autoscaling "
+            f"will need to scale up (toward its maximum of {ceiling}) to meet it."
+        )
+
+
+def _warn_if_job_may_timeout(table_name, dimension, rate, table_desc, remaining_minutes):
+    """Warn when the effective rate is too low to finish in the time remaining.
+
+    Implements issue #89 check 1: estimate how long moving the table's data will
+    take at `rate` capacity units/second and, if that exceeds the time *remaining*
+    before the Glue job times out, warn that the job will likely time out before
+    the work completes. The rate may be user-specified or table-derived — either
+    way a rate that is technically valid but too small for the table's size is
+    worth surfacing.
+
+    `remaining_minutes` is the budget for THIS phase — the job timeout minus the
+    time already elapsed — not the raw timeout. Multi-phase verbs (e.g. delete's
+    scan phase then write phase) call this as each phase begins, so a later phase
+    is measured against the time actually left, per Jason's PR #231 review. We
+    deliberately do not predict what future phases will need.
+
+    Uses the same unit formulas as the cost estimators:
+    - read  → ceil(size_bytes / 8096) read units for a full scan
+    - write → item_count * ceil(avg_item_size / 1024) write units
+
+    Estimation is best-effort; missing/zero metadata simply skips the check.
+    """
+    try:
+        rate = int(rate)
+    except (TypeError, ValueError):
+        return
+    if rate <= 0:
+        return
+
+    size_bytes = int(table_desc.get('TableSizeBytes', 0) or 0)
+    item_count = int(table_desc.get('ItemCount', 0) or 0)
+
+    if dimension == "read":
+        total_units = math.ceil(size_bytes / 8096) if size_bytes else 0
+    else:
+        if item_count <= 0 or size_bytes <= 0:
+            total_units = 0
+        else:
+            avg_units_per_item = math.ceil((size_bytes / item_count) / 1024)
+            total_units = item_count * avg_units_per_item
+
+    if total_units <= 0:
+        return
+
+    estimated_seconds = total_units / rate
+    remaining_seconds = max(0.0, remaining_minutes * 60)
+    if estimated_seconds > remaining_seconds:
+        estimated_minutes = estimated_seconds / 60
+        log.warning(
+            f"[{table_name}] Estimated {dimension} time of ~{estimated_minutes:,.0f} min "
+            f"at {rate:,} units/sec for ~{total_units:,} {dimension} units exceeds the "
+            f"~{remaining_minutes:,.0f} min remaining before the job timeout; the job will "
+            f"likely time out before finishing. Increase the rate "
+            f"(e.g. --XMax{dimension.capitalize()}Rate) or the timeout (--XTimeout)."
+        )
+
+
 def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connector"):
     region_name = _region_from_table_ref(table_name) or _default_region()
     if not region_name:
@@ -309,9 +530,26 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
 
     DEFAULT_ON_DEMAND_CAPACITY = 40000
 
+    # Job timeout drives the "will this finish in time?" estimate (#89 check 1).
+    # We race the next phase against the time REMAINING (timeout minus elapsed),
+    # not the raw timeout: this function is called when each phase begins, so a
+    # late phase (e.g. delete's write after its scan) sees a shrunken budget.
+    timeout_minutes = args.get('XTimeout', DEFAULT_JOB_TIMEOUT_MINUTES)
+    try:
+        timeout_minutes = int(timeout_minutes)
+    except (TypeError, ValueError):
+        timeout_minutes = DEFAULT_JOB_TIMEOUT_MINUTES
+    remaining_minutes = timeout_minutes - _job_elapsed_minutes()
+
     # Get table description to determine if it's on-demand or provisioned
     read_rate = args.get('XMaxReadRate', None)   # User set read rate
     write_rate = args.get('XMaxWriteRate', None) # User set write rate
+
+    # Preserve the raw user-specified rates before the branches below may
+    # overwrite read_rate/write_rate with table-derived values; only these
+    # user requests can meaningfully exceed the table's capacity (#89).
+    user_read_rate = read_rate
+    user_write_rate = write_rate
 
     try:
         response = dynamodb.describe_table(TableName=table_name)
@@ -354,7 +592,18 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
                 log.info(f"[{table_name}] Max read rate set internally by Glue (no provisioned level found)") # shouldn't happen
 
         if read_rate is not None and int(read_rate) < MIN_RECOMMENDED_READ_RATE:
-            log.warn(f"[{table_name}] Read rate {read_rate} less than recommended value of {MIN_RECOMMENDED_READ_RATE}.")
+            log.warning(f"[{table_name}] Read rate {read_rate} less than recommended value of {MIN_RECOMMENDED_READ_RATE}.")
+
+        if user_read_rate:
+            _warn_if_rate_exceeds_capacity(
+                table_name, "read", user_read_rate, table_desc,
+                is_on_demand_table, region_name,
+            )
+
+        if read_rate is not None:
+            _warn_if_job_may_timeout(
+                table_name, "read", read_rate, table_desc, remaining_minutes,
+            )
 
     # Handle write throughput
     if "write" in modes:
@@ -387,7 +636,18 @@ def get_dynamodb_throughput_configs(args, table_name, modes=None, format="connec
                 log.info(f"[{table_name}] Max write rate set internally by Glue (no provisioned level found)")
 
         if write_rate is not None and int(write_rate) < MIN_RECOMMENDED_WRITE_RATE:
-            log.warn(f"[{table_name}] Write rate {write_rate} less than recommended value of {MIN_RECOMMENDED_WRITE_RATE}.")
+            log.warning(f"[{table_name}] Write rate {write_rate} less than recommended value of {MIN_RECOMMENDED_WRITE_RATE}.")
+
+        if user_write_rate:
+            _warn_if_rate_exceeds_capacity(
+                table_name, "write", user_write_rate, table_desc,
+                is_on_demand_table, region_name,
+            )
+
+        if write_rate is not None:
+            _warn_if_job_may_timeout(
+                table_name, "write", write_rate, table_desc, remaining_minutes,
+            )
 
     if format == "connector":
         connection_options = {}

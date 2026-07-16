@@ -88,6 +88,7 @@ collapsing them:
 | `test_iam_policy_live.py` | policy | The documented policy *actually* bootstraps a real account (temp IAM user, real `bulk bootstrap`), **and the built-in role is created with the right shape** (not just exit 0 — see invariant #1). Random-negative rotation removes one action per run and asserts bootstrap fails. | Yes — bootstraps/tears-down the shared `bulk_dynamodb` job; guarded by `preserve_shared_glue_job`. |
 | `test_glue_role_shape.py` | role | The **real** `AWSGlueServiceRoleBulkDynamoDB-*` role exists *right now* with the fresh-bootstrap trust policy + required managed policies. Pure read. | No (read-only) |
 | `test_glue_role_refresh.py` | role | The version-mismatch **role-refresh logic** converges a stale trust policy to the fresh-bootstrap shape, against real IAM. | No — runs on a **throwaway** role it creates and deletes. |
+| `test_capacity_warning_missing_perm.py` | role | Issue #89: when the Glue role lacks `application-autoscaling:DescribeScalableTargets`, a live `load` emits the *visibility* warning and the job **still SUCCEEDS** (the paren-form `(AccessDeniedException)` must not trip the wrapper's colon-form early-terminate). | Yes — points the shared job at a **throwaway** role missing only the autoscaling policy, then restores the original role in its own `finally` (backstopped by `preserve_shared_glue_job`). Runs serially, never alongside write smokes. |
 
 **Why the split (the key tradeoff):** the refresh test uses a *throwaway* role
 so it has zero blast radius (safe under parallel runs and during a live Glue
@@ -104,6 +105,38 @@ The shared assertion `assert_builtin_role_shape(region, access)` lives in
 policies rather than importing them from `client/src` — so if bootstrap's own
 constants drift, the test still checks the contract we expect and the mismatch
 surfaces as a failure.
+
+### Capacity-warning coverage (`make test-e2e-capacity-warnings`)
+
+Issue #89 makes bulk warn when a requested `--XMaxReadRate`/`--XMaxWriteRate`
+(or the effective table-derived rate) is too high or too low for the table. The
+warnings fire at **throughput-config setup** — before any data moves — so these
+tests use tiny fixtures (checks 2-5) or a read-only `count` (check 1) and assert
+the exact warning substring in the **live Glue job's log stream** (LiveTail),
+after confirming `JobRunState == SUCCEEDED`. This is the E2E proof that the
+unit-tested warning logic actually surfaces on a real job.
+
+| Scenario | Table shape | Request | Expected live warning |
+|----------|-------------|---------|-----------------------|
+| provisioned, no autoscaling | PROVISIONED 5 WCU | 500 | hard: *exceeds the table's provisioned capacity* |
+| provisioned + autoscaling, above max | PROVISIONED + AS max 100 | 1000 | hard: *exceeds the table's autoscaling maximum* |
+| provisioned + autoscaling, within range | PROVISIONED 5 + AS max 100 | ~52 | soft: *autoscaling will need to scale up* (not the hard warn) |
+| on-demand table max | PAY_PER_REQUEST, MaxWriteRequestUnits 100 | 1000 | hard: *on-demand maximum* |
+| rate too slow for job timeout (check 1) | persistent `write_table` (millions of existing items), tiny `load` | `--XMaxWriteRate 100` | *the job will likely time out before finishing* — job still SUCCEEDS |
+| missing autoscaling permission | PROVISIONED, Glue role without `DescribeScalableTargets` | 500 | visibility: *the requested-rate capacity check is skipped* — job still SUCCEEDS |
+
+The first five live in `whole_system/test_capacity_warnings.py`. Scenarios 1-4
+use transient tables (own throughput shape); scenario 5 (check 1) loads a tiny
+CSV into the persistent `write_table`, because the timeout estimate keys off
+DescribeTable's `ItemCount` (which reads 0 for ~6h after a fresh fill — a
+transient table would false-green). Only ~20 rows are actually written, so the
+estimate warns on the target's millions of existing items while the job still
+finishes fast; it guards with an explicit item-count assertion and refuses to
+pass on a too-small table. The missing-permission scenario lives in
+`security/test_capacity_warning_missing_perm.py` because it must repoint the
+shared job's execution role (see the security table above). The Makefile target
+runs both files serially in one process so the role-flip never overlaps the
+write-capable scenarios.
 
 ## Cleanup
 
