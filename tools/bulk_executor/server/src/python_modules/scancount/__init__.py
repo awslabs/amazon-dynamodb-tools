@@ -55,6 +55,8 @@ def run(job, spark_context, glue_context, parsed_args):
     filter_expression = parsed_args.get('filter_expression')
     expression_values = parsed_args.get('expression_values')
     expression_names = parsed_args.get('expression_names')
+    per_segment = parsed_args.get('per_segment', False)
+    segments = int(parsed_args.get('segments', 200))
 
     # Rate limiter configuration
     bucket_name = parsed_args.get('s3-bucket-name')
@@ -79,7 +81,7 @@ def run(job, spark_context, glue_context, parsed_args):
 
     # Distribute work among partitions, each knowing what segment it's to handle
     try:
-        parallelize_count = 200
+        parallelize_count = segments
         rdd = spark_context.parallelize(range(parallelize_count), parallelize_count)
         rdd.foreach(lambda worker_id: _count_data(monitor_options, table_name, index_name, filter_expression, expression_values, expression_names, worker_id, parallelize_count, total_matched_accumulator, error_accumulator, rate_limiter_shared_config))
         rdd.count()
@@ -93,6 +95,101 @@ def run(job, spark_context, glue_context, parsed_args):
 
     # Print the total records inserted using the accumulator after all tasks complete
     print(f"Total records counted: {total_matched_accumulator.value:,}")
+
+    if per_segment:
+        _print_per_segment_counts(spark_context, monitor_options, table_name,
+                                  index_name, filter_expression, expression_values,
+                                  expression_names, parallelize_count,
+                                  rate_limiter_shared_config)
+
+
+def _print_per_segment_counts(spark_context, monitor_options, table_name,
+                              index_name, filter_expression, expression_values,
+                              expression_names, parallelize_count,
+                              rate_limiter_shared_config):
+    """Collect and print per-segment item counts sorted by count descending."""
+    rdd = spark_context.parallelize(range(parallelize_count), parallelize_count)
+    segment_counts = rdd.map(
+        lambda worker_id: (worker_id, _count_segment(
+            monitor_options, table_name, index_name, filter_expression,
+            expression_values, expression_names, worker_id, parallelize_count,
+            rate_limiter_shared_config))
+    ).collect()
+
+    segment_counts.sort(key=lambda x: x[1], reverse=True)
+
+    total = sum(count for _, count in segment_counts)
+    mean = total / parallelize_count if parallelize_count > 0 else 0
+
+    print(f"\n{'Segment':>8}  {'Count':>12}  {'% of Total':>10}")
+    print(f"{'-------':>8}  {'-----':>12}  {'----------':>10}")
+    for segment, count in segment_counts:
+        pct = (count / total * 100) if total > 0 else 0
+        print(f"{segment:>8}  {count:>12,}  {pct:>9.1f}%")
+    print(f"{'-------':>8}  {'-----':>12}  {'----------':>10}")
+    print(f"{'Total':>8}  {total:>12,}")
+    print(f"{'Mean':>8}  {mean:>12,.1f}")
+
+    if mean > 0:
+        max_count = segment_counts[0][1]
+        skew_ratio = max_count / mean
+        print(f"\nSkew ratio (max/mean): {skew_ratio:.2f}x")
+        if skew_ratio > 5:
+            print("WARNING: Significant data skew detected. "
+                  "The hottest segment has >5x the average item count.")
+
+
+def _count_segment(monitor_options, table_name, index_name, filter_expression,
+                   expression_values, expression_names, segment, total_segments,
+                   rate_limiter_shared_config):
+    """Count items in a single segment. Returns the count (no accumulator side-effects)."""
+    rate_limiter_worker = RateLimiterWorker(
+        shared_config=rate_limiter_shared_config,
+        **monitor_options
+    )
+
+    session = rate_limiter_worker.get_session()
+    dynamodb_resource = session.resource('dynamodb', config=Config(
+        connect_timeout=4.0,
+        read_timeout=4.0,
+        retries={
+            'mode': 'standard',
+            'total_max_attempts': 50
+        }
+    ))
+
+    local_count = 0
+
+    try:
+        table = dynamodb_resource.Table(table_name)
+
+        scan_kwargs = {
+            "TableName": table_name,
+            "Select": "COUNT",
+            "Segment": segment,
+            "TotalSegments": total_segments
+        }
+        if index_name:
+            scan_kwargs["IndexName"] = index_name
+        if filter_expression:
+            scan_kwargs["FilterExpression"] = filter_expression
+        if expression_names:
+            scan_kwargs["ExpressionAttributeNames"] = json.loads(expression_names, cls=DecimalEncoder)
+        if expression_values:
+            scan_kwargs["ExpressionAttributeValues"] = json.loads(expression_values, cls=DecimalEncoder)
+
+        while True:
+            response = table.scan(**scan_kwargs)
+            local_count += response.get("Count", 0)
+            if "LastEvaluatedKey" not in response:
+                break
+            scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+    except Exception as e:
+        log.warning(f"Error in segment {segment}: {get_error_message(e)}")
+    finally:
+        rate_limiter_worker.shutdown()
+
+    return local_count
 
 def _count_data(monitor_options, table_name, index_name, filter_expression, expression_values, expression_names, segment, total_segments, total_matched_accumulator, error_accumulator, rate_limiter_shared_config):
 

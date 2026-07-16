@@ -77,6 +77,15 @@ Here are some example use cases:
 # Use single quotes around the JSON and double quotes within!
 ./bulk scancount --table t --index i --filter-expression "a = :aval" --expression-values '{":aval":"foo"}'
 
+# Add --per-segment to print each segment's item count (sorted, with a
+# skew ratio and a warning when the hottest segment exceeds 5x the mean).
+# Useful for diagnosing hot partitions / uneven key distribution.
+./bulk scancount --table t --per-segment
+
+# By default scancount uses 200 parallel scan segments. Use --segments to
+# tune that — fewer for small tables, more to increase per-segment resolution.
+./bulk scancount --table t --per-segment --segments 50
+
 
 # Compare two tables for differences (uses segmented scans internally)
 ./bulk diff --table t --table2 t2
@@ -463,6 +472,8 @@ If you ever want to stop execution early, you can hit Control-C. The interrupt w
 * Performs a parallel scan to count items. Leverages DynamoDB's `Select=COUNT` parameter on the `scan` call so only a count is returned on each internal DynamoDB scan call for maximum performance and memory efficiency.
 * Accepts an optional `index` name to scan an index, suitable if there's an appropriate sparse index that would be faster to scan than the base table.
 * Accepts a `filter-expression` to filter down the items counted. This expression uses the usual DynamoDB syntax. Requires a supporting  `expression-values` parameter and sometimes `expression-names`, as with usual DynamoDB scan calls.
+* Accepts an optional `per-segment` flag to print the item count for each scan segment (sorted descending, with each segment's share of the total). It also reports a skew ratio (hottest segment count / mean) and warns when that ratio exceeds 5x, which indicates an uneven key distribution / hot partition.
+* Accepts an optional `segments` parameter to control how many parallel scan segments are used (default 200). Lower it for small tables; raise it for finer per-segment resolution when diagnosing skew.
 
 #### `diff`
 

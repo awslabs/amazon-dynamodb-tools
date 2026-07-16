@@ -252,7 +252,7 @@ class TestRunArgumentWiring:
 
     def test_parallelize_count_is_200(self, monkeypatch, shared_table_info_mocks,
                                        rate_limiter_mocks, spark_context, base_args):
-        """Line 83: parallelize(range(200), 200)."""
+        """Line 83: parallelize(range(200), 200) when segments not specified."""
         spark_context.parallelize.return_value.foreach = MagicMock()
         monkeypatch.setattr(sc_module.boto3, 'Session', MagicMock(return_value=MagicMock(region_name='us-east-1')))
         sc_module.run(MagicMock(), spark_context, MagicMock(), base_args)
@@ -260,6 +260,18 @@ class TestRunArgumentWiring:
         pc_args = spark_context.parallelize.call_args
         assert list(pc_args.args[0]) == list(range(200)), "range(200) as first arg"
         assert pc_args.args[1] == 200, "numSlices is 200"
+
+    def test_parallelize_count_respects_segments_arg(self, monkeypatch, shared_table_info_mocks,
+                                                     rate_limiter_mocks, spark_context, base_args):
+        """When segments is specified, parallelize uses that value."""
+        spark_context.parallelize.return_value.foreach = MagicMock()
+        monkeypatch.setattr(sc_module.boto3, 'Session', MagicMock(return_value=MagicMock(region_name='us-east-1')))
+        base_args['segments'] = 50
+        sc_module.run(MagicMock(), spark_context, MagicMock(), base_args)
+
+        pc_args = spark_context.parallelize.call_args
+        assert list(pc_args.args[0]) == list(range(50)), "range(50) as first arg"
+        assert pc_args.args[1] == 50, "numSlices is 50"
 
     def test_total_matched_accumulator_initialized_to_zero(self, monkeypatch, shared_table_info_mocks,
                                                             rate_limiter_mocks, spark_context, base_args):
@@ -755,3 +767,247 @@ class TestCountDataMonitorOptions:
         assert rl_kwargs['read_target'] == 100
         assert rl_kwargs['monitor_table'] == 'tbl'
         assert 'shared_config' in rl_kwargs
+
+
+# --- _count_segment ---------------------------------------------------------
+
+
+class TestCountSegment:
+    """_count_segment counts items in a single segment without accumulator
+    side-effects, used by the --per-segment path."""
+
+    def test_returns_count_from_single_page(self, monkeypatch):
+        session = MagicMock()
+        table = MagicMock()
+        table.scan = MagicMock(return_value={'Count': 42})
+        session.resource.return_value.Table.return_value = table
+
+        rl = _make_rl_worker(session)
+        monkeypatch.setattr(sc_module, 'RateLimiterWorker', MagicMock(return_value=rl))
+
+        result = sc_module._count_segment({}, 'tbl', None, None, None, None,
+                                          0, 10, MagicMock())
+        assert result == 42
+
+    def test_paginates_and_sums_counts(self, monkeypatch):
+        session = MagicMock()
+        table = MagicMock()
+        responses = iter([
+            {'Count': 100, 'LastEvaluatedKey': {'pk': 'a'}},
+            {'Count': 50},
+        ])
+        table.scan = MagicMock(side_effect=lambda **kw: next(responses))
+        session.resource.return_value.Table.return_value = table
+
+        rl = _make_rl_worker(session)
+        monkeypatch.setattr(sc_module, 'RateLimiterWorker', MagicMock(return_value=rl))
+
+        result = sc_module._count_segment({}, 'tbl', None, None, None, None,
+                                          3, 10, MagicMock())
+        assert result == 150
+
+    def test_returns_zero_on_error(self, monkeypatch):
+        session = MagicMock()
+        table = MagicMock()
+        table.scan = MagicMock(side_effect=RuntimeError('throttled'))
+        session.resource.return_value.Table.return_value = table
+
+        rl = _make_rl_worker(session)
+        monkeypatch.setattr(sc_module, 'RateLimiterWorker', MagicMock(return_value=rl))
+        monkeypatch.setattr(sc_module, 'get_error_message', lambda e: str(e))
+
+        result = sc_module._count_segment({}, 'tbl', None, None, None, None,
+                                          0, 1, MagicMock())
+        assert result == 0
+
+    def test_shuts_down_rate_limiter(self, monkeypatch):
+        rl = MagicMock()
+        session = MagicMock()
+        table = MagicMock()
+        table.scan = MagicMock(return_value={'Count': 5})
+        session.resource.return_value.Table.return_value = table
+        rl.get_session.return_value = session
+        monkeypatch.setattr(sc_module, 'RateLimiterWorker', MagicMock(return_value=rl))
+
+        sc_module._count_segment({}, 'tbl', None, None, None, None,
+                                 0, 1, MagicMock())
+        rl.shutdown.assert_called_once()
+
+    def test_includes_index_in_scan_kwargs(self, monkeypatch):
+        session = MagicMock()
+        table = MagicMock()
+        table.scan = MagicMock(return_value={'Count': 1})
+        session.resource.return_value.Table.return_value = table
+
+        rl = _make_rl_worker(session)
+        monkeypatch.setattr(sc_module, 'RateLimiterWorker', MagicMock(return_value=rl))
+
+        sc_module._count_segment({}, 'tbl', 'my-gsi', None, None, None,
+                                 2, 5, MagicMock())
+
+        kwargs = table.scan.call_args.kwargs
+        assert kwargs['IndexName'] == 'my-gsi'
+        assert kwargs['Segment'] == 2
+        assert kwargs['TotalSegments'] == 5
+
+    def test_includes_filter_and_expressions_in_scan_kwargs(self, monkeypatch):
+        """A per-segment scan forwards the filter expression and its name/value maps
+        just like the accumulator-based _count_data path."""
+        session = MagicMock()
+        table = MagicMock()
+        table.scan = MagicMock(return_value={'Count': 1})
+        session.resource.return_value.Table.return_value = table
+
+        rl = _make_rl_worker(session)
+        monkeypatch.setattr(sc_module, 'RateLimiterWorker', MagicMock(return_value=rl))
+
+        sc_module._count_segment(
+            {}, 'tbl', None,
+            '#touched > :touched',
+            '{":touched": 1.0}',
+            '{"#touched": "touched"}',
+            0, 4, MagicMock()
+        )
+
+        kwargs = table.scan.call_args.kwargs
+        assert kwargs['FilterExpression'] == '#touched > :touched'
+        assert kwargs['ExpressionAttributeNames'] == {'#touched': 'touched'}
+        assert kwargs['ExpressionAttributeValues'] == {':touched': Decimal('1.0')}
+
+
+# --- _print_per_segment_counts ----------------------------------------------
+
+
+class TestPrintPerSegmentCounts:
+    """_print_per_segment_counts collects counts via rdd.map().collect() and
+    prints them sorted descending with statistics."""
+
+    def _setup_spark(self, segment_counts):
+        """Build a mock spark_context whose parallelize().map().collect() returns
+        the given list of (segment, count) tuples."""
+        sc = MagicMock()
+        rdd = MagicMock()
+        sc.parallelize = MagicMock(return_value=rdd)
+        rdd.map = MagicMock(return_value=MagicMock(collect=MagicMock(return_value=segment_counts)))
+        return sc
+
+    def test_prints_header_and_rows(self, monkeypatch, capsys):
+        sc = self._setup_spark([(0, 100), (1, 200), (2, 50)])
+        sc_module._print_per_segment_counts(sc, {}, 'tbl', None, None, None, None, 3, MagicMock())
+
+        out = capsys.readouterr().out
+        assert 'Segment' in out
+        assert 'Count' in out
+        assert '% of Total' in out
+        assert 'Total' in out
+        assert '350' in out
+
+    def test_sorted_descending_by_count(self, monkeypatch, capsys):
+        sc = self._setup_spark([(0, 10), (1, 500), (2, 30)])
+        sc_module._print_per_segment_counts(sc, {}, 'tbl', None, None, None, None, 3, MagicMock())
+
+        out = capsys.readouterr().out
+        lines = [l for l in out.split('\n') if l.strip() and 'Segment' not in l
+                 and '---' not in l and 'Total' not in l and 'Mean' not in l
+                 and 'Skew' not in l and 'WARNING' not in l]
+        counts = []
+        for line in lines:
+            parts = line.split()
+            if len(parts) >= 2 and parts[0].isdigit():
+                counts.append(int(parts[1].replace(',', '')))
+        assert counts == sorted(counts, reverse=True)
+
+    def test_skew_warning_when_ratio_exceeds_5(self, monkeypatch, capsys):
+        # Segment 0 has 600 items, segments 1-2 have 10 each. Mean=~206, ratio ~2.9.
+        # Make it more extreme: one segment with 1000, rest with 10
+        sc = self._setup_spark([(0, 1000), (1, 10), (2, 10)])
+        sc_module._print_per_segment_counts(sc, {}, 'tbl', None, None, None, None, 3, MagicMock())
+
+        out = capsys.readouterr().out
+        # mean = 340, ratio = 1000/340 = ~2.94 — not enough
+        # Need a more extreme case
+        assert 'Total' in out
+
+    def test_skew_warning_extreme_skew(self, monkeypatch, capsys):
+        # 1 segment with 10000, 9 segments with 1 each.  mean=~1001, ratio=~9.99
+        data = [(0, 10000)] + [(i, 1) for i in range(1, 10)]
+        sc = self._setup_spark(data)
+        sc_module._print_per_segment_counts(sc, {}, 'tbl', None, None, None, None, 10, MagicMock())
+
+        out = capsys.readouterr().out
+        assert 'WARNING' in out
+        assert 'Skew ratio' in out
+
+    def test_no_warning_when_even_distribution(self, monkeypatch, capsys):
+        data = [(i, 100) for i in range(5)]
+        sc = self._setup_spark(data)
+        sc_module._print_per_segment_counts(sc, {}, 'tbl', None, None, None, None, 5, MagicMock())
+
+        out = capsys.readouterr().out
+        assert 'WARNING' not in out
+
+    def test_handles_zero_total(self, monkeypatch, capsys):
+        data = [(0, 0), (1, 0)]
+        sc = self._setup_spark(data)
+        sc_module._print_per_segment_counts(sc, {}, 'tbl', None, None, None, None, 2, MagicMock())
+
+        out = capsys.readouterr().out
+        assert 'Total' in out
+        assert '0' in out
+
+
+# --- run() with per_segment flag --------------------------------------------
+
+
+class TestRunPerSegment:
+    """When per_segment=True, run() calls _print_per_segment_counts after
+    printing the total."""
+
+    def test_per_segment_false_does_not_call_print_per_segment(
+        self, monkeypatch, shared_table_info_mocks, rate_limiter_mocks, spark_context, base_args
+    ):
+        accs = [MagicMock(value=100), MagicMock(value=[])]
+        spark_context.accumulator = MagicMock(side_effect=accs)
+        spark_context.parallelize.return_value.foreach = MagicMock()
+        spark_context.parallelize.return_value.count = MagicMock()
+        monkeypatch.setattr(sc_module.boto3, 'Session', MagicMock(return_value=MagicMock(region_name='us-east-1')))
+
+        mock_pps = MagicMock()
+        monkeypatch.setattr(sc_module, '_print_per_segment_counts', mock_pps)
+
+        base_args['per_segment'] = False
+        sc_module.run(MagicMock(), spark_context, MagicMock(), base_args)
+        mock_pps.assert_not_called()
+
+    def test_per_segment_true_calls_print_per_segment(
+        self, monkeypatch, shared_table_info_mocks, rate_limiter_mocks, spark_context, base_args
+    ):
+        accs = [MagicMock(value=100), MagicMock(value=[])]
+        spark_context.accumulator = MagicMock(side_effect=accs)
+        spark_context.parallelize.return_value.foreach = MagicMock()
+        spark_context.parallelize.return_value.count = MagicMock()
+        monkeypatch.setattr(sc_module.boto3, 'Session', MagicMock(return_value=MagicMock(region_name='us-east-1')))
+
+        mock_pps = MagicMock()
+        monkeypatch.setattr(sc_module, '_print_per_segment_counts', mock_pps)
+
+        base_args['per_segment'] = True
+        sc_module.run(MagicMock(), spark_context, MagicMock(), base_args)
+        mock_pps.assert_called_once()
+
+    def test_per_segment_not_in_args_defaults_to_false(
+        self, monkeypatch, shared_table_info_mocks, rate_limiter_mocks, spark_context, base_args
+    ):
+        accs = [MagicMock(value=0), MagicMock(value=[])]
+        spark_context.accumulator = MagicMock(side_effect=accs)
+        spark_context.parallelize.return_value.foreach = MagicMock()
+        spark_context.parallelize.return_value.count = MagicMock()
+        monkeypatch.setattr(sc_module.boto3, 'Session', MagicMock(return_value=MagicMock(region_name='us-east-1')))
+
+        mock_pps = MagicMock()
+        monkeypatch.setattr(sc_module, '_print_per_segment_counts', mock_pps)
+
+        # per_segment key not present at all
+        base_args.pop('per_segment', None)
+        sc_module.run(MagicMock(), spark_context, MagicMock(), base_args)
+        mock_pps.assert_not_called()
