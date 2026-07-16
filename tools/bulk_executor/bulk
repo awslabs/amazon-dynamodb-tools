@@ -93,6 +93,9 @@ if(is_client_and_server_action): # Only run the server if the client script DNE 
     args = utils.get_args_from_processed_args(processed_args)
     script_args = utils.convert_client_dict_to_script_args(processed_args)
 
+    # Cost gate - check estimated cost before launching Glue
+    utils.check_cost_gate(env_configs, processed_args)
+
     # Dev Mode - Push new code to S3 without a full bootstrap
     if(args.get('XDev')):
         BootstrapInfrastructure(env_configs).update_python_modules_in_s3()
