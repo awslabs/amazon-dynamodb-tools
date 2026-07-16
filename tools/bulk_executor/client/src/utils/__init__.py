@@ -107,6 +107,9 @@ def glue_job_arguments():
     parser.add_argument("--XMaxWriteRate", type=int, default=argparse.SUPPRESS, help="Maximum amount of write units to consume per second.")
     parser.add_argument("--XMaxReadRate", type=int, default=argparse.SUPPRESS, help="Maximum amount of read units to consume per second.")
 
+    # Cost guard
+    parser.add_argument("--XMaxEstimatedCostAllowed", type=float, default=argparse.SUPPRESS, help="Maximum allowed estimated DynamoDB cost (in dollars). If the estimated cost exceeds this value, the job will not be launched.")
+
     return parser
 
 def environment_arguments():
@@ -246,6 +249,132 @@ def validate_tables(env_configs, parser, *tables, index=None, pitr_enabled=False
                 for name in shared:
                     if lsi_a[name] != lsi_b[name]:
                         warn(f"LSI '{name}' differs between '{reference_table}' and '{table_name}'")
+
+
+def estimate_cost(env_configs, processed_args):
+    """
+    Estimate the DynamoDB cost of a job based on table size and operation type.
+    Returns the estimated cost in dollars.
+    """
+    import math
+
+    region = env_configs.aws_region
+    clients = Clients(region)
+    dynamodb_client = clients.dynamodb_client
+
+    tables = []
+    if 'table' in processed_args:
+        tables.append(('read', processed_args['table']))
+    if 'source' in processed_args:
+        tables.append(('read', processed_args['source']))
+    if 'target' in processed_args:
+        tables.append(('write', processed_args['target']))
+
+    if not tables:
+        return 0.0
+
+    total_cost = 0.0
+    pricing_client = boto3.client('pricing', region_name='us-east-1')
+
+    for operation, table_name in tables:
+        try:
+            table_ref_region = _region_from_table_ref(table_name) or region
+            regional_client = Clients(table_ref_region).dynamodb_client
+            response = regional_client.describe_table(TableName=table_name)
+            table_desc = response['Table']
+        except ClientError:
+            continue
+
+        item_count = table_desc.get('ItemCount', 0)
+        size_bytes = table_desc.get('TableSizeBytes', 0)
+        billing_mode = table_desc.get('BillingModeSummary', {}).get('BillingMode', 'PROVISIONED')
+
+        table_class = table_desc.get('TableClassSummary', {}).get('TableClass', 'STANDARD')
+        if table_class == 'STANDARD_INFREQUENT_ACCESS':
+            write_pricing_category = 'ia_wcu_pricing'
+            read_pricing_category = 'ia_rcu_pricing'
+        else:
+            write_pricing_category = 'std_wcu_pricing'
+            read_pricing_category = 'std_rcu_pricing'
+
+        try:
+            pricing_response = pricing_client.get_products(
+                ServiceCode='AmazonDynamoDB',
+                Filters=[
+                    {'Type': 'TERM_MATCH', 'Field': 'productFamily', 'Value': 'Amazon DynamoDB PayPerRequest Throughput'},
+                    {'Type': 'TERM_MATCH', 'Field': 'regionCode', 'Value': table_ref_region}
+                ],
+                FormatVersion='aws_v1',
+                MaxResults=100
+            )
+            ondemand_pricing = {}
+            for entry in pricing_response['PriceList']:
+                product = json.loads(entry)
+                product_group = product['product']['attributes']['group']
+                offer = product['terms']['OnDemand'].popitem()
+                price_dimensions = offer[1]['priceDimensions']
+                for dim_code in price_dimensions:
+                    price = float(price_dimensions[dim_code]['pricePerUnit']['USD'])
+                    if price != 0:
+                        if product_group == 'DDB-ReadUnits':
+                            ondemand_pricing['std_rcu_pricing'] = price
+                        elif product_group == 'DDB-WriteUnits':
+                            ondemand_pricing['std_wcu_pricing'] = price
+                        elif product_group == 'DDB-ReadUnitsIA':
+                            ondemand_pricing['ia_rcu_pricing'] = price
+                        elif product_group == 'DDB-WriteUnitsIA':
+                            ondemand_pricing['ia_wcu_pricing'] = price
+        except Exception:
+            ondemand_pricing = {
+                'std_rcu_pricing': 0.00000025,
+                'std_wcu_pricing': 0.00000125,
+                'ia_rcu_pricing': 0.00000025,
+                'ia_wcu_pricing': 0.00000125,
+            }
+
+        if operation == 'read':
+            read_units = math.ceil(size_bytes / 8096)
+            unit_cost = float(ondemand_pricing.get(read_pricing_category, 0.00000025))
+            cost = read_units * unit_cost
+            if billing_mode == 'PROVISIONED':
+                cost = cost / 1.5
+            total_cost += cost
+        elif operation == 'write':
+            if item_count == 0:
+                continue
+            avg_size = size_bytes / item_count
+            avg_write_units_per_item = math.ceil(avg_size / 1024)
+            write_units = item_count * avg_write_units_per_item
+            unit_cost = float(ondemand_pricing.get(write_pricing_category, 0.00000125))
+            cost = write_units * unit_cost
+            if billing_mode == 'PROVISIONED':
+                cost = cost / 1.5
+            total_cost += cost
+
+    return total_cost
+
+
+def check_cost_gate(env_configs, processed_args):
+    """
+    Check if estimated cost exceeds the --XMaxEstimatedCostAllowed threshold.
+    Returns True if the job should proceed, exits with error if cost is too high.
+    """
+    max_cost = processed_args.get('XMaxEstimatedCostAllowed')
+    if max_cost is None:
+        return True
+
+    estimated_cost = estimate_cost(env_configs, processed_args)
+    log.info(f"Estimated DynamoDB cost: ${estimated_cost:,.2f}")
+    log.info(f"Maximum allowed cost: ${max_cost:,.2f}")
+
+    if estimated_cost > max_cost:
+        sys.exit(
+            f"Estimated cost ${estimated_cost:,.2f} exceeds the maximum allowed cost of "
+            f"${max_cost:,.2f}. Job will not be launched. "
+            f"Increase --XMaxEstimatedCostAllowed or reduce the scope of the operation."
+        )
+
+    return True
 
 
 def sanitize_arg(value, pattern, replacement=''):
