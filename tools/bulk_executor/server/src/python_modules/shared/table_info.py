@@ -205,6 +205,8 @@ def get_and_print_dynamodb_table_info(table_name, index_name=None, quiet=False):
     }
 
 def get_and_print_table_scan_cost(table_info, region_name=None, fraction=1.0, numberOfScans=1):
+    # For cross-region scenarios, callers must pass region_name explicitly.
+    # The fallback to _default_region() is correct for single-region verbs.
     region_name = (
         region_name
         or table_info.get("region_name")
@@ -268,6 +270,8 @@ def get_and_print_table_write_cost(table_info, item_count, size_bytes):
     return 0
 
 def get_and_print_table_copy_write_cost(source_info, target_info):
+    # For cross-region, target_info should include "region_name" so pricing
+    # uses the target region. Falls back to default region for single-region usage.
     region_name = (
         target_info.get("region_name") # it's the target we price writes in
         or _default_region()
@@ -454,3 +458,16 @@ def _region_from_table_ref(table_ref: str) -> str | None:
         return None
     return arn.get("region")
 
+def infer_region(table_ref: str) -> str:
+    """
+    Infers the most appropriate region to use for a table reference:
+    If an ARN is provided, that region is used. Without an ARN,
+    we look on the client or the environment for the region.
+    If nothing succeeds, this results in an exception.
+    :param table_ref: reference to table like ARN or its name
+    :return: region in which we assume table to be
+    """
+    region_name = _region_from_table_ref(table_ref) or _default_region()
+    if not region_name:
+        raise ValueError(f"Unable to determine region_name from {table_ref} or environment.")
+    return region_name
