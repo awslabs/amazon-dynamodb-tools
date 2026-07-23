@@ -79,7 +79,10 @@ Here are some example use cases:
 
 
 # Compare two tables for differences (uses segmented scans internally)
+# You can specify a name or a full ARN. Using an ARN lets you drive work cross-region and cross-account!
+# If going cross-account, you need a resource-based policy on the table to allow access.
 ./bulk diff --table t --table2 t2
+./bulk diff --table arn:aws:dynamodb:us-east-1:123456789012:table/t --table2 arn:aws:dynamodb:us-west-2:987654321098:table/t2
 
 # The default diff format is "keys" to show primary keys having changes with +/-/* for adds/removes/changes
 # Specifying the format "full" outputs the total items with +/- for before/after
