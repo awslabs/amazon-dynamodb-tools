@@ -90,3 +90,20 @@ def test_write_failure_leaves_no_partial_parquet(tmp_path, monkeypatch):
     part = paths.get_lake_dir() / "account=a" / "region=us-east-1" / "table=t"
     assert list(part.glob("*.parquet")) == []
     assert list(part.glob("*.tmp")) == []
+
+
+def test_latest_timestamps_shape(tmp_path, monkeypatch):
+    lake = _lake(tmp_path, monkeypatch)
+    t1 = datetime(2026, 6, 1, 0, 0, tzinfo=timezone.utc)
+    t2 = datetime(2026, 6, 1, 0, 1, tzinfo=timezone.utc)
+    lake.write_metrics([
+        _row("a", "us-east-1", "t", "ConsumedWriteCapacityUnits", t1, 1.0, stat="Sum", period=60),
+        _row("a", "us-east-1", "t", "ConsumedWriteCapacityUnits", t2, 2.0, stat="Sum", period=60),
+    ], run_id="r1")
+    cov = lake.latest_timestamps("a", "us-east-1", "t")
+    assert cov["ConsumedWriteCapacityUnits:Sum:60"] == t2
+
+
+def test_latest_timestamps_empty(tmp_path, monkeypatch):
+    lake = _lake(tmp_path, monkeypatch)
+    assert lake.latest_timestamps("nope", "us-east-1", "t") == {}

@@ -100,3 +100,42 @@ def read_metrics(account_id: str, region: str, table_name: str, start, end):
             """,
             [start, end],
         ).df()
+
+
+def latest_timestamps(account_id: str, region: str, table_name: str) -> dict:
+    """Return {"metric:statistic:period": max_timestamp} for gap-detection.
+
+    Empty dict if no data (caller collects the full window). Timezone-aware UTC.
+    """
+    import glob as _glob_mod
+
+    pattern = _glob(account_id, region, table_name)
+    if not _glob_mod.glob(pattern):
+        return {}
+
+    db = get_database_manager()
+    with db.get_connection_context() as conn:
+        # Use .df() rather than .fetchall(): DuckDB's native TIMESTAMPTZ ->
+        # Python datetime conversion in fetchall() requires the optional
+        # 'pytz' package, which is not a project dependency. Pandas performs
+        # its own tz-aware conversion in .df() without that dependency.
+        df = conn.execute(
+            f"""
+            SELECT metric_name, statistic, period_seconds,
+                   MAX(timestamp) AS latest
+            FROM read_parquet('{pattern}', union_by_name=true)
+            GROUP BY metric_name, statistic, period_seconds
+            """
+        ).df()
+
+    coverage = {}
+    for row in df.itertuples(index=False):
+        latest = row.latest
+        if latest is not None and hasattr(latest, "to_pydatetime"):
+            latest = latest.to_pydatetime()
+        if latest is not None and getattr(latest, "tzinfo", None) is None:
+            latest = latest.replace(tzinfo=timezone.utc)
+        else:
+            latest = latest.astimezone(timezone.utc) if latest is not None else None
+        coverage[f"{row.metric_name}:{row.statistic}:{row.period_seconds}"] = latest
+    return coverage
