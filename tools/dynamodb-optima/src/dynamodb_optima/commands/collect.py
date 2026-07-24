@@ -162,21 +162,20 @@ def collect(
         # Handle truncate flag
         metrics_before = 0
         if truncate:
-            click.echo("⚠️  Truncating metrics table...")
-            from ..database.connection import get_database_manager
-            db_manager = get_database_manager()
-            with db_manager.get_connection_context() as conn:
-                conn.execute("DELETE FROM metrics")
-            click.echo("✅ Metrics table truncated")
+            click.echo("⚠️  Truncating metrics lake...")
+            import shutil
+
+            from ..paths import get_lake_dir
+            lake_dir = get_lake_dir()
+            if lake_dir.exists():
+                shutil.rmtree(lake_dir)
+            click.echo("✅ Metrics lake truncated")
             click.echo()
         else:
-            # Get metrics count before collection
-            from ..database.connection import get_database_manager
-            db_manager = get_database_manager()
+            # Get metrics count before collection (metrics live in the Parquet lake now)
             try:
-                result_before = db_manager.execute_query("SELECT COUNT(*) as count FROM metrics")
-                metrics_before = result_before[0]['count'] if result_before else 0
-            except:
+                metrics_before = collector.list_collected_metrics_summary()["total_metrics"]
+            except Exception:
                 metrics_before = 0
         
         # Get unique accounts from table_metadata (per user's suggestion)
@@ -240,13 +239,10 @@ def collect(
         # Capture the actual operation_id from the result
         actual_operation_id = result.operation_id
         
-        # Get metrics count after collection
-        from ..database.connection import get_database_manager
-        db_manager = get_database_manager()
+        # Get metrics count after collection (metrics live in the Parquet lake now)
         try:
-            result_after = db_manager.execute_query("SELECT COUNT(*) as count FROM metrics")
-            metrics_after = result_after[0]['count'] if result_after else 0
-        except:
+            metrics_after = collector.list_collected_metrics_summary()["total_metrics"]
+        except Exception:
             metrics_after = 0
         
         new_metrics = metrics_after - metrics_before
