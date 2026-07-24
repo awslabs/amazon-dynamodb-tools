@@ -46,3 +46,47 @@ def test_write_metrics_partitions_by_region_no_overwrite(tmp_path, monkeypatch):
     w = lake.read_metrics("111122223333", "us-west-2", "t", ts, ts)
     assert e["value"].tolist() == [100.0]
     assert w["value"].tolist() == [200.0]
+
+
+def test_read_metrics_dedups_latest_ingest(tmp_path, monkeypatch):
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics([_row("a", "us-east-1", "t", "m", ts, 100.0)], run_id="run1")
+    lake.write_metrics([_row("a", "us-east-1", "t", "m", ts, 175.0)], run_id="run2")
+    df = lake.read_metrics("a", "us-east-1", "t", ts, ts)
+    assert df["value"].tolist() == [175.0]
+
+
+def test_read_metrics_empty_partition_returns_empty(tmp_path, monkeypatch):
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    df = lake.read_metrics("nope", "us-east-1", "t", ts, ts)
+    assert df.empty
+
+
+def test_write_failure_leaves_no_partial_parquet(tmp_path, monkeypatch):
+    """A failed COPY must never leave a readable .parquet (only .tmp, cleaned up)."""
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    rows = [_row("a", "us-east-1", "t", "m", ts, 1.0)]
+
+    class _BoomConn:
+        def register(self, *a, **k): pass
+        def unregister(self, *a, **k): pass
+        def execute(self, sql, *a, **k):
+            raise RuntimeError("boom")
+    class _Ctx:
+        def __enter__(self): return _BoomConn()
+        def __exit__(self, *a): return False
+    class _DB:
+        def get_connection_context(self): return _Ctx()
+
+    monkeypatch.setattr(lake, "get_database_manager", lambda: _DB())
+    import pytest
+    with pytest.raises(RuntimeError):
+        lake.write_metrics(rows, run_id="rboom")
+
+    from dynamodb_optima import paths
+    part = paths.get_lake_dir() / "account=a" / "region=us-east-1" / "table=t"
+    assert list(part.glob("*.parquet")) == []
+    assert list(part.glob("*.tmp")) == []
