@@ -19,7 +19,8 @@ from .connection import get_database_manager
 logger = get_logger("dynamodb_optima.database.lake")
 
 _DEDUP_KEY = (
-    "account_id, region, table_name, metric_name, timestamp, statistic, period_seconds"
+    "account_id, region, table_name, resource_name, metric_name, timestamp, "
+    "statistic, period_seconds"
 )
 
 

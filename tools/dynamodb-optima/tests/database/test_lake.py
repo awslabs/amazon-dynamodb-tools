@@ -57,6 +57,20 @@ def test_read_metrics_dedups_latest_ingest(tmp_path, monkeypatch):
     assert df["value"].tolist() == [175.0]
 
 
+def test_read_metrics_dedup_key_distinguishes_resource_name(tmp_path, monkeypatch):
+    """A TABLE row and its GSI's row can share account/region/table/metric/timestamp/
+    statistic/period (only resource_name differs). Dedup must not collapse them."""
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    table_row = _row("a", "us-east-1", "t", "ConsumedReadCapacityUnits", ts, 60.0)
+    gsi_row = dict(table_row, resource_name="t#gsi1", resource_type="GSI", value=999.0)
+    lake.write_metrics([table_row], run_id="run_table")
+    lake.write_metrics([gsi_row], run_id="run_gsi")
+
+    df = lake.read_metrics("a", "us-east-1", "t", ts, ts)
+    assert sorted(df["value"].tolist()) == [60.0, 999.0]
+
+
 def test_read_metrics_empty_partition_returns_empty(tmp_path, monkeypatch):
     lake = _lake(tmp_path, monkeypatch)
     ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
