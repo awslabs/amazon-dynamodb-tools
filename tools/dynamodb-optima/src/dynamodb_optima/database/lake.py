@@ -91,6 +91,9 @@ def read_metrics(account_id: str, region: str, table_name: str, start, end):
 
     db = get_database_manager()
     with db.get_connection_context() as conn:
+        # TIMESTAMPTZ renders in the session tz; force UTC so reads are deterministic
+        # across machines/timezones (pooled connections may carry a non-UTC tz).
+        conn.execute("SET TimeZone='UTC'")
         return conn.execute(
             f"""
             SELECT * FROM read_parquet('{pattern}', union_by_name=true)
@@ -116,6 +119,8 @@ def latest_timestamps(account_id: str, region: str, table_name: str) -> dict:
 
     db = get_database_manager()
     with db.get_connection_context() as conn:
+        # Force UTC so timestamps are deterministic across machines/session tz.
+        conn.execute("SET TimeZone='UTC'")
         # Use .df() rather than .fetchall(): DuckDB's native TIMESTAMPTZ ->
         # Python datetime conversion in fetchall() requires the optional
         # 'pytz' package, which is not a project dependency. Pandas performs

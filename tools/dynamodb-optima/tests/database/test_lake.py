@@ -121,3 +121,22 @@ def test_latest_timestamps_shape(tmp_path, monkeypatch):
 def test_latest_timestamps_empty(tmp_path, monkeypatch):
     lake = _lake(tmp_path, monkeypatch)
     assert lake.latest_timestamps("nope", "us-east-1", "t") == {}
+
+
+def test_read_metrics_returns_utc_regardless_of_session_tz(tmp_path, monkeypatch):
+    """Timestamps must come back in UTC even if the DuckDB session tz is local."""
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, 9, 17, tzinfo=timezone.utc)
+    lake.write_metrics([_row("a", "us-east-1", "t", "m", ts, 1.0)], run_id="r1")
+
+    # Poison the pooled connection's session tz to a non-UTC zone before reading.
+    from dynamodb_optima.database.connection import get_database_manager
+    with get_database_manager().get_connection_context() as conn:
+        conn.execute("SET TimeZone='America/New_York'")
+
+    df = lake.read_metrics("a", "us-east-1", "t", ts, ts)
+    got = df["timestamp"].iloc[0]
+    # Underlying instant correct AND rendered in UTC (offset 0 / 'UTC').
+    assert got.tzinfo is not None
+    assert got.utcoffset().total_seconds() == 0
+    assert got.tz_convert("UTC").strftime("%Y-%m-%d %H:%M") == "2026-06-01 09:17"
