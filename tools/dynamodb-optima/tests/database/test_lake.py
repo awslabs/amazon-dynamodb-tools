@@ -140,3 +140,41 @@ def test_read_metrics_returns_utc_regardless_of_session_tz(tmp_path, monkeypatch
     assert got.tzinfo is not None
     assert got.utcoffset().total_seconds() == 0
     assert got.tz_convert("UTC").strftime("%Y-%m-%d %H:%M") == "2026-06-01 09:17"
+
+
+def test_write_metrics_concurrent_no_data_loss(tmp_path, monkeypatch):
+    """Concurrent writers must not clobber each other via a shared registered view name."""
+    lake = _lake(tmp_path, monkeypatch)
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from datetime import timedelta
+    base = datetime(2026, 6, 1, tzinfo=timezone.utc)
+
+    # Warm the DB once so first-access init isn't the thing under test.
+    from dynamodb_optima.database.connection import get_database_manager
+    with get_database_manager().get_connection_context() as c:
+        c.execute("SELECT 1")
+
+    def work(i):
+        region = ["us-east-1", "us-west-2", "eu-central-1", "eu-west-1"][i % 4]
+        # DISTINCT timestamp per row, else the dedup key collapses them and this
+        # would test dedup, not concurrency.
+        rows = [_row("acct", region, f"table{i}", "m", base + timedelta(minutes=j), float(j))
+                for j in range(50)]
+        lake.write_metrics(rows, run_id=f"run{i}")
+
+    errs = []
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futs = {ex.submit(work, i): i for i in range(16)}
+        for f in as_completed(futs):
+            try:
+                f.result()
+            except Exception as e:  # pragma: no cover
+                errs.append(repr(e))
+    assert errs == []
+
+    s = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    e = datetime(2027, 1, 1, tzinfo=timezone.utc)
+    for i in range(16):
+        region = ["us-east-1", "us-west-2", "eu-central-1", "eu-west-1"][i % 4]
+        df = lake.read_metrics("acct", region, f"table{i}", s, e)
+        assert len(df) == 50, f"table{i} lost data: got {len(df)} rows (view-name collision?)"

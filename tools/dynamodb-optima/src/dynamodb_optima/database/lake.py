@@ -46,6 +46,7 @@ def write_metrics(rows: list[dict], run_id: str) -> None:
         groups.setdefault(key, []).append(r)
 
     import pandas as pd
+    import uuid
 
     db = get_database_manager()
     with db.get_connection_context() as conn:
@@ -63,15 +64,20 @@ def write_metrics(rows: list[dict], run_id: str) -> None:
                     lambda d: _json.dumps(d) if isinstance(d, dict) else d
                 )
 
+            # Unique per-write view name: pooled connections may be shared across
+            # concurrent writers, and a fixed name would let one writer's DataFrame
+            # clobber another's mid-COPY (data loss). uuid makes each registration
+            # collision-proof.
+            view = f"_lake_write_{uuid.uuid4().hex}"
             try:
-                conn.register("_lake_write_df", df)
+                conn.register(view, df)
                 conn.execute(
-                    f"COPY (SELECT * FROM _lake_write_df) TO '{tmp}' "
+                    f"COPY (SELECT * FROM {view}) TO '{tmp}' "
                     "(FORMAT PARQUET, COMPRESSION ZSTD)"
                 )
                 os.replace(tmp, final)
             finally:
-                conn.unregister("_lake_write_df")
+                conn.unregister(view)
                 if os.path.exists(tmp):
                     os.remove(tmp)
 
