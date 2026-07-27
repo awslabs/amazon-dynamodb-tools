@@ -470,10 +470,34 @@ If you ever want to stop execution early, you can hit Control-C. The interrupt w
 #### `diff`
 
 * Performs parallel scans to two tables to compare for differences.
-* Requires `table` and `table2` parameters.
+* Requires `table` and `table2` parameters. Parameters can be table names or table ARNs. Using ARNs allows cross-account / cross-region access.
 * Accepts an optional `format` which can be `compact` (prints primary keys of all changed items with `+`, `-`, `*` for adds, removes, changes) or `full` (prints the full values of all changed items with `+` and `-` for before and after). Default is `compact`.
 * Accepts an optional `sample-fraction` to indicate a fraction of the two tables to compare, between 0.0 and 1.0. Can help with sanity checking that runs faster and at lower cost.
 * Accepts an optional `s3` parameter to output the result to S3.
+
+If doing cross-account, you need a resource-based policy to enable access. The following example RBP allows access from two specific roles in the 123456789012 account. The `role/ClientSide` is whatever role you have for the command-line Python program (so the client-side can describe the table and estimate costs). The `role/AWSGlueServiceRoleBulkDynamoDB-DdbReadWrite-us-east-1` is whatever role you have attached to the Glue job (so the `diff` can be performed).
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CrossAccountIdentityBasedPolicy",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::123456789012:role/ClientSide",
+          "arn:aws:iam::123456789012:role/AWSGlueServiceRoleBulkDynamoDB-DdbReadOnly-us-east-1"
+        ]
+      },
+      "Action": [
+          "dynamodb:DescribeTable",
+          "dynamodb:Scan"
+      ],
+      "Resource": "arn:aws:dynamodb:us-west-1:599882009758:table/table2"
+    }
+  ]
+}
+```
 
 #### `load`
 
