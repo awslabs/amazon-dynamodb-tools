@@ -200,3 +200,70 @@ def test_migrate_flat_to_landing_moves_files(tmp_path, monkeypatch):
     assert moved.exists()
     assert not (flat / "ingest_old.parquet").exists()
     lake._migrate_flat_to_landing()  # idempotent, no error
+
+
+def _served_files(account, region, table):
+    from dynamodb_optima import paths
+    d = paths.get_lake_dir() / "served" / f"account={account}" / f"region={region}" / f"table={table}"
+    import glob as g
+    return sorted(g.glob(str(d / "*.parquet")))
+
+
+def test_compact_basic_merges_landing_to_served(tmp_path, monkeypatch):
+    lake = _lake(tmp_path, monkeypatch)
+    from datetime import timedelta
+    base = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    for i in range(3):
+        lake.write_metrics([_row("a", "us-east-1", "t", "m", base + timedelta(minutes=i), float(i))], run_id=f"r{i}")
+    lake.compact_partition("a", "us-east-1", "t")
+    assert len(_served_files("a", "us-east-1", "t")) == 1
+    from dynamodb_optima import paths
+    landing = paths.get_lake_dir() / "landing" / "account=a" / "region=us-east-1" / "table=t"
+    import glob as g
+    assert g.glob(str(landing / "*.parquet")) == []
+    df = lake.read_metrics("a", "us-east-1", "t", base, base + timedelta(hours=1))
+    assert len(df) == 3
+
+
+def test_compact_multi_month_creates_two_shards(tmp_path, monkeypatch):
+    lake = _lake(tmp_path, monkeypatch)
+    may = datetime(2026, 5, 15, tzinfo=timezone.utc)
+    jun = datetime(2026, 6, 15, tzinfo=timezone.utc)
+    lake.write_metrics([_row("a", "us-east-1", "t", "m", may, 1.0),
+                        _row("a", "us-east-1", "t", "m", jun, 2.0)], run_id="r1")
+    lake.compact_partition("a", "us-east-1", "t")
+    files = _served_files("a", "us-east-1", "t")
+    assert len(files) == 2
+    assert any("2026-05" in f for f in files) and any("2026-06" in f for f in files)
+
+
+def test_compact_dedup_keeps_latest_ingest_vs_existing_served(tmp_path, monkeypatch):
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics([_row("a", "us-east-1", "t", "m", ts, 100.0)], run_id="r1")
+    lake.compact_partition("a", "us-east-1", "t")
+    lake.write_metrics([_row("a", "us-east-1", "t", "m", ts, 175.0)], run_id="r2")
+    lake.compact_partition("a", "us-east-1", "t")
+    df = lake.read_metrics("a", "us-east-1", "t", ts, ts)
+    assert df["value"].tolist() == [175.0]
+    assert len(_served_files("a", "us-east-1", "t")) == 1
+
+
+def test_compact_ignores_tmp_files(tmp_path, monkeypatch):
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics([_row("a", "us-east-1", "t", "m", ts, 1.0)], run_id="r1")
+    from dynamodb_optima import paths
+    landing = paths.get_lake_dir() / "landing" / "account=a" / "region=us-east-1" / "table=t"
+    (landing / "ingest_inflight.parquet.tmp").write_bytes(b"partial")
+    lake.compact_partition("a", "us-east-1", "t")
+    assert (landing / "ingest_inflight.parquet.tmp").exists()
+
+
+def test_compact_idempotent(tmp_path, monkeypatch):
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics([_row("a", "us-east-1", "t", "m", ts, 1.0)], run_id="r1")
+    lake.compact_partition("a", "us-east-1", "t")
+    lake.compact_partition("a", "us-east-1", "t")
+    assert len(_served_files("a", "us-east-1", "t")) == 1

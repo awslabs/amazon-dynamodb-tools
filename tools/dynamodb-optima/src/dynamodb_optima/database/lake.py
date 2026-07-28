@@ -148,6 +148,77 @@ def read_metrics(account_id: str, region: str, table_name: str, start, end):
         ).df()
 
 
+def compact_partition(account_id: str, region: str, table_name: str) -> None:
+    """Merge landing files for one partition into month-sharded served files.
+
+    Safe under concurrency: ignores in-flight *.tmp; per-partition lock (skip if held);
+    merges+dedups into served month shards via atomic rename; deletes ONLY the landing
+    files it snapshotted (files appearing mid-run are left for the next call).
+    """
+    import glob as _glob_mod
+    import pandas as pd
+    import uuid
+
+    landing = _landing_dir(account_id, region, table_name)
+    served = _served_dir(account_id, region, table_name)
+    os.makedirs(served, exist_ok=True)  # lock lives here
+
+    lock_path = served / ".compact.lock"
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+    except FileExistsError:
+        logger.info(f"compact: {account_id}/{region}/{table_name} locked, skipping")
+        return
+
+    try:
+        snapshot = sorted(_glob_mod.glob(str(landing / "*.parquet")))
+        if not snapshot:
+            return
+
+        files_sql = ", ".join(f"'{f}'" for f in snapshot)
+        db = get_database_manager()
+        with db.get_connection_context() as conn:
+            conn.execute("SET TimeZone='UTC'")
+            land_df = conn.execute(
+                f"SELECT * FROM read_parquet([{files_sql}], union_by_name=true)"
+            ).df()
+            if land_df.empty:
+                for f in snapshot:
+                    if os.path.exists(f):
+                        os.remove(f)
+                return
+            months = sorted({t.strftime("%Y-%m")
+                             for t in pd.to_datetime(land_df["timestamp"], utc=True)})
+
+            for month in months:
+                shard = served / f"{month}.parquet"
+                shard_tmp = served / f"{month}.parquet.{uuid.uuid4().hex}.tmp"
+                sources = [f"'{f}'" for f in snapshot]
+                if shard.exists():
+                    sources.append(f"'{shard}'")
+                src_sql = ", ".join(sources)
+                conn.execute(
+                    f"""
+                    COPY (
+                        SELECT * FROM read_parquet([{src_sql}], union_by_name=true)
+                        WHERE strftime(timestamp, '%Y-%m') = '{month}'
+                        QUALIFY ROW_NUMBER() OVER (
+                            PARTITION BY {_DEDUP_KEY} ORDER BY ingest_time DESC
+                        ) = 1
+                    ) TO '{shard_tmp}' (FORMAT PARQUET, COMPRESSION ZSTD)
+                    """
+                )
+                os.replace(str(shard_tmp), str(shard))
+
+        for f in snapshot:
+            if os.path.exists(f):
+                os.remove(f)
+    finally:
+        if os.path.exists(lock_path):
+            os.remove(lock_path)
+
+
 def latest_timestamps(account_id: str, region: str, table_name: str) -> dict:
     """Return {"metric:statistic:period": max_timestamp} for gap-detection.
 
