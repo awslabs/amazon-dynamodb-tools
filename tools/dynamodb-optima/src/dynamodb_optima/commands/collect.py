@@ -246,7 +246,16 @@ def collect(
             metrics_after = 0
         
         new_metrics = metrics_after - metrics_before
-        
+
+        # Compact landing -> served so files don't accumulate (end-of-write-run).
+        try:
+            from ..database import lake
+            lake.compact_pending()
+            click.echo("  Compacted metrics lake (landing -> served)")
+        except Exception as e:
+            # Non-fatal: reads never depend on compaction; log and move on.
+            click.echo(f"  Note: compaction skipped ({e})")
+
         # Display results
         click.echo()
         click.echo("✅ Collection completed successfully!")
