@@ -1160,23 +1160,38 @@ class DatabaseManager:
 
 # Global database manager instance
 _db_manager: Optional[DatabaseManager] = None
+# Guards singleton construction + one-time schema validation so concurrent callers
+# (e.g. parallel collection workers) don't each build a manager and race on schema
+# init (DuckDB "Catalog write-write conflict on create").
+_db_manager_lock = threading.Lock()
 
 
 def get_database_manager() -> DatabaseManager:
-    """Get database manager instance with lazy initialization."""
+    """Get database manager instance with lazy, thread-safe initialization.
+
+    Double-checked locking: the fast path (already-initialized) takes no lock; the
+    first-time construction + schema validation is serialized so concurrent callers
+    (parallel collection workers) don't each build a manager and race on schema init.
+    """
     global _db_manager
 
-    if _db_manager is None:
-        settings = get_settings()
-        _db_manager = DatabaseManager(
-            database_url=settings.database_url,
-            max_connections=settings.database_pool_size,
-        )
+    if _db_manager is not None:
+        return _db_manager
 
-        # Validate schema at startup
-        if not _db_manager.validate_schema_at_startup():
-            logger.error("Database schema validation failed at startup")
-            raise SchemaError("Database schema validation failed")
+    with _db_manager_lock:
+        # Re-check inside the lock: another thread may have initialized while we waited.
+        if _db_manager is None:
+            settings = get_settings()
+            manager = DatabaseManager(
+                database_url=settings.database_url,
+                max_connections=settings.database_pool_size,
+            )
+            # Validate schema at startup (once, under the lock).
+            if not manager.validate_schema_at_startup():
+                logger.error("Database schema validation failed at startup")
+                raise SchemaError("Database schema validation failed")
+            # Publish only after fully initialized so no thread sees a half-built manager.
+            _db_manager = manager
 
     return _db_manager
 

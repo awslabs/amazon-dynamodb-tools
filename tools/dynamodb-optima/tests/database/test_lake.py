@@ -327,3 +327,26 @@ def test_compact_pending_continues_past_failing_partition(tmp_path, monkeypatch)
     (locked_served / ".compact.lock").write_bytes(b"")   # locked -> skipped
     lake.compact_pending()
     assert len(_served_files("a", "us-east-1", "good")) == 1  # good one still compacted
+
+
+def test_get_database_manager_concurrent_init_no_race(tmp_path, monkeypatch):
+    """Concurrent first-time get_database_manager() must not race on schema init
+    (DuckDB 'Catalog write-write conflict'). Regression for the --workers>1 collect failure."""
+    import threading
+    from dynamodb_optima import paths
+    monkeypatch.setattr(paths, "_project_root_override", tmp_path)
+    import dynamodb_optima.database.connection as conn
+    # force cold singleton
+    monkeypatch.setattr(conn, "_db_manager", None)
+
+    errs = []
+    def go():
+        try:
+            conn.get_database_manager()
+        except Exception as e:  # pragma: no cover
+            errs.append(repr(e))
+    threads = [threading.Thread(target=go) for _ in range(8)]
+    for t in threads: t.start()
+    for t in threads: t.join()
+    assert errs == [], f"concurrent init raced: {errs[:2]}"
+    assert conn._db_manager is not None
