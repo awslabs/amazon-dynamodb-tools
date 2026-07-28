@@ -495,9 +495,17 @@ class UtilizationAnalyzer:
             (df["metric_name"] == "ConsumedWriteCapacityUnits") & (df["statistic"] == "Sum")
         ]
 
-        # Convert Sum to per-second by dividing by 60 (1-minute period)
-        read_consumed = [v / 60.0 for v in read_df["value"].tolist()]
-        write_consumed = [v / 60.0 for v in write_df["value"].tolist()]
+        # Sum -> per-second rate: divide by each row's ACTUAL period_seconds, not a
+        # hardcoded 60. The lake stores mixed 60s and 300s rows; assuming 60 makes
+        # 5-min data read 5x too high.
+        read_consumed = [
+            v / float(p) if p else v
+            for v, p in zip(read_df["value"].tolist(), read_df["period_seconds"].tolist())
+        ]
+        write_consumed = [
+            v / float(p) if p else v
+            for v, p in zip(write_df["value"].tolist(), write_df["period_seconds"].tolist())
+        ]
 
         return read_consumed, write_consumed
     

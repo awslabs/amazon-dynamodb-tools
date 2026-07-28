@@ -268,15 +268,20 @@ class CapacityModeAnalyzer:
             (df["metric_name"] == "ConsumedWriteCapacityUnits") & (df["statistic"] == "Sum")
         ]
 
+        # Sum -> per-second rate: divide by the row's ACTUAL period_seconds, not a
+        # hardcoded 60. The lake stores mixed 60s (1-min) and 300s (5-min) rows;
+        # assuming 60 makes 5-min data read 5x too high.
         read_metrics = [
             MetricDataPoint(
                 metric_name="ConsumedReadCapacityUnits",
                 timestamp=ts,
                 table_name=table_name,
                 consumed_units=float(value),
-                units_per_second=float(value) / 60.0
+                units_per_second=float(value) / float(period) if period else float(value)
             )
-            for ts, value in zip(read_df["timestamp"], read_df["value"])
+            for ts, value, period in zip(
+                read_df["timestamp"], read_df["value"], read_df["period_seconds"]
+            )
         ]
 
         write_metrics = [
@@ -285,9 +290,11 @@ class CapacityModeAnalyzer:
                 timestamp=ts,
                 table_name=table_name,
                 consumed_units=float(value),
-                units_per_second=float(value) / 60.0
+                units_per_second=float(value) / float(period) if period else float(value)
             )
-            for ts, value in zip(write_df["timestamp"], write_df["value"])
+            for ts, value, period in zip(
+                write_df["timestamp"], write_df["value"], write_df["period_seconds"]
+            )
         ]
 
         return read_metrics, write_metrics
