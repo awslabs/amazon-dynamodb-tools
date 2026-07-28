@@ -267,3 +267,63 @@ def test_compact_idempotent(tmp_path, monkeypatch):
     lake.compact_partition("a", "us-east-1", "t")
     lake.compact_partition("a", "us-east-1", "t")
     assert len(_served_files("a", "us-east-1", "t")) == 1
+
+
+def test_compact_pending_scans_all_partitions(tmp_path, monkeypatch):
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics([_row("a", "us-east-1", "t1", "m", ts, 1.0)], run_id="r1")
+    lake.write_metrics([_row("a", "us-west-2", "t2", "m", ts, 2.0)], run_id="r2")
+    lake.compact_pending()  # no args -> scan all landing partitions
+    assert len(_served_files("a", "us-east-1", "t1")) == 1
+    assert len(_served_files("a", "us-west-2", "t2")) == 1
+
+
+def test_compact_partition_skips_when_locked(tmp_path, monkeypatch):
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics([_row("a", "us-east-1", "t", "m", ts, 1.0)], run_id="r1")
+    from dynamodb_optima import paths
+    served = paths.get_lake_dir() / "served" / "account=a" / "region=us-east-1" / "table=t"
+    served.mkdir(parents=True, exist_ok=True)
+    (served / ".compact.lock").write_bytes(b"")   # pre-hold the lock
+    lake.compact_partition("a", "us-east-1", "t")  # must skip
+    landing = paths.get_lake_dir() / "landing" / "account=a" / "region=us-east-1" / "table=t"
+    import glob as g
+    assert g.glob(str(landing / "*.parquet"))   # landing untouched
+
+
+def test_compact_deletes_only_snapshotted_landing(tmp_path, monkeypatch):
+    """A landing file appearing AFTER the snapshot must survive (deleted set = snapshot only).
+    Hook os.remove (called only during the delete phase, after the snapshot) to drop a new
+    landing file once; that new file was never snapshotted so it must NOT be deleted."""
+    lake = _lake(tmp_path, monkeypatch)
+    from dynamodb_optima import paths
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics([_row("a", "us-east-1", "t", "m", ts, 1.0)], run_id="r1")
+    landing = paths.get_lake_dir() / "landing" / "account=a" / "region=us-east-1" / "table=t"
+
+    created = {"done": False}
+    real_remove = lake.os.remove
+    def hooked_remove(path):
+        if not created["done"]:
+            (landing / "ingest_late.parquet").write_bytes(b"late")
+            created["done"] = True
+        real_remove(path)
+    monkeypatch.setattr(lake.os, "remove", hooked_remove)
+    lake.compact_partition("a", "us-east-1", "t")
+    monkeypatch.undo()
+    assert (landing / "ingest_late.parquet").exists()
+
+
+def test_compact_pending_continues_past_failing_partition(tmp_path, monkeypatch):
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics([_row("a", "us-east-1", "good", "m", ts, 1.0)], run_id="r1")
+    lake.write_metrics([_row("a", "us-east-1", "locked", "m", ts, 1.0)], run_id="r2")
+    from dynamodb_optima import paths
+    locked_served = paths.get_lake_dir() / "served" / "account=a" / "region=us-east-1" / "table=locked"
+    locked_served.mkdir(parents=True, exist_ok=True)
+    (locked_served / ".compact.lock").write_bytes(b"")   # locked -> skipped
+    lake.compact_pending()
+    assert len(_served_files("a", "us-east-1", "good")) == 1  # good one still compacted

@@ -219,6 +219,39 @@ def compact_partition(account_id: str, region: str, table_name: str) -> None:
             os.remove(lock_path)
 
 
+def compact_pending(partitions: list[tuple] | None = None) -> None:
+    """Compact landing files into served.
+
+    If ``partitions`` is given (list of (account, region, table)), compact those.
+    If None, first run the flat->landing migration, then scan the whole landing/ zone
+    and compact every partition with files. Per-partition failures are logged and
+    skipped (self-healing; one bad partition never aborts the batch).
+    """
+    import glob as _glob_mod
+
+    if partitions is None:
+        _migrate_flat_to_landing()
+        partitions = []
+        landing_root = get_lake_dir() / "landing"
+        pattern = str(landing_root / "account=*" / "region=*" / "table=*")
+        seen = set()
+        for d in _glob_mod.glob(pattern):
+            parts = {p.split("=", 1)[0]: p.split("=", 1)[1]
+                     for p in Path(d).parts if "=" in p}
+            key = (parts["account"], parts["region"], parts["table"])
+            if key not in seen:
+                seen.add(key)
+                partitions.append(key)
+
+    for account_id, region, table_name in partitions:
+        try:
+            compact_partition(account_id, region, table_name)
+        except Exception as e:
+            logger.warning(
+                f"compact: partition {account_id}/{region}/{table_name} failed: {e}"
+            )
+
+
 def latest_timestamps(account_id: str, region: str, table_name: str) -> dict:
     """Return {"metric:statistic:period": max_timestamp} for gap-detection.
 
