@@ -11,6 +11,7 @@ Readers union landing + served (served added in a later change).
 
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 from ..logging import get_logger
 from ..paths import get_lake_dir
@@ -24,9 +25,20 @@ _DEDUP_KEY = (
 )
 
 
-def _partition_dir(account_id: str, region: str, table_name: str):
+def _landing_dir(account_id: str, region: str, table_name: str):
     return (
         get_lake_dir()
+        / "landing"
+        / f"account={account_id}"
+        / f"region={region}"
+        / f"table={table_name}"
+    )
+
+
+def _served_dir(account_id: str, region: str, table_name: str):
+    return (
+        get_lake_dir()
+        / "served"
         / f"account={account_id}"
         / f"region={region}"
         / f"table={table_name}"
@@ -51,7 +63,7 @@ def write_metrics(rows: list[dict], run_id: str) -> None:
     db = get_database_manager()
     with db.get_connection_context() as conn:
         for (account_id, region, table_name), grp in groups.items():
-            part = _partition_dir(account_id, region, table_name)
+            part = _landing_dir(account_id, region, table_name)
             os.makedirs(part, exist_ok=True)
             final = part / f"ingest_{run_id}.parquet"
             tmp = part / f"ingest_{run_id}.parquet.tmp"
@@ -82,18 +94,42 @@ def write_metrics(rows: list[dict], run_id: str) -> None:
                     os.remove(tmp)
 
 
-def _glob(account_id: str, region: str, table_name: str) -> str:
-    return str(_partition_dir(account_id, region, table_name) / "*.parquet")
+def _read_globs(account_id: str, region: str, table_name: str) -> list[str]:
+    return [
+        str(_landing_dir(account_id, region, table_name) / "*.parquet"),
+        str(_served_dir(account_id, region, table_name) / "*.parquet"),
+    ]
+
+
+def _migrate_flat_to_landing() -> None:
+    """One-time move of pre-CHANGE-2 flat files
+    (<lake>/account=.../region=.../table=.../ingest_*.parquet) into the landing/ zone.
+    Idempotent: no-op once nothing flat remains. landing/ and served/ dirs are NOT
+    named account=... so they are naturally excluded from the flat glob."""
+    import glob as _glob_mod
+    import shutil
+
+    lake = get_lake_dir()
+    flat_pattern = str(lake / "account=*" / "region=*" / "table=*" / "*.parquet")
+    for src in _glob_mod.glob(flat_pattern):
+        src_path = Path(src)
+        parts = {p.split("=", 1)[0]: p.split("=", 1)[1] for p in src_path.parts if "=" in p}
+        dest_dir = _landing_dir(parts["account"], parts["region"], parts["table"])
+        os.makedirs(dest_dir, exist_ok=True)
+        shutil.move(src, str(dest_dir / src_path.name))
 
 
 def read_metrics(account_id: str, region: str, table_name: str, start, end):
     """Return a deduped pandas DataFrame of metrics for a resource + time range."""
     import glob as _glob_mod
 
-    pattern = _glob(account_id, region, table_name)
-    if not _glob_mod.glob(pattern):
+    globs = _read_globs(account_id, region, table_name)
+    existing = [g for g in globs if _glob_mod.glob(g)]
+    if not existing:
         import pandas as pd
         return pd.DataFrame()
+
+    files_sql = ", ".join(f"'{g}'" for g in existing)
 
     db = get_database_manager()
     with db.get_connection_context() as conn:
@@ -102,7 +138,7 @@ def read_metrics(account_id: str, region: str, table_name: str, start, end):
         conn.execute("SET TimeZone='UTC'")
         return conn.execute(
             f"""
-            SELECT * FROM read_parquet('{pattern}', union_by_name=true)
+            SELECT * FROM read_parquet([{files_sql}], union_by_name=true)
             WHERE timestamp BETWEEN ? AND ?
             QUALIFY ROW_NUMBER() OVER (
                 PARTITION BY {_DEDUP_KEY} ORDER BY ingest_time DESC
@@ -119,9 +155,12 @@ def latest_timestamps(account_id: str, region: str, table_name: str) -> dict:
     """
     import glob as _glob_mod
 
-    pattern = _glob(account_id, region, table_name)
-    if not _glob_mod.glob(pattern):
+    globs = _read_globs(account_id, region, table_name)
+    existing = [g for g in globs if _glob_mod.glob(g)]
+    if not existing:
         return {}
+
+    files_sql = ", ".join(f"'{g}'" for g in existing)
 
     db = get_database_manager()
     with db.get_connection_context() as conn:
@@ -135,7 +174,7 @@ def latest_timestamps(account_id: str, region: str, table_name: str) -> dict:
             f"""
             SELECT metric_name, statistic, period_seconds,
                    MAX(timestamp) AS latest
-            FROM read_parquet('{pattern}', union_by_name=true)
+            FROM read_parquet([{files_sql}], union_by_name=true)
             GROUP BY metric_name, statistic, period_seconds
             """
         ).df()

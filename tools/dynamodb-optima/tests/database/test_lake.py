@@ -37,7 +37,7 @@ def test_write_metrics_partitions_by_region_no_overwrite(tmp_path, monkeypatch):
     lake.write_metrics(rows_w, run_id="run1")
 
     from dynamodb_optima import paths
-    base = paths.get_lake_dir() / "account=111122223333"
+    base = paths.get_lake_dir() / "landing" / "account=111122223333"
     east = list((base / "region=us-east-1" / "table=t").glob("*.parquet"))
     west = list((base / "region=us-west-2" / "table=t").glob("*.parquet"))
     assert len(east) == 1 and len(west) == 1
@@ -101,7 +101,7 @@ def test_write_failure_leaves_no_partial_parquet(tmp_path, monkeypatch):
         lake.write_metrics(rows, run_id="rboom")
 
     from dynamodb_optima import paths
-    part = paths.get_lake_dir() / "account=a" / "region=us-east-1" / "table=t"
+    part = paths.get_lake_dir() / "landing" / "account=a" / "region=us-east-1" / "table=t"
     assert list(part.glob("*.parquet")) == []
     assert list(part.glob("*.tmp")) == []
 
@@ -178,3 +178,25 @@ def test_write_metrics_concurrent_no_data_loss(tmp_path, monkeypatch):
         region = ["us-east-1", "us-west-2", "eu-central-1", "eu-west-1"][i % 4]
         df = lake.read_metrics("acct", region, f"table{i}", s, e)
         assert len(df) == 50, f"table{i} lost data: got {len(df)} rows (view-name collision?)"
+
+
+def test_write_goes_to_landing_zone(tmp_path, monkeypatch):
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics([_row("a", "us-east-1", "t", "m", ts, 1.0)], run_id="r1")
+    from dynamodb_optima import paths
+    landing = paths.get_lake_dir() / "landing" / "account=a" / "region=us-east-1" / "table=t"
+    assert list(landing.glob("*.parquet"))  # write lands in landing/
+
+
+def test_migrate_flat_to_landing_moves_files(tmp_path, monkeypatch):
+    lake = _lake(tmp_path, monkeypatch)
+    from dynamodb_optima import paths
+    flat = paths.get_lake_dir() / "account=a" / "region=us-east-1" / "table=t"
+    flat.mkdir(parents=True)
+    (flat / "ingest_old.parquet").write_bytes(b"stub")
+    lake._migrate_flat_to_landing()
+    moved = paths.get_lake_dir() / "landing" / "account=a" / "region=us-east-1" / "table=t" / "ingest_old.parquet"
+    assert moved.exists()
+    assert not (flat / "ingest_old.parquet").exists()
+    lake._migrate_flat_to_landing()  # idempotent, no error
