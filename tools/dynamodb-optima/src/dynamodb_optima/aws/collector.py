@@ -461,9 +461,25 @@ class CloudWatchCollector(StateManagerMixin):
             region_resources = []
 
             for table_name in table_names:
+                # account_id is required downstream (lake partition path + gap detection).
+                # Resolve it from discovered metadata. A table not present in metadata
+                # was never discovered, so skip it with a warning rather than fail the run.
+                acct_rows = self.db_manager.execute_query(
+                    "SELECT account_id FROM table_metadata WHERE table_name = ? AND region = ?",
+                    [table_name, region],
+                )
+                if not acct_rows:
+                    logger.warning(
+                        f"Table '{table_name}' not found in {region} metadata "
+                        "(run discover first); skipping."
+                    )
+                    continue
+                account_id = acct_rows[0]["account_id"]
+
                 # Add table resource
                 region_resources.append(
                     {
+                        "account_id": account_id,
                         "resource_name": table_name,
                         "resource_type": "TABLE",
                         "table_name": table_name,
@@ -483,6 +499,7 @@ class CloudWatchCollector(StateManagerMixin):
                 for gsi in gsis:
                     region_resources.append(
                         {
+                            "account_id": account_id,
                             "resource_name": gsi["resource_name"],
                             "resource_type": "GSI",
                             "table_name": table_name,

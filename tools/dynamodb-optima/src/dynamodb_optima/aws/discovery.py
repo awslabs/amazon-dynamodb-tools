@@ -174,7 +174,7 @@ class DiscoveryManager(StateManagerMixin):
                 state.collection_state.regions_to_discover = valid_regions
 
             # Perform discovery (state remains RUNNING)
-            await self._discover_regions(state)
+            await self._discover_regions(state, table_names=table_names)
 
             # Store discovered metadata in database (transaction commit happens here)
             await self._store_discovered_metadata(state)
@@ -209,8 +209,14 @@ class DiscoveryManager(StateManagerMixin):
             self.state_manager.save_checkpoint(state)
             raise
 
-    async def _discover_regions(self, state: OperationState) -> None:
-        """Discover tables and GSIs across all regions with progress tracking."""
+    async def _discover_regions(
+        self, state: OperationState, table_names: Optional[List[str]] = None
+    ) -> None:
+        """Discover tables and GSIs across all regions with progress tracking.
+
+        ``table_names`` (optional) scopes discovery to specific tables (passed through
+        to _discover_tables_in_region); None discovers all tables.
+        """
         collection_state = state.collection_state
 
         # Calculate remaining regions
