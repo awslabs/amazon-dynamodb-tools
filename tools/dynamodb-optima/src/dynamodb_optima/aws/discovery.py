@@ -89,6 +89,7 @@ class DiscoveryManager(StateManagerMixin):
         regions: List[str],
         operation_id: Optional[str] = None,
         resume_from_checkpoint: bool = False,
+        table_names: Optional[List[str]] = None,
     ) -> OperationState:
         """
         Discover all DynamoDB tables and GSIs across specified regions.
@@ -263,7 +264,9 @@ class DiscoveryManager(StateManagerMixin):
                 )
 
                 # Discover tables in this region (use ProgressTracker)
-                tables = await self._discover_tables_in_region(region, state)
+                tables = await self._discover_tables_in_region(
+                    region, state, table_names=table_names
+                )
                 collection_state.tables_discovered[region] = tables
 
                 # Discover GSIs for all tables in this region with progress tracking
@@ -378,44 +381,59 @@ class DiscoveryManager(StateManagerMixin):
         self.state_manager.save_checkpoint(state)
 
     async def _discover_tables_in_region(
-        self, region: str, state: OperationState
+        self, region: str, state: OperationState,
+        table_names: Optional[List[str]] = None,
     ) -> List[TableMetadata]:
-        """Discover all DynamoDB tables in a specific region."""
+        """Discover DynamoDB tables in a specific region.
+
+        If ``table_names`` is provided, skip the account-wide ``list_tables`` scan
+        and DescribeTable only those names (scoped discovery). Tables that do not
+        exist in this region are skipped with a warning via the per-table loop's
+        existing error handling. If ``table_names`` is None, discover ALL tables.
+        """
         tables = []
 
         try:
             async with await self.aws_client_manager.get_async_client(
                 "dynamodb", region
             ) as dynamodb:
-                # First, get all table names (scanning phase)
-                activity = ActivityIndicator(f"🔍 Scanning tables in {region}")
-                table_names_list = []
-                paginator_params = {"Limit": 100}  # Process in batches
-
-                while True:
-                    response = await dynamodb.list_tables(**paginator_params)
-                    table_names = response.get("TableNames", [])
-
-                    if not table_names:
-                        break
-
-                    table_names_list.extend(table_names)
-                    activity.update(
-                        f"Found {len(table_names_list)} table names in {region}..."
+                if table_names:
+                    # Scoped discovery: describe only the requested names, no enumeration.
+                    table_names_list = list(table_names)
+                    logger.info(
+                        f"Scoped discovery in {region}: describing "
+                        f"{len(table_names_list)} requested table(s), skipping list_tables"
                     )
+                else:
+                    # Full discovery: enumerate all table names (scanning phase).
+                    activity = ActivityIndicator(f"🔍 Scanning tables in {region}")
+                    table_names_list = []
+                    paginator_params = {"Limit": 100}  # Process in batches
 
-                    # Handle pagination
-                    last_evaluated_table_name = response.get("LastEvaluatedTableName")
-                    if last_evaluated_table_name:
-                        paginator_params["ExclusiveStartTableName"] = (
-                            last_evaluated_table_name
+                    while True:
+                        response = await dynamodb.list_tables(**paginator_params)
+                        table_names = response.get("TableNames", [])
+
+                        if not table_names:
+                            break
+
+                        table_names_list.extend(table_names)
+                        activity.update(
+                            f"Found {len(table_names_list)} table names in {region}..."
                         )
-                    else:
-                        break
 
-                activity.finish(
-                    f"Found {len(table_names_list)} tables to process in {region}"
-                )
+                        # Handle pagination
+                        last_evaluated_table_name = response.get("LastEvaluatedTableName")
+                        if last_evaluated_table_name:
+                            paginator_params["ExclusiveStartTableName"] = (
+                                last_evaluated_table_name
+                            )
+                        else:
+                            break
+
+                    activity.finish(
+                        f"Found {len(table_names_list)} tables to process in {region}"
+                    )
 
                 # Now process each table with progress bar (known total)
                 if table_names_list:

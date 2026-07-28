@@ -27,6 +27,11 @@ logger = get_logger(__name__)
 )
 @click.option("--profile", help="AWS profile name to use")
 @click.option(
+    "--tables",
+    help="Comma-separated table names to discover directly (DescribeTable per name, "
+    "skips the account-wide scan). Omit to discover ALL tables.",
+)
+@click.option(
     "--use-org",
     is_flag=True,
     help="Use AWS Organizations to discover accounts across entire organization",
@@ -57,6 +62,7 @@ def discover(
     ctx: click.Context,
     regions: Optional[str],
     profile: Optional[str],
+    tables: Optional[str],
     use_org: bool,
     org_role: Optional[str],
     skip_accounts: Optional[str],
@@ -227,12 +233,23 @@ def discover(
             click.echo(f"🔍 Starting discovery across {len(region_list)} regions...")
             click.echo()
             
+            # Parse optional scoped-discovery table list
+            table_list = (
+                [t.strip() for t in tables.split(",") if t.strip()] if tables else None
+            )
+            if table_list:
+                click.echo(
+                    f"🎯 Scoped discovery: {len(table_list)} specified table(s) "
+                    "(DescribeTable per name, skipping account scan)"
+                )
+
             # Run async discovery
             state = asyncio.run(
                 discovery_manager.discover_all_resources(
                     regions=region_list,
                     operation_id=operation_id,
                     resume_from_checkpoint=resume,
+                    table_names=table_list,
                 )
             )
             
