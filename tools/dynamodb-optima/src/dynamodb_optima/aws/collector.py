@@ -120,6 +120,7 @@ class CloudWatchCollector(StateManagerMixin):
         # Batch storage for metrics
         self._metric_batch: List[MetricDataPoint] = []
         self._batch_lock = asyncio.Lock()
+        self._current_run_id = "adhoc"
 
     def get_metric_configurations(
         self, service: str = "dynamodb", comprehensive: bool = False
@@ -177,6 +178,8 @@ class CloudWatchCollector(StateManagerMixin):
                 state = self._create_operation("COLLECTION", operation_id=operation_id)
         else:
             state = self._create_operation("COLLECTION", operation_id=operation_id)
+
+        self._current_run_id = state.operation_id
 
         # Initialize collection state if needed
         if not state.collection_state:
@@ -458,9 +461,25 @@ class CloudWatchCollector(StateManagerMixin):
             region_resources = []
 
             for table_name in table_names:
+                # account_id is required downstream (lake partition path + gap detection).
+                # Resolve it from discovered metadata. A table not present in metadata
+                # was never discovered, so skip it with a warning rather than fail the run.
+                acct_rows = self.db_manager.execute_query(
+                    "SELECT account_id FROM table_metadata WHERE table_name = ? AND region = ?",
+                    [table_name, region],
+                )
+                if not acct_rows:
+                    logger.warning(
+                        f"Table '{table_name}' not found in {region} metadata "
+                        "(run discover first); skipping."
+                    )
+                    continue
+                account_id = acct_rows[0]["account_id"]
+
                 # Add table resource
                 region_resources.append(
                     {
+                        "account_id": account_id,
                         "resource_name": table_name,
                         "resource_type": "TABLE",
                         "table_name": table_name,
@@ -480,6 +499,7 @@ class CloudWatchCollector(StateManagerMixin):
                 for gsi in gsis:
                     region_resources.append(
                         {
+                            "account_id": account_id,
                             "resource_name": gsi["resource_name"],
                             "resource_type": "GSI",
                             "table_name": table_name,
@@ -997,12 +1017,14 @@ class CloudWatchCollector(StateManagerMixin):
 
     def _direct_batch_insert(self, batch_data: List[Dict[str, Any]]) -> None:
         """Direct batch insert with performance timing."""
+        from ..database import lake
+
         insert_start = time.time()
         try:
-            self.db_manager.execute_batch_upsert_metrics(batch_data)
+            lake.write_metrics(batch_data, run_id=self._current_run_id)
             insert_duration_ms = (time.time() - insert_start) * 1000
             logger.debug(
-                f"DuckDB insert: {len(batch_data):,} metrics in {insert_duration_ms:.1f}ms "
+                f"Lake insert: {len(batch_data):,} metrics in {insert_duration_ms:.1f}ms "
                 f"({len(batch_data)/(insert_duration_ms/1000):.0f} records/sec)"
             )
         except Exception as e:
@@ -1071,64 +1093,24 @@ class CloudWatchCollector(StateManagerMixin):
         )
 
     def list_collected_metrics_summary(self) -> Dict[str, Any]:
-        """Get summary of collected metrics from database."""
-        try:
-            # Get metric counts by resource type
-            resource_query = """
-                SELECT resource_type, COUNT(*) as metric_count,
-                       COUNT(DISTINCT resource_name) as resource_count,
-                       COUNT(DISTINCT region) as region_count,
-                       MIN(timestamp) as earliest_metric,
-                       MAX(timestamp) as latest_metric
-                FROM metrics
-                GROUP BY resource_type
-            """
-            resource_stats = self.db_manager.execute_query(resource_query)
+        """Summarize collected metrics from the Parquet lake."""
+        import glob as _glob_mod
+        from ..paths import get_lake_dir
 
-            # Get metric counts by metric name
-            metric_query = """
-                SELECT metric_name, COUNT(*) as count,
-                       COUNT(DISTINCT resource_name) as resource_count
-                FROM metrics
-                GROUP BY metric_name
-                ORDER BY count DESC
-                LIMIT 10
-            """
-            metric_stats = self.db_manager.execute_query(metric_query)
+        pattern = str(get_lake_dir() / "**" / "*.parquet")
+        if not _glob_mod.glob(pattern, recursive=True):
+            return {"total_metrics": 0, "total_resources": 0, "total_regions": 0}
 
-            # Get recent collection activity
-            recent_query = """
-                SELECT DATE_TRUNC('day', timestamp) as date,
-                       COUNT(*) as metrics_collected
-                FROM metrics
-                WHERE timestamp >= CURRENT_DATE - INTERVAL '7 days'
-                GROUP BY DATE_TRUNC('day', timestamp)
-                ORDER BY date DESC
-            """
-            recent_stats = self.db_manager.execute_query(recent_query)
-
-            # Get total counts
-            total_query = """
-                SELECT COUNT(*) as total_metrics,
-                       COUNT(DISTINCT resource_name) as total_resources,
-                       COUNT(DISTINCT region) as total_regions
-                FROM metrics
-            """
-            totals = self.db_manager.execute_query(total_query)[0]
-
-            return {
-                "total_metrics": totals["total_metrics"],
-                "total_resources": totals["total_resources"],
-                "total_regions": totals["total_regions"],
-                "by_resource_type": resource_stats,
-                "top_metrics": metric_stats,
-                "recent_activity": recent_stats,
-                "last_updated": datetime.now(),
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to get metrics summary: {e}")
-            return {"error": str(e)}
+        with self.db_manager.get_connection_context() as conn:
+            row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS total_metrics,
+                       COUNT(DISTINCT resource_name) AS total_resources,
+                       COUNT(DISTINCT region) AS total_regions
+                FROM read_parquet('{pattern}', union_by_name=true)
+                """
+            ).fetchone()
+        return {"total_metrics": row[0], "total_resources": row[1], "total_regions": row[2]}
 
     # ========================================================================
     # OPTIMIZED CLOUDWATCH API BATCHING METHODS (Task 5.1)
@@ -1298,45 +1280,11 @@ class CloudWatchCollector(StateManagerMixin):
         Returns:
             Dict mapping metric key to latest timestamp, or empty dict if no data
         """
-        from datetime import timezone
-        
-        query = """
-            SELECT 
-                metric_name,
-                statistic,
-                period_seconds,
-                MAX(timestamp) as latest_timestamp
-            FROM metrics
-            WHERE account_id = ?
-              AND resource_name = ?
-              AND region = ?
-            GROUP BY metric_name, statistic, period_seconds
-        """
-        
-        try:
-            results = self.db_manager.execute_query(
-                query, [account_id, resource_name, region]
-            )
-            
-            coverage = {}
-            for row in results:
-                key = f"{row['metric_name']}:{row['statistic']}:{row['period_seconds']}"
-                timestamp = row['latest_timestamp']
-                
-                # Ensure timestamp is timezone-aware (UTC) for comparisons
-                if isinstance(timestamp, datetime) and timestamp.tzinfo is None:
-                    timestamp = timestamp.replace(tzinfo=timezone.utc)
-                
-                coverage[key] = timestamp
-            
-            return coverage
-            
-        except Exception as e:
-            logger.warning(
-                f"Failed to get latest timestamps for {resource_name}: {e}, "
-                "will collect full window"
-            )
-            return {}  # Empty dict means collect full window
+        from ..database import lake
+
+        # arg reorder: callsite gives (account_id, resource_name, region);
+        # lake.latest_timestamps wants (account_id, region, table_name).
+        return lake.latest_timestamps(account_id, region, resource_name)
 
     async def _collect_metrics_batch_optimized(
         self,

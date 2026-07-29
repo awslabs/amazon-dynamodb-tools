@@ -23,7 +23,7 @@ from ..logging import get_logger
 logger = get_logger("dynamodb_optima.database")
 
 # Database schema version for migrations
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 
 
 @dataclass
@@ -601,9 +601,6 @@ class DatabaseManager:
                 schema_version=SCHEMA_VERSION,
             )
 
-            # Create analysis views for dashboards
-            self._create_analysis_views(connection)
-
         except Exception as e:
             logger.error(f"Failed to initialize schema: {e}")
             raise SchemaError(f"Schema initialization failed: {e}")
@@ -612,12 +609,13 @@ class DatabaseManager:
         """Validate database schema integrity."""
         try:
             # Check required tables exist (comprehensive schema from schema.py)
+            # Note: `metrics` is no longer a DuckDB table — metrics live in the Parquet
+            # lake now (see database/lake.py).
             required_tables = [
                 "table_metadata",
                 "gsi_metadata",
                 "aws_accounts",
                 "pricing_data",
-                "metrics",
                 "capacity_mode_recommendations",
                 "table_class_recommendations",
                 "utilization_recommendations",
@@ -634,23 +632,6 @@ class DatabaseManager:
                 except Exception as e:
                     raise SchemaError(
                         f"Required table '{table}' not found or invalid: {e}"
-                    )
-
-            # Check required views exist
-            required_views = [
-                "normalized_metrics",
-                "metric_identifiers",
-                "daily_utilization",
-            ]
-
-            for view in required_views:
-                try:
-                    connection.execute(
-                        f"SELECT COUNT(*) FROM {view} LIMIT 1"
-                    ).fetchone()
-                except Exception as e:
-                    raise SchemaError(
-                        f"Required view '{view}' not found or invalid: {e}"
                     )
 
             # Validate schema version
@@ -670,22 +651,6 @@ class DatabaseManager:
 
             # Test basic operations on key tables
             try:
-                # Test metrics table structure
-                connection.execute(
-                    """
-                    SELECT table_name, resource_name, metric_name, timestamp, value
-                    FROM metrics LIMIT 1
-                """
-                ).fetchone()
-
-                # Test normalized_metrics view
-                connection.execute(
-                    """
-                    SELECT normalized_value, normalized_unit
-                    FROM normalized_metrics LIMIT 1
-                """
-                ).fetchone()
-                
                 # Test pricing_data table structure (use 'region_code' which is the PRIMARY column)
                 connection.execute(
                     """
@@ -727,96 +692,11 @@ class DatabaseManager:
         from .schema import initialize_database
         initialize_database(connection)
 
-        # Create normalized metrics view for utilization calculations
-        normalized_metrics_view_sql = """
-        CREATE OR REPLACE VIEW normalized_metrics AS
-        SELECT
-            *,
-            CASE
-                WHEN metric_name IN (
-                    'ConsumedReadCapacityUnits',
-                    'ConsumedWriteCapacityUnits'
-                ) AND statistic = 'Sum'
-                THEN value / period_seconds
-                ELSE value
-            END as normalized_value,
-
-            CASE
-                WHEN metric_name IN (
-                    'ConsumedReadCapacityUnits',
-                    'ConsumedWriteCapacityUnits'
-                ) AND statistic = 'Sum'
-                THEN 'Count/Second'
-                ELSE unit
-            END as normalized_unit
-        FROM metrics
-        """
-        connection.execute(normalized_metrics_view_sql)
-
-        # Create metric identifiers view for easy querying
-        metric_identifiers_view_sql = """
-        CREATE OR REPLACE VIEW metric_identifiers AS
-        SELECT
-            *,
-            CASE
-                WHEN operation IS NULL THEN
-                    CONCAT(metric_name, ':', statistic, ':', period_seconds)
-                WHEN operation_type IS NULL THEN
-                    CONCAT(metric_name, ':', statistic, ':', period_seconds,
-                           ':', operation)
-                ELSE
-                    CONCAT(metric_name, ':', statistic, ':', period_seconds,
-                           ':', operation, ':', operation_type)
-            END as metric_id
-        FROM metrics
-        """
-        connection.execute(metric_identifiers_view_sql)
-
-        # Create daily utilization materialized view for performance
-        daily_utilization_view_sql = """
-        CREATE OR REPLACE VIEW daily_utilization AS
-        SELECT
-            resource_name,
-            resource_type,
-            DATE(timestamp) as date,
-
-            -- Use normalized values for consumed capacity (converted to units/second)
-            AVG(CASE WHEN metric_name = 'ConsumedReadCapacityUnits'
-                     AND statistic = 'Sum' AND period_seconds = 300
-                     THEN value / period_seconds END) as avg_consumed_read_rate,
-            AVG(CASE WHEN metric_name = 'ProvisionedReadCapacityUnits'
-                     AND statistic = 'Average' AND period_seconds = 3600
-                     THEN value END) as avg_provisioned_read_rate,
-            AVG(CASE WHEN metric_name = 'ConsumedWriteCapacityUnits'
-                     AND statistic = 'Sum' AND period_seconds = 300
-                     THEN value / period_seconds END) as avg_consumed_write_rate,
-            AVG(CASE WHEN metric_name = 'ProvisionedWriteCapacityUnits'
-                     AND statistic = 'Average' AND period_seconds = 3600
-                     THEN value END) as avg_provisioned_write_rate,
-
-            -- Calculate utilization percentages
-            CASE WHEN AVG(CASE WHEN metric_name = 'ProvisionedReadCapacityUnits'
-                               AND statistic = 'Average' THEN value END) > 0
-                 THEN (AVG(CASE WHEN metric_name = 'ConsumedReadCapacityUnits'
-                                AND statistic = 'Sum' AND period_seconds = 300
-                                THEN value / period_seconds END) /
-                       AVG(CASE WHEN metric_name = 'ProvisionedReadCapacityUnits'
-                                AND statistic = 'Average' THEN value END)) * 100
-                 ELSE NULL END as read_utilization_percent,
-
-            CASE WHEN AVG(CASE WHEN metric_name = 'ProvisionedWriteCapacityUnits'
-                               AND statistic = 'Average' THEN value END) > 0
-                 THEN (AVG(CASE WHEN metric_name = 'ConsumedWriteCapacityUnits'
-                                AND statistic = 'Sum' AND period_seconds = 300
-                                THEN value / period_seconds END) /
-                       AVG(CASE WHEN metric_name = 'ProvisionedWriteCapacityUnits'
-                                AND statistic = 'Average' THEN value END)) * 100
-                 ELSE NULL END as write_utilization_percent
-        FROM metrics
-        WHERE timestamp >= CURRENT_DATE - INTERVAL '90 days'
-        GROUP BY resource_name, resource_type, DATE(timestamp)
-        """
-        connection.execute(daily_utilization_view_sql)
+        # NOTE: normalized_metrics / metric_identifiers / daily_utilization views used to be
+        # created here, all selecting FROM the DuckDB `metrics` table. That table has been
+        # removed (metrics now live in the Parquet lake, see database/lake.py), and DuckDB
+        # validates view definitions eagerly, so creating them would fail immediately with
+        # "Table with name metrics does not exist". Removed along with the table.
 
         # Create schema version table and insert current version
         schema_version_sql = """
@@ -836,36 +716,6 @@ class DatabaseManager:
         )
 
         logger.info(f"Database schema created successfully (version {SCHEMA_VERSION})")
-
-    def _create_analysis_views(self, connection: duckdb.DuckDBPyConnection) -> None:
-        """Create analysis views for dashboards and reporting."""
-        try:
-            from .view_manager import ViewManager
-
-            # Create view manager with existing connection
-            view_manager = ViewManager(self)
-
-            # Create capacity views (essential for cost optimization)
-            results = view_manager.create_all_views(categories=["capacity"])
-
-            successful_views = [name for name, success in results.items() if success]
-            failed_views = [name for name, success in results.items() if not success]
-
-            if successful_views:
-                logger.info(
-                    f"Created {len(successful_views)} analysis views",
-                    successful_views=successful_views,
-                )
-
-            if failed_views:
-                logger.warning(
-                    f"Failed to create {len(failed_views)} views",
-                    failed_views=failed_views,
-                )
-
-        except Exception as e:
-            logger.warning(f"Failed to create analysis views: {e}")
-            # Don't fail database initialization if views fail
 
     def get_schema_version(self) -> Optional[str]:
         """Get current schema version."""
@@ -1098,132 +948,6 @@ class DatabaseManager:
                 column_casts.append(col)
         return column_casts
 
-    def execute_batch_upsert_metrics(self, data: List[Dict[str, Any]]) -> None:
-        """Execute optimized bulk upsert for metrics using DuckDB's staging table approach."""
-        if not data:
-            return
-
-        # Lazy import - only needed conditionally
-        import json
-
-        # Lazy import - only needed conditionally
-        import os
-
-        # Lazy import - only needed conditionally
-        import tempfile
-
-        start_time = time.time()
-        record_count = len(data)
-
-        with self.get_connection_context() as conn:
-            try:
-                # Update batch metrics
-                with self._lock:
-                    self._performance_metrics.batch_operations += 1
-                    self._performance_metrics.batch_records_processed += record_count
-
-                # Create temporary JSON file for bulk loading
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".json", delete=False
-                ) as temp_file:
-                    # Write data as NDJSON (newline-delimited JSON) for DuckDB
-                    for row in data:
-                        # Convert datetime to string for JSON serialization
-                        json_row = {}
-                        for key, value in row.items():
-                            if hasattr(value, "isoformat"):  # datetime object
-                                json_row[key] = value.isoformat()
-                            elif isinstance(value, dict):  # dimensions
-                                json_row[key] = json.dumps(value)
-                            else:
-                                json_row[key] = value
-                        temp_file.write(json.dumps(json_row) + "\n")
-
-                    temp_file_path = temp_file.name
-
-                try:
-                    # Create staging table and load data from JSON file - DuckDB's optimal approach
-                    staging_table_name = f"staging_metrics_{int(time.time() * 1000000)}"  # Use microseconds for uniqueness
-
-                    conn.execute(
-                        f"""
-                        CREATE TEMPORARY TABLE {staging_table_name} AS
-                        SELECT
-                            account_id,
-                            table_name,
-                            resource_name,
-                            resource_type,
-                            metric_name,
-                            operation,
-                            operation_type,
-                            statistic,
-                            period_seconds,
-                            CAST(timestamp AS TIMESTAMP) as timestamp,
-                            CAST(value AS DOUBLE) as value,
-                            unit,
-                            region,
-                            dimensions,
-                            CURRENT_TIMESTAMP as created_at
-                        FROM read_ndjson_auto(?)
-                    """,
-                        [temp_file_path],
-                    )
-
-                    # Perform bulk merge operation using DuckDB's efficient staging approach
-                    conn.execute(
-                        f"""
-                        INSERT INTO metrics
-                        SELECT * FROM {staging_table_name}
-                        ON CONFLICT (account_id, resource_name, metric_name, timestamp, statistic, period_seconds)
-                        DO UPDATE SET
-                            value = EXCLUDED.value,
-                            unit = EXCLUDED.unit,
-                            dimensions = EXCLUDED.dimensions,
-                            operation = EXCLUDED.operation,
-                            operation_type = EXCLUDED.operation_type,
-                            resource_type = EXCLUDED.resource_type,
-                            table_name = EXCLUDED.table_name,
-                            region = EXCLUDED.region
-                    """
-                    )
-
-                    # Clean up staging table
-                    conn.execute(f"DROP TABLE {staging_table_name}")
-
-                    # Commit transaction (required for connection pooling)
-                    conn.commit()
-
-                    execution_time = time.time() - start_time
-                    logger.debug(
-                        f"Bulk upserted metrics using DuckDB staging table approach",
-                        record_count=record_count,
-                        execution_time_ms=round(execution_time * 1000, 2),
-                        throughput_records_per_sec=round(
-                            record_count / execution_time, 2
-                        ),
-                    )
-
-                finally:
-                    # Clean up temporary file
-                    try:
-                        os.unlink(temp_file_path)
-                    except Exception:
-                        pass
-
-            except Exception as e:
-                # Update failure metrics
-                with self._lock:
-                    self._performance_metrics.batch_failures += 1
-
-                execution_time = time.time() - start_time
-                logger.error(
-                    f"Bulk upsert failed for metrics",
-                    record_count=record_count,
-                    execution_time_ms=round(execution_time * 1000, 2),
-                    error=str(e),
-                )
-                raise DatabaseError(f"Bulk upsert failed: {e}")
-
     def get_table_info(self, table_name: str) -> Dict[str, Any]:
         """Get information about a table."""
         query = f"DESCRIBE {table_name}"
@@ -1250,7 +974,6 @@ class DatabaseManager:
         try:
             # Get table row counts and sizes
             tables = [
-                "metrics",
                 "table_metadata",
                 "gsi_metadata",
                 "cost_analyses",
@@ -1268,6 +991,26 @@ class DatabaseManager:
                     total_rows += count
                 except Exception:
                     stats[f"{table}_count"] = 0
+
+            # `metrics` is no longer a DuckDB table -- metrics now live in the Parquet
+            # lake (see database/lake.py). Count rows via a glob over the lake instead.
+            try:
+                import glob as _glob_mod
+
+                from ..paths import get_lake_dir
+
+                pattern = str(get_lake_dir() / "**" / "*.parquet")
+                if _glob_mod.glob(pattern, recursive=True):
+                    with self.get_connection_context() as conn:
+                        metrics_count = conn.execute(
+                            f"SELECT COUNT(*) FROM read_parquet('{pattern}', union_by_name=true)"
+                        ).fetchone()[0]
+                else:
+                    metrics_count = 0
+            except Exception:
+                metrics_count = 0
+            stats["metrics_count"] = metrics_count
+            total_rows += metrics_count
 
             stats["total_rows"] = total_rows
 
@@ -1417,23 +1160,38 @@ class DatabaseManager:
 
 # Global database manager instance
 _db_manager: Optional[DatabaseManager] = None
+# Guards singleton construction + one-time schema validation so concurrent callers
+# (e.g. parallel collection workers) don't each build a manager and race on schema
+# init (DuckDB "Catalog write-write conflict on create").
+_db_manager_lock = threading.Lock()
 
 
 def get_database_manager() -> DatabaseManager:
-    """Get database manager instance with lazy initialization."""
+    """Get database manager instance with lazy, thread-safe initialization.
+
+    Double-checked locking: the fast path (already-initialized) takes no lock; the
+    first-time construction + schema validation is serialized so concurrent callers
+    (parallel collection workers) don't each build a manager and race on schema init.
+    """
     global _db_manager
 
-    if _db_manager is None:
-        settings = get_settings()
-        _db_manager = DatabaseManager(
-            database_url=settings.database_url,
-            max_connections=settings.database_pool_size,
-        )
+    if _db_manager is not None:
+        return _db_manager
 
-        # Validate schema at startup
-        if not _db_manager.validate_schema_at_startup():
-            logger.error("Database schema validation failed at startup")
-            raise SchemaError("Database schema validation failed")
+    with _db_manager_lock:
+        # Re-check inside the lock: another thread may have initialized while we waited.
+        if _db_manager is None:
+            settings = get_settings()
+            manager = DatabaseManager(
+                database_url=settings.database_url,
+                max_connections=settings.database_pool_size,
+            )
+            # Validate schema at startup (once, under the lock).
+            if not manager.validate_schema_at_startup():
+                logger.error("Database schema validation failed at startup")
+                raise SchemaError("Database schema validation failed")
+            # Publish only after fully initialized so no thread sees a half-built manager.
+            _db_manager = manager
 
     return _db_manager
 

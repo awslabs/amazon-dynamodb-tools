@@ -71,6 +71,16 @@ def get_checkpoints_dir() -> Path:
     return get_project_root() / "checkpoints"
 
 
+def get_lake_dir() -> Path:
+    """
+    Get the metrics Parquet lake directory.
+
+    Returns:
+        Path: <project_root>/data/metrics_lake
+    """
+    return get_data_dir() / "metrics_lake"
+
+
 def get_database_path() -> str:
     """
     Get default database file path.
