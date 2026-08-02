@@ -1559,3 +1559,339 @@ class TestAttributeTypeCoverage:
         a = {'pk': {'S': 'k'}, 'attr': {'BOOL': True}}
         b = {'pk': {'S': 'k'}, 'attr': {'BOOL': False}}
         assert not diff_module.item_matches(a, b)
+
+
+# --- Cross-Region Support ---------------------------------------------------
+
+# Load the real table_info module so we can reference its functions without
+# duplicating their implementations. The conftest mocks the module as Mock(),
+# but we can load it from disk using importlib (same pattern as test_table_info.py).
+# We load it under 'python_modules.shared.table_info' so relative imports
+# (from .logger, from .pricing) resolve to the conftest-registered mocks.
+import importlib.util
+from pathlib import Path
+
+_TABLE_INFO_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "server/src/python_modules/shared/table_info.py"
+)
+
+# Temporarily pop the mock, load the real module, then restore the mock for
+# other tests that rely on it being a Mock.
+_prev_table_info = sys.modules.get('python_modules.shared.table_info')
+_ti_spec = importlib.util.spec_from_file_location(
+    "python_modules.shared.table_info", str(_TABLE_INFO_PATH)
+)
+_real_table_info = importlib.util.module_from_spec(_ti_spec)
+sys.modules['python_modules.shared.table_info'] = _real_table_info
+_ti_spec.loader.exec_module(_real_table_info)
+# Restore the previous mock entry so diff_module (already imported) isn't affected
+if _prev_table_info is not None:
+    sys.modules['python_modules.shared.table_info'] = _prev_table_info
+
+_real_region_from_table_ref = _real_table_info._region_from_table_ref
+
+
+def _make_infer_region(default_region='us-east-1'):
+    """Create an infer_region function with a configurable default region fallback.
+
+    The real infer_region calls _default_region() which needs boto3.Session().
+    For tests we provide the default region explicitly.
+    """
+    def infer_region(table_ref):
+        region = _real_region_from_table_ref(table_ref)
+        if region:
+            return region
+        return default_region
+    return infer_region
+
+
+@pytest.fixture
+def patch_region_funcs(monkeypatch):
+    """Fixture to replace the mocked region functions on diff_module with real ones."""
+    monkeypatch.setattr(diff_module, '_region_from_table_ref', _real_region_from_table_ref)
+    monkeypatch.setattr(diff_module, 'infer_region', _make_infer_region('us-east-1'))
+
+
+class TestCrossRegionDiff:
+    """Tests for cross-region table comparison support."""
+
+    @patch.object(diff_module, 'RateLimiterWorker')
+    @patch.object(diff_module, 'SegmentStream')
+    def test_diff_segment_passes_different_regions_to_workers(self, mock_stream_cls, mock_rl, monkeypatch):
+        """Two ARNs from different regions should create workers with different regions."""
+        monkeypatch.setattr(diff_module, 'infer_region', _make_infer_region())
+
+        mock_rl_instance = MagicMock()
+        mock_rl_instance.get_session.return_value = MagicMock()
+        mock_rl.return_value = mock_rl_instance
+
+        # Setup empty streams
+        stream = MagicMock()
+        stream.is_finished.return_value = True
+        stream.head.return_value = None
+        stream.has_sort_key = False
+        stream.pk = 'pk'
+        mock_stream_cls.return_value = stream
+
+        arn1 = 'arn:aws:dynamodb:us-east-1:123456789012:table/t1'
+        arn2 = 'arn:aws:dynamodb:eu-west-1:123456789012:table/t2'
+        schema_broadcast = MagicMock()
+        schema_broadcast.value = {
+            'table1': {'pk': 'pk', 'sk': None},
+            'table2': {'pk': 'pk', 'sk': None}
+        }
+
+        diff_module.diff_segment(
+            arn1, arn2, {}, {},
+            0, 1, False, True, 'job1', False, None,
+            schema_broadcast, MagicMock()
+        )
+
+        calls = mock_rl.call_args_list
+        assert calls[0].kwargs['region_name'] == 'us-east-1'
+        assert calls[1].kwargs['region_name'] == 'eu-west-1'
+
+    @patch.object(diff_module, 'RateLimiterWorker')
+    @patch.object(diff_module, 'SegmentStream')
+    def test_diff_segment_same_region_both_workers(self, mock_stream_cls, mock_rl, monkeypatch):
+        """Two plain table names should use the default region for both workers."""
+        monkeypatch.setattr(diff_module, 'infer_region', _make_infer_region('us-west-2'))
+
+        mock_rl_instance = MagicMock()
+        mock_rl_instance.get_session.return_value = MagicMock()
+        mock_rl.return_value = mock_rl_instance
+
+        stream = MagicMock()
+        stream.is_finished.return_value = True
+        stream.head.return_value = None
+        stream.has_sort_key = False
+        stream.pk = 'pk'
+        mock_stream_cls.return_value = stream
+
+        schema_broadcast = MagicMock()
+        schema_broadcast.value = {
+            'table1': {'pk': 'pk', 'sk': None},
+            'table2': {'pk': 'pk', 'sk': None}
+        }
+
+        diff_module.diff_segment(
+            'table1', 'table2', {}, {},
+            0, 1, False, True, 'job1', False, None,
+            schema_broadcast, MagicMock()
+        )
+
+        calls = mock_rl.call_args_list
+        assert calls[0].kwargs['region_name'] == 'us-west-2'
+        assert calls[1].kwargs['region_name'] == 'us-west-2'
+
+    @patch.object(diff_module, 'RateLimiterWorker')
+    @patch.object(diff_module, 'SegmentStream')
+    def test_diff_segment_mixed_arn_and_plain_name(self, mock_stream_cls, mock_rl, monkeypatch):
+        """One ARN and one plain table name -> different region sources."""
+        monkeypatch.setattr(diff_module, 'infer_region', _make_infer_region('us-east-1'))
+
+        mock_rl_instance = MagicMock()
+        mock_rl_instance.get_session.return_value = MagicMock()
+        mock_rl.return_value = mock_rl_instance
+
+        stream = MagicMock()
+        stream.is_finished.return_value = True
+        stream.head.return_value = None
+        stream.has_sort_key = False
+        stream.pk = 'pk'
+        mock_stream_cls.return_value = stream
+
+        schema_broadcast = MagicMock()
+        schema_broadcast.value = {
+            'table1': {'pk': 'pk', 'sk': None},
+            'table2': {'pk': 'pk', 'sk': None}
+        }
+
+        arn1 = 'arn:aws:dynamodb:ap-southeast-1:123456789012:table/t1'
+        diff_module.diff_segment(
+            arn1, 'plain-table', {}, {},
+            0, 1, False, True, 'job1', False, None,
+            schema_broadcast, MagicMock()
+        )
+
+        calls = mock_rl.call_args_list
+        assert calls[0].kwargs['region_name'] == 'ap-southeast-1'
+        assert calls[1].kwargs['region_name'] == 'us-east-1'
+
+    def test_print_dynamodb_table_info_uses_arn_region(self, monkeypatch):
+        """When given an ARN, print_dynamodb_table_info passes the ARN region to scan cost."""
+        monkeypatch.setattr(diff_module, '_region_from_table_ref', _real_region_from_table_ref)
+        monkeypatch.setattr(diff_module, '_default_region', lambda: 'us-east-1')
+
+        mock_table_info = MagicMock(return_value={'item_count': 100})
+        mock_scan_cost = MagicMock(return_value=1.0)
+        monkeypatch.setattr(diff_module, 'get_and_print_dynamodb_table_info', mock_table_info)
+        monkeypatch.setattr(diff_module, 'get_and_print_table_scan_cost', mock_scan_cost)
+
+        arn = 'arn:aws:dynamodb:ap-northeast-1:123456789012:table/my-table'
+        diff_module.print_dynamodb_table_info(arn)
+
+        mock_scan_cost.assert_called_once()
+        call_args = mock_scan_cost.call_args
+        # region_name is the second positional arg
+        assert call_args[0][1] == 'ap-northeast-1'
+
+    def test_print_dynamodb_table_info_plain_name_uses_default(self, monkeypatch):
+        """Plain table name should use the default region."""
+        monkeypatch.setattr(diff_module, '_region_from_table_ref', _real_region_from_table_ref)
+        monkeypatch.setattr(diff_module, '_default_region', lambda: 'eu-central-1')
+
+        mock_table_info = MagicMock(return_value={'item_count': 100})
+        mock_scan_cost = MagicMock(return_value=0.5)
+        monkeypatch.setattr(diff_module, 'get_and_print_dynamodb_table_info', mock_table_info)
+        monkeypatch.setattr(diff_module, 'get_and_print_table_scan_cost', mock_scan_cost)
+
+        diff_module.print_dynamodb_table_info('my-table')
+
+        call_args = mock_scan_cost.call_args
+        assert call_args[0][1] == 'eu-central-1'
+
+    def test_run_creates_clients_with_different_regions(self, monkeypatch, capsys):
+        """run() should create DynamoDB clients with correct regions for each table."""
+        monkeypatch.setattr(diff_module, 'infer_region', _make_infer_region())
+        monkeypatch.setattr(diff_module, 'print_dynamodb_table_info', MagicMock(return_value=0.10))
+
+        boto3_mock = MagicMock()
+        client_mock = MagicMock()
+        client_mock.describe_table.return_value = {
+            'Table': {'KeySchema': [{'AttributeName': 'pk', 'KeyType': 'HASH'}]}
+        }
+        boto3_mock.client.return_value = client_mock
+        monkeypatch.setattr(diff_module, 'boto3', boto3_mock)
+        monkeypatch.setattr(diff_module, 'RateLimiterSharedConfig', MagicMock())
+        monkeypatch.setattr(diff_module, 'RateLimiterAggregator', MagicMock())
+        monkeypatch.setattr(diff_module, 'get_dynamodb_throughput_configs', MagicMock(return_value={}))
+
+        spark_context = MagicMock()
+        rdd = MagicMock()
+        spark_context.parallelize.return_value = rdd
+        rdd.map.return_value.collect.return_value = [[]]
+
+        args = {
+            'splits': '2',
+            'sample_fraction': '1.0',
+            'table': 'arn:aws:dynamodb:us-east-1:111111111111:table/t1',
+            'table2': 'arn:aws:dynamodb:eu-west-1:222222222222:table/t2',
+            'format': 'keys',
+            's3': None,
+            'JOB_RUN_ID': 'job-1',
+            's3-bucket-name': 'bucket',
+        }
+
+        diff_module.run(MagicMock(), spark_context, MagicMock(), args)
+
+        # Verify boto3.client was called with correct regions
+        client_calls = boto3_mock.client.call_args_list
+        dynamodb_calls = [c for c in client_calls if c[0][0] == 'dynamodb']
+        regions = [c[1]['region_name'] for c in dynamodb_calls]
+        assert 'us-east-1' in regions
+        assert 'eu-west-1' in regions
+
+    def test_run_aggregator_receives_default_region(self, monkeypatch, capsys):
+        """The RateLimiterAggregator should be initialized with the default region (for S3 bootstrapping)."""
+        monkeypatch.setattr(diff_module, 'infer_region', _make_infer_region())
+        monkeypatch.setattr(diff_module, '_default_region', lambda: 'us-east-1')
+        monkeypatch.setattr(diff_module, 'print_dynamodb_table_info', MagicMock(return_value=0.10))
+
+        client_mock = MagicMock()
+        client_mock.describe_table.return_value = {
+            'Table': {'KeySchema': [{'AttributeName': 'pk', 'KeyType': 'HASH'}]}
+        }
+        monkeypatch.setattr(diff_module, 'boto3', MagicMock(
+            client=MagicMock(return_value=client_mock)
+        ))
+        monkeypatch.setattr(diff_module, 'RateLimiterSharedConfig', MagicMock())
+        agg_cls = MagicMock()
+        monkeypatch.setattr(diff_module, 'RateLimiterAggregator', agg_cls)
+        monkeypatch.setattr(diff_module, 'get_dynamodb_throughput_configs', MagicMock(return_value={}))
+
+        spark_context = MagicMock()
+        rdd = MagicMock()
+        spark_context.parallelize.return_value = rdd
+        rdd.map.return_value.collect.return_value = [[]]
+
+        args = {
+            'splits': '2',
+            'sample_fraction': '1.0',
+            'table': 'arn:aws:dynamodb:ap-south-1:111111111111:table/t1',
+            'table2': 'arn:aws:dynamodb:eu-west-1:222222222222:table/t2',
+            'format': 'keys',
+            's3': None,
+            'JOB_RUN_ID': 'job-1',
+            's3-bucket-name': 'bucket',
+        }
+
+        diff_module.run(MagicMock(), spark_context, MagicMock(), args)
+
+        agg_cls.assert_called_once()
+        call_kwargs = agg_cls.call_args.kwargs
+        assert call_kwargs['region_name'] == 'us-east-1'
+
+
+# --- RateLimiter Region Support ---------------------------------------------
+
+class TestRateLimiterRegionSupport:
+    """Tests that RateLimiterWorker and RateLimiterAggregator forward region_name to Session."""
+
+    @patch.object(diff_module, 'SegmentStream')
+    def test_worker_receives_region_name_kwarg(self, mock_stream_cls, monkeypatch):
+        """Verify RateLimiterWorker is called with region_name from infer_region."""
+        monkeypatch.setattr(diff_module, 'infer_region', _make_infer_region('us-east-1'))
+
+        stream = MagicMock()
+        stream.is_finished.return_value = True
+        stream.head.return_value = None
+        stream.has_sort_key = False
+        stream.pk = 'pk'
+        mock_stream_cls.return_value = stream
+
+        schema_broadcast = MagicMock()
+        schema_broadcast.value = {
+            'table1': {'pk': 'pk', 'sk': None},
+            'table2': {'pk': 'pk', 'sk': None}
+        }
+
+        with patch.object(diff_module, 'RateLimiterWorker') as mock_rl:
+            mock_rl_instance = MagicMock()
+            mock_rl_instance.get_session.return_value = MagicMock()
+            mock_rl.return_value = mock_rl_instance
+
+            arn = 'arn:aws:dynamodb:sa-east-1:123456789012:table/t1'
+            diff_module.diff_segment(
+                arn, 'plain-table', {}, {},
+                0, 1, False, True, 'job1', False, None,
+                schema_broadcast, MagicMock()
+            )
+
+            # First worker gets ARN region, second gets default
+            first_call = mock_rl.call_args_list[0]
+            second_call = mock_rl.call_args_list[1]
+            assert first_call.kwargs['region_name'] == 'sa-east-1'
+            assert second_call.kwargs['region_name'] == 'us-east-1'
+
+    @patch.object(diff_module, 'RateLimiterWorker')
+    @patch.object(diff_module, 'SegmentStream')
+    def test_worker_none_region_when_no_arn_no_default(self, mock_stream_cls, mock_rl):
+        """If infer_region raises ValueError, diff_segment should propagate it."""
+        mock_rl_instance = MagicMock()
+        mock_rl.return_value = mock_rl_instance
+
+        schema_broadcast = MagicMock()
+        schema_broadcast.value = {
+            'table1': {'pk': 'pk', 'sk': None},
+            'table2': {'pk': 'pk', 'sk': None}
+        }
+
+        with patch.object(diff_module, 'infer_region', side_effect=ValueError("Unable to determine region_name")):
+            with pytest.raises(ValueError, match="Unable to determine region_name"):
+                diff_module.diff_segment(
+                    'table1', 'table2', {}, {},
+                    0, 1, False, True, 'job1', False, None,
+                    schema_broadcast, MagicMock()
+                )

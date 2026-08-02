@@ -6,6 +6,7 @@ from botocore.config import Config
 from typing import Dict, Any, Iterator
 from .base_writer import DynamoDBWriter
 from ...rate_limiter import RateLimiterWorker
+from ...table_info import infer_region
 from ...logger import log
 from ...errors import get_error_code, get_error_message
 
@@ -29,6 +30,7 @@ class BatchWriter(DynamoDBWriter):
         """Write partition using batch_writer for high performance."""
         local_count = 0
         rate_limiter_worker = None
+        region_name = infer_region(table_name)
         
         if debug_accumulator: debug_accumulator.add(["Batch writer function started"])
         
@@ -38,6 +40,7 @@ class BatchWriter(DynamoDBWriter):
             if debug_accumulator: debug_accumulator.add(["Rate limiter worker started"])
             rate_limiter_worker = RateLimiterWorker(
                 shared_config=rate_limiter_shared_config,
+                region_name=region_name,
                 **monitor_options,
             )
             session = rate_limiter_worker.get_session()

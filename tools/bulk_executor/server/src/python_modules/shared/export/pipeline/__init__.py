@@ -3,7 +3,7 @@ import time
 from ...bulk_executor_error import BulkExecutorError
 from ...logger import log
 from ...errors import ListAccumulator
-from ...table_info import get_dynamodb_throughput_configs
+from ...table_info import get_dynamodb_throughput_configs, infer_region
 from ...rate_limiter import RateLimiterAggregator, RateLimiterSharedConfig
 
 from .validator import validate
@@ -103,11 +103,12 @@ def run_export_pipeline(spark_context, parsed_args, transform_package, post_vali
     table_name = parsed_args.get('table')
     s3_path = parsed_args.get('s3_path')
     transform_name = parsed_args.get('transform')
+    region_name = infer_region(table_name)
 
     bucket_name = parsed_args.get('s3-bucket-name')
     job_run_id = parsed_args.get("JOB_RUN_ID")
     rate_limiter_shared_config = RateLimiterSharedConfig(bucket=bucket_name, job_run_id=job_run_id)
-    rate_limiter_aggregator = RateLimiterAggregator(shared_config=rate_limiter_shared_config)
+    rate_limiter_aggregator = RateLimiterAggregator(shared_config=rate_limiter_shared_config, region_name=region_name)
 
     monitor_options = get_dynamodb_throughput_configs(parsed_args, table_name, modes=["write"], format="monitor")
     log.debug(f"monitor_options {monitor_options}")

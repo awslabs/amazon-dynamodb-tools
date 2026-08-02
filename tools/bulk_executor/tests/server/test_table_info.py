@@ -1349,3 +1349,54 @@ class TestGetThroughputConfigsReadRateFalsyConnector:
         )
         assert 'dynamodb.throughput.read' not in opts
         assert opts['dynamodb.throughput.write'] == '100'
+
+
+# --- infer_region -----------------------------------------------------------
+
+
+class TestInferRegion:
+    """Tests for the infer_region helper that resolves a region from ARN or environment."""
+
+    def test_arn_returns_arn_region(self, boto3_mock):
+        arn = 'arn:aws:dynamodb:ap-southeast-1:123456789012:table/my-table'
+        assert table_info.infer_region(arn) == 'ap-southeast-1'
+
+    def test_different_regions_from_arns(self, boto3_mock):
+        arn1 = 'arn:aws:dynamodb:us-east-1:111111111111:table/t1'
+        arn2 = 'arn:aws:dynamodb:eu-west-1:222222222222:table/t2'
+        assert table_info.infer_region(arn1) == 'us-east-1'
+        assert table_info.infer_region(arn2) == 'eu-west-1'
+
+    def test_plain_name_returns_session_region(self, boto3_mock):
+        boto3_mock.Session.return_value.region_name = 'us-west-2'
+        assert table_info.infer_region('plain-table-name') == 'us-west-2'
+
+    def test_plain_name_falls_back_to_aws_region_env(self, boto3_mock, monkeypatch):
+        boto3_mock.Session.return_value.region_name = None
+        monkeypatch.setenv('AWS_REGION', 'eu-west-1')
+        assert table_info.infer_region('plain-name') == 'eu-west-1'
+
+    def test_plain_name_falls_back_to_aws_default_region_env(self, boto3_mock, monkeypatch):
+        boto3_mock.Session.return_value.region_name = None
+        monkeypatch.delenv('AWS_REGION', raising=False)
+        monkeypatch.setenv('AWS_DEFAULT_REGION', 'ap-northeast-1')
+        assert table_info.infer_region('plain-name') == 'ap-northeast-1'
+
+    def test_no_region_available_raises_value_error(self, boto3_mock, monkeypatch):
+        boto3_mock.Session.return_value.region_name = None
+        monkeypatch.delenv('AWS_REGION', raising=False)
+        monkeypatch.delenv('AWS_DEFAULT_REGION', raising=False)
+        with pytest.raises(ValueError, match="Unable to determine region_name"):
+            table_info.infer_region('plain-name')
+
+    def test_arn_region_takes_priority_over_session(self, boto3_mock):
+        """Even if the session has a different region, the ARN region should win."""
+        boto3_mock.Session.return_value.region_name = 'us-west-2'
+        arn = 'arn:aws:dynamodb:ap-south-1:123456789012:table/my-table'
+        assert table_info.infer_region(arn) == 'ap-south-1'
+
+    def test_non_dynamodb_arn_falls_back_to_default(self, boto3_mock):
+        """An ARN for a non-DynamoDB service shouldn't extract a region from it."""
+        boto3_mock.Session.return_value.region_name = 'us-east-1'
+        arn = 'arn:aws:s3:::my-bucket'
+        assert table_info.infer_region(arn) == 'us-east-1'

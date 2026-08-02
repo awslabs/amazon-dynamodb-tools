@@ -12,7 +12,10 @@ from python_modules.shared.errors import get_error_message
 from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info,
     get_and_print_table_scan_cost,
-    get_dynamodb_throughput_configs
+    get_dynamodb_throughput_configs,
+    _region_from_table_ref,
+    infer_region,
+    _default_region
 )
 
 from python_modules.shared.rate_limiter import (
@@ -155,13 +158,17 @@ def log_diff(symbol, stream, concise_format):
 
 
 def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_options_b, segment, total_segments, consistent_read, concise_format, job_id, use_s3, bucket, schema_broadcast, rate_limiter_shared_config):
+    table1_region = infer_region(stream_a_name)
+    table2_region = infer_region(stream_b_name)
     rate_limiter_worker_a = RateLimiterWorker(
         shared_config=rate_limiter_shared_config,
+        region_name=table1_region,
         **monitor_options_a
     )
 
     rate_limiter_worker_b = RateLimiterWorker(
         shared_config=rate_limiter_shared_config,
+        region_name=table2_region,
         **monitor_options_b
     )
 
@@ -289,7 +296,7 @@ def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_option
     return diff[0:PRINT_LIMIT]
 
 def print_dynamodb_table_info(table_name, fraction=1.0):
-    region_name = boto3.Session().region_name
+    region_name = _region_from_table_ref(table_name) or _default_region()
     table_info = get_and_print_dynamodb_table_info(table_name)
     return get_and_print_table_scan_cost(table_info, region_name, fraction=fraction)
 
@@ -323,8 +330,10 @@ def run(job, spark_context, glue_context, parsed_args):
     print(f"TOTAL DynamoDB cost for scanning both tables (approx): ${total_cost:,.2f}")
     print()
 
-    schema1 = boto3.client("dynamodb").describe_table(TableName=table1)['Table']['KeySchema']
-    schema2 = boto3.client("dynamodb").describe_table(TableName=table2)['Table']['KeySchema']
+    table1_region = infer_region(table1)
+    table2_region = infer_region(table2)
+    schema1 = boto3.client("dynamodb", region_name=table1_region).describe_table(TableName=table1)['Table']['KeySchema']
+    schema2 = boto3.client("dynamodb", region_name=table2_region).describe_table(TableName=table2)['Table']['KeySchema']
 
     def extract_keys(schema):
         pk = next(e['AttributeName'] for e in schema if e['KeyType'] == 'HASH')
@@ -350,7 +359,8 @@ def run(job, spark_context, glue_context, parsed_args):
         job_run_id=job_id
     )
 
-    rate_limiter_aggregator = RateLimiterAggregator(shared_config=rate_limiter_shared_config)
+    # uses S3 from bootstrapping process -> should use same default region
+    rate_limiter_aggregator = RateLimiterAggregator(shared_config=rate_limiter_shared_config, region_name=_default_region())
 
     monitor_options_1 = get_dynamodb_throughput_configs(parsed_args, table1, modes=("read"), format="monitor")
     monitor_options_2 = get_dynamodb_throughput_configs(parsed_args, table2, modes=("read"), format="monitor")
