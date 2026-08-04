@@ -16,6 +16,10 @@ class _AccumulatorParamStub:
     pass
 
 
+# Preserve real pyspark.sql.types before mocking — the types module is pure
+# Python data classes with no Spark runtime dependency.
+import pyspark.sql.types as _real_sql_types
+
 _pyspark = Mock()
 _pyspark.AccumulatorParam = _AccumulatorParamStub
 sys.modules['awsglue'] = Mock()
@@ -24,6 +28,8 @@ sys.modules['awsglue.job'] = Mock()
 sys.modules['pyspark'] = _pyspark
 sys.modules['pyspark.context'] = Mock()
 sys.modules['pyspark.accumulators'] = Mock()
+sys.modules['pyspark.sql'] = Mock()
+sys.modules['pyspark.sql.types'] = _real_sql_types
 
 # Mock shared modules at all possible resolution paths
 # Use a real logger for shared.logger.log so caplog works
