@@ -385,7 +385,7 @@ def _effective_capacity_ceiling(table_desc, is_on_demand, region_name, table_nam
 
     - Provisioned, no autoscaling  → (provisioned CU, "provisioned capacity", None)
     - Provisioned with autoscaling → (autoscaling max, "autoscaling maximum", provisioned CU)
-    - On-demand with a table max    → (table max, "table's on-demand maximum", None)
+    - On-demand with a table max    → (table max, "on-demand maximum throughput", None)
     - On-demand, no table max       → (account quota, "account quota", None)
 
     `soft_floor` is the current provisioned level when autoscaling can climb
@@ -398,7 +398,7 @@ def _effective_capacity_ceiling(table_desc, is_on_demand, region_name, table_nam
         key = 'MaxReadRequestUnits' if dimension == 'read' else 'MaxWriteRequestUnits'
         table_max = on_demand_throughput.get(key)
         if isinstance(table_max, (int, float)) and table_max:
-            return int(table_max), "table's on-demand maximum", None
+            return int(table_max), "on-demand maximum throughput", None
         quota_name = (
             "Table-level read throughput limit" if dimension == 'read'
             else "Table-level write throughput limit"
