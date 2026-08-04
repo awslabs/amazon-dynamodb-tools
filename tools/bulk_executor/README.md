@@ -1,6 +1,6 @@
 # Bulk Executor for Amazon DynamoDB
 
-![tests](https://img.shields.io/badge/tests-1423%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-1424%20passing-brightgreen)
 ![line coverage](https://img.shields.io/badge/line%20coverage-94.6%25-brightgreen)
 ![branch coverage](https://img.shields.io/badge/branch%20coverage-90.7%25-brightgreen)
 
