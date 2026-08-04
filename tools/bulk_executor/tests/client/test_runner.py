@@ -269,6 +269,19 @@ class TestPrettyPrintLogEvent:
         bulk_runner._pretty_print_log_event(ev)
         assert capsys.readouterr().out == ''
 
+    def test_suppresses_benign_netty_stream_error(self, bulk_runner, capsys):
+        """Issue #247: the real (non-monkeypatched) ignore list drops the benign
+        Netty 'Error sending result StreamResponse' line that otherwise prints red."""
+        ev = _make_event(message=(
+            "2026-08-04 04:17:36 ERROR TransportRequestHandler:326 - Error sending "
+            "result StreamResponse[streamId=/jars/x.jar,byteCount=36261796,body=...] "
+            "to /172.34.52.242:55286; closing connection"
+        ))
+        bulk_runner._pretty_print_log_event(ev)
+        captured = capsys.readouterr()
+        assert captured.out == ''
+        assert captured.err == ''
+
     def test_bulk_executor_error_sets_suppress_flag(self, bulk_runner, monkeypatch):
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
