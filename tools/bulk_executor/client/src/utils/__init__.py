@@ -51,6 +51,7 @@ WARN_LOG_MESSAGE_KEYS = [
 _ENV_OR_SCRIPT_KEYS = set([
     'XMaxWriteRate',
     'XMaxReadRate',
+    'XTimeout',  # Forwarded so the server can race the job-timeout estimate (#89)
 ])
 
 # We can perhaps move this somewhere else later
