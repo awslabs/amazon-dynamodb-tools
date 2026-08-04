@@ -121,7 +121,7 @@ unit-tested warning logic actually surfaces on a real job.
 | provisioned, no autoscaling | PROVISIONED 5 WCU | 500 | hard: *exceeds the table's provisioned capacity* |
 | provisioned + autoscaling, above max | PROVISIONED + AS max 100 | 1000 | hard: *exceeds the table's autoscaling maximum* |
 | provisioned + autoscaling, within range | PROVISIONED 5 + AS max 100 | ~52 | soft: *autoscaling will need to scale up* (not the hard warn) |
-| on-demand table max | PAY_PER_REQUEST, MaxWriteRequestUnits 100 | 1000 | hard: *on-demand maximum* |
+| on-demand table max | PAY_PER_REQUEST, MaxWriteRequestUnits 100 | 1000 | hard: *on-demand maximum throughput* |
 | rate too slow for job timeout (check 1) | persistent `write_table` (millions of existing items), tiny `load` | `--XMaxWriteRate 100` | *the job will likely time out before finishing* — job still SUCCEEDS |
 | missing autoscaling permission | PROVISIONED, Glue role without `DescribeScalableTargets` | 500 | visibility: *the requested-rate capacity check is skipped* — job still SUCCEEDS |
 

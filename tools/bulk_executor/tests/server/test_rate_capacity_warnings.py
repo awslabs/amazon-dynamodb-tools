@@ -406,6 +406,28 @@ class TestOnDemandTableMaxWarning:
             for m in _capacity_warnings(caplog)
         )
 
+    def test_read_request_above_table_max_exact_wording(
+        self, boto3_mock, ondemand_table_with_limits, caplog
+    ):
+        """Pin the rendered sentence, not just loose fragments.
+
+        The other assertions here match on `'on-demand' in m`, which stays green
+        across any rewording of the ceiling label. The e2e suite
+        (whole_system/test_capacity_warnings.py WARN_ON_DEMAND_MAX) asserts the
+        *exact* fragment against a live Glue log, so a label edit that unit tests
+        wave through only surfaces hours later in a paid e2e run. Pin it here so
+        the break lands in CI instead, and update both sides together.
+        """
+        boto3_mock.dynamodb_client.describe_table.return_value = ondemand_table_with_limits
+        with caplog.at_level(logging.DEBUG):
+            table_info.get_dynamodb_throughput_configs(
+                args={'XMaxReadRate': '30000'}, table_name='t', modes=['read']
+            )
+        assert _capacity_warnings(caplog) == [
+            "[t] Requested read rate 30000 exceeds the table's on-demand "
+            "maximum throughput of 25000; the table cannot deliver this rate."
+        ]
+
     def test_request_at_table_max_no_warning(
         self, boto3_mock, ondemand_table_with_limits, caplog
     ):
