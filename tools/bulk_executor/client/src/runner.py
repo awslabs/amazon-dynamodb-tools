@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 import threading
 import time
@@ -30,6 +31,13 @@ TIMEOUT_STATE = 'TIMEOUT'
 
 LIVE_TAIL_MAX_RETRIES = 20
 LIVE_TAIL_RETRY_WAIT_TIME_IN_SECONDS = 2
+
+# Server-side logs are formatted as "<asctime> <LEVELNAME> [<thread>] <name> - <msg>"
+# by BulkDynamoDBServerSideFormatter, where asctime is the logging default
+# "YYYY-MM-DD HH:MM:SS,mmm". We anchor on that exact leading shape to read the
+# real log level and color by it, rather than guessing from keywords in the body.
+# Group 1 is the level token (WARNING, ERROR, INFO, ...).
+_SERVER_LOG_LEVEL_RE = re.compile(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} (\w+)\b')
 
 # Logs are streamed every second, so no need for a wait timer (count alone is sufficient).
 LIVE_TAIL_SUCCESS_SHUTDOWN_MAX_COUNT = 3 # Complete the job after this many counts of no additional logs coming through.
@@ -120,16 +128,40 @@ class BulkDynamoDbRunner:
             # Non-output logs can decorate with what special non-output place they came from
             formatted_message = f'[{log_group}] {self._jsonify_message(log_message)}'
 
-        # Pretty print useful info w/ console coloring for easier readability
-        # Should this stuff not be using log.error() and so on?
-        # end='' prevents newlines which is important since messages can be in multiple events
-        # Really we should be buffering til we hit a newline
+        # Pretty print useful info w/ console coloring for easier readability.
+        # end='' prevents newlines which is important since messages can be in multiple events.
+        #
+        # Coloring precedence:
+        #   1. CONFIG keys -> gray. Checked first so external-lib noise pinned to
+        #      WARNING level (botocore/urllib3, e.g. "...timeout=30...") stays
+        #      de-emphasized rather than turning yellow via the level check below.
+        #   2. Real server log level, read from the leading "<asctime> <LEVEL>"
+        #      prefix. This is the reliable signal: the level is positionally fixed
+        #      by the server formatter, unlike keyword guesses on the body. A line
+        #      like a WARNING that merely contains the word "exception" is now
+        #      correctly yellow instead of red.
+        #   3. Keyword fallback for lines that don't carry our level prefix (e.g.
+        #      raw Spark/log4j lines with a different timestamp format).
+        #
+        # INVARIANT this relies on: verb output directed at the terminal (find item
+        # JSON, sql rows, count/scancount numbers, etc.) never begins with a line
+        # matching _SERVER_LOG_LEVEL_RE ("YYYY-MM-DD HH:MM:SS,mmm <WORD>"). Such
+        # output shares the output log group with server diagnostics, and only the
+        # leading-prefix shape distinguishes the two. Today no verb emits data in
+        # that shape. If a future verb streams data that could, those lines would be
+        # mis-colored (or, for a data line beginning with an ERROR-like token,
+        # wrongly routed to stderr) -- revisit this block if so.
+        level_match = _SERVER_LOG_LEVEL_RE.match(log_message)
+        level = level_match.group(1) if level_match else None
+
         if any(key in log_message.lower() for key in utils.CONFIG_LOG_MESSAGE_KEYS):
             print(ColorCodes.GRAY + formatted_message + ColorCodes.RESET, end='')
+        elif level in ('ERROR', 'CRITICAL'):
+            print(ColorCodes.PINK + formatted_message + ColorCodes.RESET, file=sys.stderr, end='')
+        elif level == 'WARNING':
+            print(ColorCodes.YELLOW + formatted_message + ColorCodes.RESET, end='')
         elif any(key in log_message.lower() for key in utils.STD_ERROR_MESSAGE_KEYS):
             print(ColorCodes.PINK + formatted_message + ColorCodes.RESET, file=sys.stderr, end='')
-        elif any(key in log_message.lower() for key in utils.WARN_LOG_MESSAGE_KEYS):
-            print(ColorCodes.YELLOW + formatted_message + ColorCodes.RESET, end='')
 
         else:
             print(formatted_message, end='') # not our job to add newlines

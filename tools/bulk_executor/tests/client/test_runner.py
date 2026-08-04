@@ -273,7 +273,6 @@ class TestPrettyPrintLogEvent:
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         ev = _make_event(message='BulkExecutorError fatal')
         bulk_runner._pretty_print_log_event(ev)
         assert bulk_runner._suppress_glue_noise is True
@@ -282,7 +281,6 @@ class TestPrettyPrintLogEvent:
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         bulk_runner._suppress_glue_noise = True
         ev = _make_event(message='GlueExceptionAnalysisListener spam')
         bulk_runner._pretty_print_log_event(ev)
@@ -292,7 +290,6 @@ class TestPrettyPrintLogEvent:
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         bulk_runner._suppress_glue_noise = True
         ev = _make_event(message='Error Category: foo')
         bulk_runner._pretty_print_log_event(ev)
@@ -302,7 +299,6 @@ class TestPrettyPrintLogEvent:
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         ev = _make_event(
             message='hello world',
             log_group='123456789012:/aws-glue/jobs/output',
@@ -316,7 +312,6 @@ class TestPrettyPrintLogEvent:
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         ev = _make_event(
             message='something',
             log_group='123456789012:/aws-glue/jobs/somewhere-else',
@@ -329,7 +324,6 @@ class TestPrettyPrintLogEvent:
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', ['arguments:'])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         ev = _make_event(
             message='arguments: foo',
             log_group='123456789012:/aws-glue/jobs/output',
@@ -343,7 +337,6 @@ class TestPrettyPrintLogEvent:
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', ['exception'])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         ev = _make_event(
             message='java exception thrown',
             log_group='123456789012:/aws-glue/jobs/output',
@@ -353,24 +346,93 @@ class TestPrettyPrintLogEvent:
         # Output goes to stderr (PINK).
         assert runner_module.ColorCodes.PINK in captured.err
 
-    def test_warn_keys_route_to_yellow(self, bulk_runner, capsys, monkeypatch):
+    def test_warning_level_routes_to_yellow(self, bulk_runner, capsys, monkeypatch):
+        # A real server WARNING line (identified by its leading "<asctime> WARNING"
+        # prefix) is yellow regardless of its body.
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [' warn '])
         ev = _make_event(
-            message=' WARN something',
+            message='2026-08-04 04:41:33,623 WARNING [MainThread] root - [t] too slow',
             log_group='123456789012:/aws-glue/jobs/output',
         )
         bulk_runner._pretty_print_log_event(ev)
         out = capsys.readouterr().out
         assert runner_module.ColorCodes.YELLOW in out
 
+    def test_error_level_routes_to_pink_stderr(self, bulk_runner, capsys, monkeypatch):
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
+        ev = _make_event(
+            message='2026-08-04 04:41:33,623 ERROR [MainThread] root - boom',
+            log_group='123456789012:/aws-glue/jobs/output',
+        )
+        bulk_runner._pretty_print_log_event(ev)
+        captured = capsys.readouterr()
+        assert runner_module.ColorCodes.PINK in captured.err
+
+    def test_critical_level_routes_to_pink_stderr(self, bulk_runner, capsys, monkeypatch):
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
+        ev = _make_event(
+            message='2026-08-04 04:41:33,623 CRITICAL [MainThread] root - fatal',
+            log_group='123456789012:/aws-glue/jobs/output',
+        )
+        bulk_runner._pretty_print_log_event(ev)
+        assert runner_module.ColorCodes.PINK in capsys.readouterr().err
+
+    def test_warning_with_error_keyword_in_body_is_yellow_not_red(self, bulk_runner, capsys, monkeypatch):
+        # The core bug (#252): the timeout WARNING contains the word "timeout",
+        # which is a STD_ERROR keyword. Level-anchoring must win so it stays yellow
+        # on stdout rather than red on stderr.
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', ['timeout', 'exception'])
+        ev = _make_event(
+            message='2026-08-04 05:28:27,649 WARNING [MainThread] root - '
+                    '[t] ...exceeds the ~60 min remaining before the job timeout...',
+            log_group='123456789012:/aws-glue/jobs/output',
+        )
+        bulk_runner._pretty_print_log_event(ev)
+        captured = capsys.readouterr()
+        assert runner_module.ColorCodes.YELLOW in captured.out
+        assert captured.err == ''
+
+    def test_config_keys_win_over_level(self, bulk_runner, capsys, monkeypatch):
+        # CONFIG (gray) is checked before the level so WARNING-level external-lib
+        # noise stays de-emphasized rather than turning yellow.
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', ['timeout='])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
+        ev = _make_event(
+            message='2026-08-04 04:41:33,623 WARNING [MainThread] botocore - Connection timeout=30',
+            log_group='123456789012:/aws-glue/jobs/output',
+        )
+        bulk_runner._pretty_print_log_event(ev)
+        out = capsys.readouterr().out
+        assert runner_module.ColorCodes.GRAY in out
+        assert runner_module.ColorCodes.YELLOW not in out
+
+    def test_keyword_fallback_for_lines_without_level_prefix(self, bulk_runner, capsys, monkeypatch):
+        # Foreign lines (e.g. Spark/log4j with a different timestamp format) don't
+        # match our level prefix, so the keyword fallback still colors them.
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', ['exception'])
+        ev = _make_event(
+            message='2026-08-04 04:17:36 ERROR TransportRequestHandler exception',
+            log_group='123456789012:/aws-glue/jobs/output',
+        )
+        bulk_runner._pretty_print_log_event(ev)
+        # No comma-millis → no level match → falls to keyword branch (pink/stderr).
+        assert runner_module.ColorCodes.PINK in capsys.readouterr().err
+
     def test_default_path_no_color(self, bulk_runner, capsys, monkeypatch):
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         ev = _make_event(
             message='regular message',
             log_group='123456789012:/aws-glue/jobs/output',
