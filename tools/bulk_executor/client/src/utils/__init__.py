@@ -18,6 +18,10 @@ SUPPORTED_WORKER_TYPES = ['G.1X', 'G.2X', 'G.4X', 'G.8X', 'G.12X', 'G.16X', 'R.1
 LOG_PATTERN_IGNORE_LIST = [
     r"Running autoDebugger shutdown hook.",
     r"Error while invoking RpcHandler#receive() for one-way message.",
+    # Benign Netty noise: the driver fails to stream a JAR/result to an executor
+    # whose channel already closed. Prints red (contains ERROR) but does not affect
+    # processing -- seen on tiny jobs (e.g. a diff of two small tables). Issue #247.
+    r"Error sending result StreamResponse",
 ]
 
 # Intentional nuanced configs:
