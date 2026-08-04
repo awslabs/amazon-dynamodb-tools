@@ -59,7 +59,7 @@ class RateLimiterWorker:
     """
     def __init__(self, shared_config, **monitor_options):
         self.session = Session()
-        log.info(f"Rate limiter, init, monitor_options {monitor_options}")
+        log.debug(f"Rate limiter, init, monitor_options {monitor_options}")
         self.rate_limiter_monitor_worker = DistributedDynamoDBMonitorWorker(
             session=self.session,
             bucket=shared_config.bucket,
