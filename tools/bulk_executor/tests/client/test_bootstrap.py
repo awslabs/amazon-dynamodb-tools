@@ -224,13 +224,34 @@ class TestAddGlueJobRole:
         assert 'arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess' in attached
         assert 'arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess' not in attached
 
-        # Inline policies for pricing + quotas
+        # Inline policies for pricing + quotas + autoscaling
         inline_names = [
             c.kwargs['PolicyName']
             for c in bootstrap.iam_client.put_role_policy.call_args_list
         ]
         assert 'MinimalPricingAccess' in inline_names
         assert 'MinimalQuotasAccess' in inline_names
+        assert 'MinimalAutoScalingAccess' in inline_names
+
+    def test_autoscaling_policy_grants_describe_scalable_targets(self, bootstrap):
+        from infrastructure.constants import ROLE_TYPE_READ_ONLY
+        bootstrap._prompt_for_role = MagicMock()
+        bootstrap.iam_client.create_role.return_value = {
+            'Role': {'Arn': 'arn:aws:iam::123456789012:role/test'}
+        }
+
+        bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_ONLY})
+
+        autoscaling_calls = [
+            c for c in bootstrap.iam_client.put_role_policy.call_args_list
+            if c.kwargs['PolicyName'] == 'MinimalAutoScalingAccess'
+        ]
+        assert len(autoscaling_calls) == 1
+        doc = json.loads(autoscaling_calls[0].kwargs['PolicyDocument'])
+        stmt = doc['Statement'][0]
+        assert stmt['Action'] == ['application-autoscaling:DescribeScalableTargets']
+        # DescribeScalableTargets does not support resource-level scoping.
+        assert stmt['Resource'] == '*'
 
     def test_creates_role_and_attaches_read_write_policies(self, bootstrap):
         from infrastructure.constants import ROLE_TYPE_READ_WRITE

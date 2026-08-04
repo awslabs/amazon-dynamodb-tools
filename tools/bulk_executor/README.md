@@ -1,8 +1,8 @@
 # Bulk Executor for Amazon DynamoDB
 
-![tests](https://img.shields.io/badge/tests-1330%20passing-brightgreen)
-![line coverage](https://img.shields.io/badge/line%20coverage-94.1%25-brightgreen)
-![branch coverage](https://img.shields.io/badge/branch%20coverage-91.7%25-brightgreen)
+![tests](https://img.shields.io/badge/tests-1412%20passing-brightgreen)
+![line coverage](https://img.shields.io/badge/line%20coverage-94.6%25-brightgreen)
+![branch coverage](https://img.shields.io/badge/branch%20coverage-90.6%25-brightgreen)
 
 Bulk Executor for Amazon DynamoDB lets you efficiently run bulk commands against even large tables. It:
 
@@ -327,6 +327,7 @@ If you provide a custom IAM role for your AWS Glue job:
 * Attach the managed policy `AWSGlueServiceRole` to grant Glue its baseline execution permissions.
 * Attach `ServiceQuotasReadOnlyAccess` to allow the job to read service quota information (used to detect account-level read/write limits), or for maximum lockdown allow the `pricing:GetProducts` action.
 * Attach `AWSPriceListServiceFullAccess` to allow the job to query AWS pricing APIs (used to estimate DynamoDB operation costs), or for maximum lockdown allow the `servicequotas:GetServiceQuota` and `servicequotas:GetAWSDefaultServiceQuota` actions.
+* Allow the `application-autoscaling:DescribeScalableTargets` action (used to detect a provisioned table's autoscaling maximum when warning that a requested rate exceeds the table's capacity). This action does not support resource-level scoping, so it must be granted on `"Resource": "*"`. If the role lacks this permission the job still runs — it simply skips the autoscaling-aware capacity warning and logs that it is proceeding without visibility into the table's autoscaling settings.
 * Add custom IAM permissions for DynamoDB access. You may attach `AmazonDynamoDBReadOnlyAccess` or `AmazonDynamoDBFullAccess`, or define a more restrictive policy targeting specific tables.
 
 ### Security: Consider adjusting S3 bucket behaviors
@@ -596,6 +597,8 @@ These are provided as `--X` flags even though they're actually implemented insid
 
 With `diff` which reads from two tables, the max read rate is applied per table.
 
+At the start of a run the effective rate is also checked against the table's size: if moving the table's data at that rate would take longer than the Glue job timeout (`--XTimeout`, default 60 minutes), a warning is logged that the job will likely time out before finishing — raise the rate or the timeout. The check applies whether the rate was set explicitly or derived from the table's capacity, and is observational only (it never blocks the run). Conversely, a rate below the recommended minimum, or above what the table can actually deliver (its provisioned/autoscaling/on-demand ceiling), is warned about too.
+
 ## Cost management
 
 At the start of each run, each command outputs discovered metrics about the table(s) being used and a cost estimate for any reads and writes that will be performed. If the estimate is too high, you can hit Control-C to cancel the execution. The estimates are rough and not guaranteed. Table metrics use the table metadata available when describing a table, which updates about every 4 hours.
@@ -625,6 +628,7 @@ The e2e harness has these suites:
 | Security  | `make test-e2e-security`  | the documented bootstrap IAM policy actually bootstraps (and is minimal) |
 | Whole-system | `make test-e2e-whole-system` | true end-to-end: 60k `load` round-trip fidelity + observed write-rate enforcement from CloudWatch |
 | Max-rate | `make test-e2e-max-rate` | **expensive, opt-in:** proves `load` sustains a write rate above the old connector's 60k WCU/s ceiling (millions of items + pre-warmed table) |
+| Capacity warnings | `make test-e2e-capacity-warnings` | issue #89: `load --XMaxWriteRate` above a table's ceiling emits the right warning live (provisioned / autoscaling-max / autoscaling-soft-note / on-demand-max), plus the missing-`DescribeScalableTargets` visibility degradation — asserted in the real Glue job's log stream |
 
 Each command/connector smoke creates its own short-lived table (`bulk-e2e-<command>-<random>`, tagged `ephemeral=true`) and **tears it down in a `finally` block** even on failure — the suite never touches your existing tables. If a run is hard-killed mid-test, sweep any orphans with `make test-e2e-cleanup`. The first e2e run prompts once for account/region/test-table config and caches it in `tests/e2e/.e2e-config` (gitignored, per-developer).
 

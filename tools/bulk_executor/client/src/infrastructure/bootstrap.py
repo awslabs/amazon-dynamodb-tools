@@ -118,6 +118,23 @@ class BootstrapInfrastructure:
             ]
         }
 
+        # Read-only visibility into a table's autoscaling configuration so the
+        # job can tell whether autoscaling would lift a provisioned table's
+        # ceiling above a user-requested rate (issue #89). DescribeScalableTargets
+        # does not support resource-level scoping, so the resource must be "*".
+        autoscaling_policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                        "application-autoscaling:DescribeScalableTargets"
+                    ],
+                    "Resource": "*"
+                }
+            ]
+        }
+
         # Create the role
         try:
             response = self.iam_client.create_role(
@@ -181,6 +198,14 @@ class BootstrapInfrastructure:
                 PolicyDocument=json.dumps(quotas_policy)
             )
             log.debug(f'Attached quotas policy to role {role_name}')
+
+            # Give read-only access to autoscaling targets (issue #89 rate warnings)
+            self.iam_client.put_role_policy(
+                RoleName=role_name,
+                PolicyName='MinimalAutoScalingAccess',
+                PolicyDocument=json.dumps(autoscaling_policy)
+            )
+            log.debug(f'Attached autoscaling policy to role {role_name}')
         except Exception as e:
             log.error(f'Unexpected error: {e}')
             exit(1)
