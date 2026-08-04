@@ -9,6 +9,10 @@ Covers `client/src/reassembler.py`:
   arrives, emits dangling partial without newline, clears internal state
 - _partition_by_time: items older than buffer_time_ms are ready, fresher
   items remain pending
+- _split_on_record_boundaries / record-boundary splitting: an emitted event that
+  bundles multiple logical records (a new record begins at a "<asctime> <LEVEL>"
+  line) is split into one event per record, while a multi-line trace whose
+  continuation lines lack that prefix stays a single record
 
 Style notes:
 - `time.time()` is patched at the reassembler module namespace
@@ -263,3 +267,79 @@ class TestFlush:
         assert len(result) == 1
         assert result[0]['message'] == 'standalone\n'
         assert result[0]['timestamp'] == 5000
+
+
+# --- record-boundary splitting ----------------------------------------------
+
+class TestSplitOnRecordBoundaries:
+    """A completed event that merged multiple logical records is re-split so each
+    record is emitted separately, while multi-line traces stay whole."""
+
+    _WARN = '2026-08-04 08:08:15,393 WARNING [MainThread] root - too slow'
+    _INFO_NO_PREFIX = '[before] Max read rate set to specified limit: 20'
+
+    def test_helper_splits_info_then_warning(self):
+        # The exact live bug: an INFO line (no timestamp prefix) glued to a WARNING
+        # line via an internal newline. Split into two records.
+        event = {'timestamp': 1, 'message': f'{self._INFO_NO_PREFIX}\n{self._WARN}\n'}
+        result = reassembler._split_on_record_boundaries(event)
+        assert [e['message'] for e in result] == [
+            f'{self._INFO_NO_PREFIX}\n',
+            f'{self._WARN}\n',
+        ]
+
+    def test_helper_keeps_multiline_trace_as_one_record(self):
+        # Continuation lines (no "<asctime> <LEVEL>" prefix) stay attached.
+        trace = (
+            '2026-08-04 04:17:36,000 ERROR root - Boom\n'
+            'Traceback (most recent call last):\n'
+            '  File "x.py", line 1\n'
+            'ValueError: boom\n'
+        )
+        event = {'timestamp': 1, 'message': trace}
+        result = reassembler._split_on_record_boundaries(event)
+        assert len(result) == 1
+        assert result[0]['message'] == trace
+
+    def test_helper_single_record_unchanged(self):
+        event = {'timestamp': 1, 'message': f'{self._WARN}\n'}
+        result = reassembler._split_on_record_boundaries(event)
+        assert result == [event]
+
+    def test_helper_no_prefix_lines_stay_one_record(self):
+        # A message whose lines never match the record prefix (e.g. pass-through
+        # data output) is never split, regardless of how many lines it has.
+        event = {'timestamp': 1, 'message': 'line one\nline two\nline three\n'}
+        result = reassembler._split_on_record_boundaries(event)
+        assert result == [event]
+
+    def test_helper_is_byte_preserving(self):
+        # Concatenating split messages reproduces the original exactly.
+        original = f'{self._INFO_NO_PREFIX}\n{self._WARN}\ntail-continuation\n'
+        event = {'timestamp': 7, 'message': original}
+        result = reassembler._split_on_record_boundaries(event)
+        assert ''.join(e['message'] for e in result) == original
+        # Metadata (timestamp) is carried onto each split record.
+        assert all(e['timestamp'] == 7 for e in result)
+
+    def test_process_splits_merged_records(self):
+        # End to end through process(): a merged INFO+WARNING event yields two.
+        r = reassembler.GlueLogReassembler(buffer_time_ms=1000)
+        with patch.object(reassembler.time, 'time', return_value=10):  # now=10000ms
+            result = r.process([_evt(5000, f'{self._INFO_NO_PREFIX}\n{self._WARN}\n')])
+        assert [e['message'] for e in result] == [
+            f'{self._INFO_NO_PREFIX}\n',
+            f'{self._WARN}\n',
+        ]
+
+    def test_flush_splits_dangling_merged_records(self):
+        # A dangling partial (no trailing newline) that bundles two records is
+        # also split when force-flushed.
+        r = reassembler.GlueLogReassembler(buffer_time_ms=1000000)
+        with patch.object(reassembler.time, 'time', return_value=10):
+            r.process([_evt(5000, f'{self._INFO_NO_PREFIX}\n{self._WARN}')])  # no trailing \n
+        result = r.flush()
+        assert [e['message'] for e in result] == [
+            f'{self._INFO_NO_PREFIX}\n',
+            self._WARN,
+        ]
