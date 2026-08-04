@@ -6,6 +6,7 @@ import boto3
 import botocore.exceptions
 
 # Custom Library Imports
+from .bulk_executor_error import BulkExecutorError
 from .logger import log
 from .pricing import PricingUtility
 
@@ -89,7 +90,7 @@ def get_and_print_dynamodb_table_info(table_name, index_name=None, quiet=False):
     try:
         response = dynamodb.describe_table(TableName=table_name)
     except dynamodb.exceptions.ResourceNotFoundException:
-        raise ValueError(f"Table '{table_name}' does not exist")
+        raise BulkExecutorError(f"Table '{table_name}' does not exist") from None
     table_desc = response['Table']
 
     # Find the specific GSI if index_name is provided

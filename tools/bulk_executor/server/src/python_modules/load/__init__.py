@@ -39,7 +39,7 @@ def read_data(glueContext, path, parsed_args):
             try:
                 format_options[arg_name] = int(parsed_args.get(arg_name))
             except ValueError:
-                raise ValueError(f"Invalid integer for {arg_name}: {parsed_args.get(arg_name)}")
+                raise BulkExecutorError(f"Invalid integer for {arg_name}: {parsed_args.get(arg_name)}") from None
 
     # Parse the params based on the format
     fmt = parsed_args.get('format')
@@ -57,7 +57,7 @@ def read_data(glueContext, path, parsed_args):
         set_int_option('blockSize')
         set_int_option('pageSize')
     else:
-        raise ValueError(f"Unexpected format {fmt!r}")
+        raise BulkExecutorError(f"Unexpected format {fmt!r}")
 
     log.debug(f"About to create DynamicFrame from {fmt} at {path} using options {format_options}...")
 
@@ -131,7 +131,7 @@ def check_s3_file_exists(s3_uri):
     match = re.match(uri_pattern, s3_uri)
 
     if not match:
-        raise ValueError(f"Invalid S3 URI format: {s3_uri}. Expected format: s3://bucket-name/key")
+        raise BulkExecutorError(f"Invalid S3 URI format: {s3_uri}. Expected format: s3://bucket-name/key")
 
     bucket_name = match.group(1)
     key = match.group(2)

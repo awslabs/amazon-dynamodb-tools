@@ -808,7 +808,7 @@ class TestGetAndPrintDynamoDBTableInfo:
         boto3_mock.dynamodb_client.describe_table.side_effect = (
             ResourceNotFoundException('not found')
         )
-        with pytest.raises(ValueError, match="does not exist"):
+        with pytest.raises(table_info.BulkExecutorError, match="does not exist"):
             table_info.get_and_print_dynamodb_table_info('ghost-table')
 
     def test_gsi_provisioned_returns_index_metadata(

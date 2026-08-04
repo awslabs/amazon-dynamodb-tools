@@ -89,9 +89,9 @@ def run(job, spark_context, glue_context, parsed_args):
                 elif order == 'desc':
                     sort_order_list.append(desc(column))
                 else:
-                    raise ValueError(f"Invalid sort order: {order}")
+                    raise BulkExecutorError(f"Invalid sort order: {order}")
             else:
-                raise ValueError(f"Invalid sort specification: {spec}")
+                raise BulkExecutorError(f"Invalid sort specification: {spec}")
         return sort_order_list
 
     if ORDERBY:
