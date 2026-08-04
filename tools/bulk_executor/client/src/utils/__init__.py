@@ -44,10 +44,6 @@ CONFIG_LOG_MESSAGE_KEYS = [
     "arguments:",
 ]
 
-WARN_LOG_MESSAGE_KEYS = [
-    " WARN ", # Surrounding spaces intentional.
-]
-
 _ENV_OR_SCRIPT_KEYS = set([
     'XMaxWriteRate',
     'XMaxReadRate',
