@@ -518,24 +518,34 @@ You can run the script with the --XWaitForDPU parameter in order to print the us
         job_run_state = self._get_job_run_state(job_run_id)
         job_run_error_message = self._get_job_run_error_message(job_run_id)
 
-        # Only SUCCEEDED is a clean exit; every other terminal state is a
-        # failure the caller must be able to detect via the process exit code
-        # (issue #137: a failed job must "show the effort failed", not exit 0).
+        # Only SUCCEEDED is a clean exit; every other terminal state is a failure
+        # the caller must be able to detect via the process exit code (issue #137:
+        # a failed job must "show the effort failed", not exit 0). `job_failed`
+        # drives that exit code. `final_log` additionally picks how the closing
+        # line is colored so the outcome is visible, not just stated in text: a
+        # user-interrupted stop is a yellow warning (expected, not broken), a
+        # genuine failure/timeout is a red error, and success stays plain INFO.
         job_end_message = None
         job_failed = True
+        final_log = log.info
         if job_run_state == STOPPING_STATE:
             job_end_message = "Job is stopping."
+            final_log = log.warning
         elif job_run_state == STOPPED_STATE:
             job_end_message = "Job was stopped."
+            final_log = log.warning
         elif job_run_state == FAILED_STATE:
             job_end_message = "Job failed."
+            final_log = log.error
         elif job_run_state == TIMEOUT_STATE:
             job_end_message = "Job timed out."
+            final_log = log.error
         elif job_run_state == SUCCEEDED_STATE:
             job_end_message = "Job completed successfully."
             job_failed = False
         else:
-            log.error(f"Unhandled Job State: {job_run_state}")
+            job_end_message = f"Job ended in an unexpected state: {job_run_state}."
+            final_log = log.error
 
         job_end_time = datetime.now()
         job_duration = job_end_time - job_start_time
@@ -545,9 +555,9 @@ You can run the script with the --XWaitForDPU parameter in order to print the us
 
         # Usually this is 0.0 unless we've waited for DPUs to arrive
         if dpu_hours > 0.0:
-            log.info(f"{job_end_message} Job duration: {str(job_duration).split('.')[0]} ({dpu_hours:.2f} DPU hours)")
+            final_log(f"{job_end_message} Job duration: {str(job_duration).split('.')[0]} ({dpu_hours:.2f} DPU hours)")
         else:
-            log.info(f"{job_end_message} Job duration: {str(job_duration).split('.')[0]}")
+            final_log(f"{job_end_message} Job duration: {str(job_duration).split('.')[0]}")
 
         if job_run_error_message:
             log.error(job_run_error_message)

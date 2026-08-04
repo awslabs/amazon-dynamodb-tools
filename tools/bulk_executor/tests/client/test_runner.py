@@ -1138,6 +1138,10 @@ def _wire_run_dependencies(bulk_runner, *, final_state, error_message=None,
 class TestRunStateBranches:
     """Tests for end-state messaging in run() (lines 466-477)."""
 
+    def _final_line_record(self, caplog):
+        """The closing 'Job ... Job duration:' line, whatever level it was logged at."""
+        return next(r for r in caplog.records if 'Job duration:' in r.getMessage())
+
     def test_succeeded_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.SUCCEEDED_STATE)
         import logging as _logging
@@ -1145,6 +1149,8 @@ class TestRunStateBranches:
             # A successful job must NOT raise SystemExit — it exits 0.
             bulk_runner.run({}, [])
         assert any('completed successfully' in m for m in caplog.messages)
+        # Success stays plain INFO.
+        assert self._final_line_record(caplog).levelname == 'INFO'
 
     def test_stopping_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.STOPPING_STATE)
@@ -1155,6 +1161,8 @@ class TestRunStateBranches:
                 bulk_runner.run({}, [])
         assert exc.value.code == 1
         assert any('stopping' in m for m in caplog.messages)
+        # A user-interrupted stop is a warning (yellow), not an error.
+        assert self._final_line_record(caplog).levelname == 'WARNING'
 
     def test_stopped_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.STOPPED_STATE)
@@ -1164,6 +1172,7 @@ class TestRunStateBranches:
                 bulk_runner.run({}, [])
         assert exc.value.code == 1
         assert any('stopped' in m for m in caplog.messages)
+        assert self._final_line_record(caplog).levelname == 'WARNING'
 
     def test_failed_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.FAILED_STATE)
@@ -1173,6 +1182,8 @@ class TestRunStateBranches:
                 bulk_runner.run({}, [])
         assert exc.value.code == 1
         assert any('failed' in m.lower() for m in caplog.messages)
+        # A genuine failure is an error (red).
+        assert self._final_line_record(caplog).levelname == 'ERROR'
 
     def test_timeout_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.TIMEOUT_STATE)
@@ -1182,6 +1193,7 @@ class TestRunStateBranches:
                 bulk_runner.run({}, [])
         assert exc.value.code == 1
         assert any('timed out' in m for m in caplog.messages)
+        assert self._final_line_record(caplog).levelname == 'ERROR'
 
     def test_unhandled_state_logs_error(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state='WEIRD_STATE')
@@ -1191,7 +1203,10 @@ class TestRunStateBranches:
             with pytest.raises(SystemExit) as exc:
                 bulk_runner.run({}, [])
         assert exc.value.code == 1
-        assert any('Unhandled Job State' in m for m in caplog.messages)
+        # The state name is surfaced in the closing line, logged at ERROR.
+        rec = self._final_line_record(caplog)
+        assert rec.levelname == 'ERROR'
+        assert 'WEIRD_STATE' in rec.getMessage()
 
     def test_starts_job_with_arguments(self, bulk_runner):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.SUCCEEDED_STATE)
