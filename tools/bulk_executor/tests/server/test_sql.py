@@ -338,12 +338,13 @@ class TestRunQueryValidation:
                                        mock_table_info, mock_warnings,
                                        mock_spark_session, mock_get_error_message,
                                        glue_context, base_args):
-        """Line 50-51: query not starting with SELECT raises."""
+        """A non-SELECT query is a user-parameter error: clean BulkExecutorError,
+        passed through the outer handler rather than wrapped as 'SQL query error'."""
         base_args['query'] = 'DELETE FROM my_test_table'
         df = MagicMock()
         glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
 
-        with pytest.raises(Exception, match="SQL query error"):
+        with pytest.raises(sql_module.BulkExecutorError, match="Only SELECT queries are supported"):
             sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
     def test_select_with_leading_whitespace_passes(self, monkeypatch, mock_boto3_session,
@@ -403,49 +404,51 @@ class TestRunLimitHandling:
                                              mock_table_info, mock_warnings,
                                              mock_spark_session, mock_get_error_message,
                                              glue_context, base_args):
-        """Line 61: limit <= 0 raises ValueError wrapped as Exception."""
+        """limit <= 0 raises a clean BulkExecutorError (not wrapped as 'SQL query error')."""
         base_args['limit'] = '0'
         result = _make_result_mock(count=1)
         mock_spark_session.sql.return_value = result
         df = MagicMock()
         glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
 
-        with pytest.raises(Exception, match="Invalid 'limit'.*must be positive"):
+        with pytest.raises(sql_module.BulkExecutorError, match="Invalid 'limit'.*must be positive"):
             sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
     def test_negative_limit_raises_value_error(self, monkeypatch, mock_boto3_session,
                                                  mock_table_info, mock_warnings,
                                                  mock_spark_session, mock_get_error_message,
                                                  glue_context, base_args):
-        """Line 61: negative limit raises ValueError."""
+        """negative limit raises a clean BulkExecutorError."""
         base_args['limit'] = '-5'
         result = _make_result_mock(count=1)
         mock_spark_session.sql.return_value = result
         df = MagicMock()
         glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
 
-        with pytest.raises(Exception, match="Invalid 'limit'.*must be positive"):
+        with pytest.raises(sql_module.BulkExecutorError, match="Invalid 'limit'.*must be positive"):
             sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
     def test_non_integer_limit_raises_via_get_error_message(self, monkeypatch, mock_boto3_session,
                                                               mock_table_info, mock_warnings,
                                                               mock_spark_session, mock_get_error_message,
                                                               glue_context, base_args):
-        """Line 63-64: non-int string raises ValueError caught and re-raised."""
+        """non-int string raises a clean BulkExecutorError."""
         base_args['limit'] = 'abc'
         result = _make_result_mock(count=1)
         mock_spark_session.sql.return_value = result
         df = MagicMock()
         glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
 
-        with pytest.raises(Exception, match="Invalid 'limit'"):
+        with pytest.raises(sql_module.BulkExecutorError, match="Invalid 'limit'.*not an integer"):
             sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
-    def test_limit_generic_exception_uses_get_error_message(self, monkeypatch, mock_boto3_session,
-                                                              mock_table_info, mock_warnings,
-                                                              mock_spark_session, mock_get_error_message,
-                                                              glue_context, base_args):
-        """Lines 65-66: generic Exception in limit block uses get_error_message."""
+    def test_valid_limit_runtime_failure_wraps_as_sql_query_error(self, monkeypatch, mock_boto3_session,
+                                                                     mock_table_info, mock_warnings,
+                                                                     mock_spark_session, mock_get_error_message,
+                                                                     glue_context, base_args):
+        """A valid integer limit that then fails in Spark is a runtime error, not a
+        bad-parameter error: it flows to the outer 'SQL query error' handler rather
+        than being mislabeled 'Invalid limit'."""
         base_args['limit'] = '5'
         result = MagicMock()
         result.limit.side_effect = RuntimeError("spark limit failure")
@@ -453,9 +456,10 @@ class TestRunLimitHandling:
         df = MagicMock()
         glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
 
-        with pytest.raises(Exception, match="Invalid 'limit'.*err:"):
+        with pytest.raises(Exception, match="SQL query error") as exc:
             sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
-
+        # It is NOT a clean user-parameter error.
+        assert not isinstance(exc.value, sql_module.BulkExecutorError)
         mock_get_error_message.assert_called()
 
 
@@ -700,12 +704,12 @@ class TestRunErrorHandling:
                                                        mock_table_info, mock_warnings,
                                                        mock_spark_session, mock_get_error_message,
                                                        glue_context, base_args):
-        """Lines 50-51 + 107: non-SELECT exception still triggers finally."""
+        """A non-SELECT (BulkExecutorError) still triggers the finally: spark.stop."""
         base_args['query'] = 'UPDATE my_test_table SET x=1'
         df = MagicMock()
         glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
 
-        with pytest.raises(Exception, match="SQL query error"):
+        with pytest.raises(sql_module.BulkExecutorError, match="Only SELECT queries are supported"):
             sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
         mock_spark_session.stop.assert_called_once()

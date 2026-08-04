@@ -441,13 +441,13 @@ class TestParseSortOrder:
     def test_empty_spec_in_orderby_raises_value_error(
         self, monkeypatch, table_info_mocks, boto3_session_mock, glue_context
     ):
-        """Line 97: empty spec (e.g. trailing comma) fails regex → ValueError."""
+        """Empty spec (e.g. trailing comma) fails regex → clean BulkExecutorError."""
         args = {
             'splits': '200', 'table': 't',
             'where': None, 'orderby': 'col asc,', 'limit': None,
             'XAction': 'count',
         }
-        with pytest.raises(ValueError, match="Invalid sort specification"):
+        with pytest.raises(find_module.BulkExecutorError, match="Invalid sort specification"):
             find_module.run(MagicMock(), MagicMock(), glue_context, args)
 
     def test_orderby_sets_needsRepartitioning(
@@ -1261,4 +1261,23 @@ class TestRunLimitErrorViaWrapper:
             'XAction': 'count',
         }
         with pytest.raises(find_module.BulkExecutorError, match="Invalid 'limit'"):
+            find_module.run(MagicMock(), MagicMock(), MagicMock(), args)
+
+
+class TestRunOrderByParseErrorViaWrapper:
+    """A malformed `--orderby` is a user-parameter error and must surface as a
+    clean BulkExecutorError, not a raw ValueError that becomes a Glue stack trace.
+    parse_sort_order runs before the dataframe read, so no wrapper mock is needed.
+    Asserted against run()'s current boundary, not the skipped legacy suite."""
+
+    def test_bad_sort_specification_raises_bulk_executor_error(
+        self, monkeypatch, table_info_mocks, boto3_session_mock
+    ):
+        # A trailing comma yields an empty spec that fails the parser regex.
+        args = {
+            'splits': '200', 'table': 't',
+            'where': None, 'orderby': 'col asc,', 'limit': None,
+            'XAction': 'count',
+        }
+        with pytest.raises(find_module.BulkExecutorError, match="Invalid sort specification"):
             find_module.run(MagicMock(), MagicMock(), MagicMock(), args)

@@ -16,6 +16,19 @@ help_text = f"""
         bulk sql --table users --query "SELECT age, COUNT(*) FROM users GROUP BY age" --limit 100
 """
 
+def positive_int(value):
+    """argparse type for --limit: reject non-integers and non-positive values
+    client-side, so a bad limit fails instantly instead of after a ~2-min Glue
+    spin-up. The server enforces the same rule as defense-in-depth."""
+    try:
+        parsed = int(value)
+    except (ValueError, TypeError):
+        raise argparse.ArgumentTypeError(f"--limit must be an integer, got {value!r}")
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError(f"--limit must be a positive integer, got {parsed}")
+    return parsed
+
+
 def validate_sql_query(parser, query, table_name):
     """Validate SQL query for basic safety and correctness"""
     query_upper = query.upper().strip()
@@ -49,7 +62,7 @@ def run(env_configs):
     parser.add_argument('verb', help=argparse.SUPPRESS)
     parser.add_argument('--table', required=True, type=str, help='Table name')
     parser.add_argument('--query', required=True, type=str, help='SQL query to execute')
-    parser.add_argument('--limit', type=int, default=argparse.SUPPRESS, help='Limit number of results')
+    parser.add_argument('--limit', type=positive_int, default=argparse.SUPPRESS, help='Limit number of results (positive integer)')
     args = parser.parse_args()
 
     result = args.__dict__
