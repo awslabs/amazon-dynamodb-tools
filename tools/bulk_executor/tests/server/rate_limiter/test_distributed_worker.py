@@ -86,6 +86,42 @@ class TestInit:
         assert w.monitor.max_write_rate == 500.0   # min(500, 5000/10)
         w.stop()
 
+    def test_tiny_table_initial_rates_floored_to_one(self, mock_session):
+        # A 5-RCU table yields aggregate_max_read_rate=5; /10 = 0.5, which
+        # DynamoDBMonitor would reject (< 1). The floor keeps it scannable.
+        s3 = mock_session.client.return_value
+        s3.exceptions = Mock()
+        s3.exceptions.NoSuchKey = type('NoSuchKey', (Exception,), {})
+        s3.get_object = Mock(side_effect=s3.exceptions.NoSuchKey("x"))
+        w = DistributedDynamoDBMonitorWorker(
+            session=mock_session, bucket='b', prefix='p/',
+            aggregate_max_read_rate=5,
+            aggregate_max_write_rate=5,
+            autostart=False,
+        )
+        assert w.monitor.max_read_rate == 1.0   # max(1.0, min(1500, 5/10))
+        assert w.monitor.max_write_rate == 1.0  # max(1.0, min(500, 5/10))
+        w.stop()
+
+    def test_explicit_initial_rates_bypass_floor(self, mock_session):
+        # Caller-supplied initial rates are respected as-is; the floor only
+        # applies to the derived (None) defaults.
+        s3 = mock_session.client.return_value
+        s3.exceptions = Mock()
+        s3.exceptions.NoSuchKey = type('NoSuchKey', (Exception,), {})
+        s3.get_object = Mock(side_effect=s3.exceptions.NoSuchKey("x"))
+        w = DistributedDynamoDBMonitorWorker(
+            session=mock_session, bucket='b', prefix='p/',
+            aggregate_max_read_rate=5,
+            aggregate_max_write_rate=5,
+            worker_initial_read_rate=42,
+            worker_initial_write_rate=17,
+            autostart=False,
+        )
+        assert w.monitor.max_read_rate == 42.0
+        assert w.monitor.max_write_rate == 17.0
+        w.stop()
+
     def test_custom_worker_id(self, mock_session):
         s3 = mock_session.client.return_value
         s3.exceptions = Mock()
