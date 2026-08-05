@@ -182,10 +182,10 @@ class TestReadDataParquetFormat:
         opts = glue_context.create_dynamic_frame.from_options.call_args.kwargs['format_options']
         assert opts['pageSize'] == 512
 
-    def test_parquet_invalid_int_raises_valueerror(self, glue_context):
-        """Line 40: non-integer string for int option raises ValueError."""
+    def test_parquet_invalid_int_raises_bulk_executor_error(self, glue_context):
+        """Non-integer string for an int option raises a clean BulkExecutorError."""
         args = {'format': 'parquet', 'blockSize': 'abc'}
-        with pytest.raises(ValueError, match="Invalid integer for blockSize"):
+        with pytest.raises(load_module.BulkExecutorError, match="Invalid integer for blockSize"):
             load_module.read_data(glue_context, 's3://b/k', args)
 
     def test_parquet_no_options_when_absent(self, glue_context):
@@ -197,12 +197,12 @@ class TestReadDataParquetFormat:
 
 
 class TestReadDataUnknownFormat:
-    """read_data raises ValueError for unrecognized format."""
+    """read_data raises BulkExecutorError for unrecognized format."""
 
     def test_unknown_format_raises(self, glue_context):
-        """Line 58: format not in csv/json/parquet raises."""
+        """format not in csv/json/parquet raises a clean BulkExecutorError."""
         args = {'format': 'avro'}
-        with pytest.raises(ValueError, match="Unexpected format"):
+        with pytest.raises(load_module.BulkExecutorError, match="Unexpected format"):
             load_module.read_data(glue_context, 's3://b/k', args)
 
 
@@ -554,14 +554,14 @@ class TestCheckS3FileExists:
         with pytest.raises(load_module.BulkExecutorError, match="S3 error"):
             load_module.check_s3_file_exists('s3://bucket/key')
 
-    def test_invalid_uri_raises_valueerror(self, monkeypatch):
-        """Line 134-135: URI not matching s3://bucket/key raises."""
-        with pytest.raises(ValueError, match="Invalid S3 URI format"):
+    def test_invalid_uri_raises_bulk_executor_error(self, monkeypatch):
+        """URI not matching s3://bucket/key raises a clean BulkExecutorError."""
+        with pytest.raises(load_module.BulkExecutorError, match="Invalid S3 URI format"):
             load_module.check_s3_file_exists('not-an-s3-uri')
 
     def test_invalid_uri_no_key(self, monkeypatch):
-        """Line 134: s3://bucket with no trailing path doesn't match regex."""
-        with pytest.raises(ValueError, match="Invalid S3 URI format"):
+        """s3://bucket with no trailing path doesn't match regex → BulkExecutorError."""
+        with pytest.raises(load_module.BulkExecutorError, match="Invalid S3 URI format"):
             load_module.check_s3_file_exists('s3://bucket-only')
 
 

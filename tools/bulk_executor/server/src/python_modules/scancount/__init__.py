@@ -173,7 +173,6 @@ def _scan_and_count(monitor_options, table_name, index_name, filter_expression,
         table = dynamodb_resource.Table(table_name)
 
         scan_kwargs = {
-            "TableName": table_name,
             "Select": "COUNT",
             "Segment": segment,
             "TotalSegments": total_segments

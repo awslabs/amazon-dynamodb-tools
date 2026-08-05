@@ -47,7 +47,10 @@ def init(args=None):
     log.debug("DEBUG LOGS ENABLED") # Notify debug logs enabled
 
 class ColoredFormatter(logging.Formatter):
-    full_format='%(asctime)s %(levelname)-5s [%(threadName)s] %(name)s - %(message)s'
+    # Mirrors the server formatter (server/src/python_modules/shared/logger.py):
+    # keep timestamp + level, drop the "[<threadName>] <name>" boilerplate that
+    # only clutters the console. See issue #262.
+    full_format='%(asctime)s %(levelname)-5s - %(message)s'
     info_format='%(message)s'
 
     FORMATS = {

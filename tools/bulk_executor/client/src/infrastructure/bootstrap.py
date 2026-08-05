@@ -118,6 +118,23 @@ class BootstrapInfrastructure:
             ]
         }
 
+        # Read-only visibility into a table's autoscaling configuration so the
+        # job can tell whether autoscaling would lift a provisioned table's
+        # ceiling above a user-requested rate (issue #89). DescribeScalableTargets
+        # does not support resource-level scoping, so the resource must be "*".
+        autoscaling_policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                        "application-autoscaling:DescribeScalableTargets"
+                    ],
+                    "Resource": "*"
+                }
+            ]
+        }
+
         # Create the role
         try:
             response = self.iam_client.create_role(
@@ -181,6 +198,14 @@ class BootstrapInfrastructure:
                 PolicyDocument=json.dumps(quotas_policy)
             )
             log.debug(f'Attached quotas policy to role {role_name}')
+
+            # Give read-only access to autoscaling targets (issue #89 rate warnings)
+            self.iam_client.put_role_policy(
+                RoleName=role_name,
+                PolicyName='MinimalAutoScalingAccess',
+                PolicyDocument=json.dumps(autoscaling_policy)
+            )
+            log.debug(f'Attached autoscaling policy to role {role_name}')
         except Exception as e:
             log.error(f'Unexpected error: {e}')
             exit(1)
@@ -508,6 +533,18 @@ class BootstrapInfrastructure:
         self.s3_client.upload_file(f"./{LOG4J_PROPERTIES_FILE}", glue_job_bucket, LOG4J_PROPERTIES_FILE)
         log.info(f"Properties files '{LOG4J_PROPERTIES_FILE}' uploaded into S3 successfully!")
 
+    def _get_log_group_retention(self, log_group_name):
+        """Return the retentionInDays set on log_group_name, or None if unset.
+
+        describe_log_groups takes a name *prefix* and can return multiple groups,
+        so match the exact name rather than trusting the first result.
+        """
+        response = self.logs_client.describe_log_groups(logGroupNamePrefix=log_group_name)
+        for group in response.get('logGroups', []):
+            if group.get('logGroupName') == log_group_name:
+                return group.get('retentionInDays')
+        return None
+
     def _create_glue_log_groups(self):
         """
         Create CloudWatch log groups for Glue job logging ahead of time.
@@ -530,11 +567,18 @@ class BootstrapInfrastructure:
             except ClientError as e:
                 if e.response['Error']['Code'] == 'ResourceAlreadyExistsException':
                     log.info(f"Log group '{log_group_name}' already exists.")
-                    self.logs_client.put_retention_policy(
-                        logGroupName=log_group_name,
-                        retentionInDays=GLUE_LOG_GROUP_RETENTION_IN_DAYS
-                    )
-                    log.info(f"Updated retention policy for existing log group {log_group_name}")
+                    # Only set retention if the group has none. If an account owner
+                    # deliberately chose a retention (e.g. 30 days for cost, or a
+                    # longer window for compliance), we must not clobber it on every
+                    # bootstrap. A group with no policy (e.g. auto-created by Glue,
+                    # so "never expire") still gets our default. Staying silent when
+                    # we leave an existing policy alone keeps the console clean.
+                    if self._get_log_group_retention(log_group_name) is None:
+                        self.logs_client.put_retention_policy(
+                            logGroupName=log_group_name,
+                            retentionInDays=GLUE_LOG_GROUP_RETENTION_IN_DAYS
+                        )
+                        log.info(f"Set retention policy for existing log group {log_group_name} to {GLUE_LOG_GROUP_RETENTION_IN_DAYS} days (had none)")
                 else:
                     raise e # Handle failure case for all other errors at the higher level catch
             except Exception as e:

@@ -559,7 +559,7 @@ class TestUpdateDataPagination:
         updated_acc.add.assert_called_once_with(3)
 
     def test_scan_kwargs_include_segment_and_total(self, monkeypatch):
-        """Lines 117-121: scan_kwargs includes TableName, Segment, TotalSegments."""
+        """Lines 117-120: scan_kwargs includes Segment, TotalSegments (not TableName — the Table resource already knows its name)."""
         scan_kwargs_seen = []
         table = MagicMock()
 
@@ -576,7 +576,7 @@ class TestUpdateDataPagination:
             MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock()
         )
 
-        assert scan_kwargs_seen[0]['TableName'] == 'my-tbl'
+        assert 'TableName' not in scan_kwargs_seen[0]
         assert scan_kwargs_seen[0]['Segment'] == 7
         assert scan_kwargs_seen[0]['TotalSegments'] == 100
 

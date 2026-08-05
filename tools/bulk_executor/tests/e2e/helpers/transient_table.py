@@ -109,8 +109,10 @@ def transient_table(
     warm_write_units: int | None = None,
     warm_read_units: int | None = None,
     wait_for_warm: bool = False,
+    provisioned: tuple[int, int] | None = None,
+    on_demand_max_write_units: int | None = None,
 ) -> Iterator[str]:
-    """Yield the name of a freshly-created PAY_PER_REQUEST DynamoDB table.
+    """Yield the name of a freshly-created transient DynamoDB table.
 
     label: short string included in the table name for debuggability ('fill', 'copy-src', etc).
     has_sort_key: if True, schema is pk(S)+sk(S); else just pk(S).
@@ -121,11 +123,24 @@ def transient_table(
         while the table exists — use only for throughput tests.
     wait_for_warm: if True (and warm_write_units set), block until the warm
         write throughput reaches the requested level (bounded, best-effort).
+    provisioned: (read_capacity, write_capacity) — when set, the table is
+        created BillingMode=PROVISIONED at those levels instead of
+        PAY_PER_REQUEST. Needed to exercise the #89 provisioned-capacity and
+        autoscaling capacity warnings, which only apply to provisioned tables.
+    on_demand_max_write_units: sets OnDemandThroughput.MaxWriteRequestUnits on
+        a PAY_PER_REQUEST table, giving it a table-level write ceiling. Needed
+        for the #89 "on-demand table maximum" warning. Mutually exclusive with
+        ``provisioned`` (on-demand max only applies to PAY_PER_REQUEST).
 
     Example:
         with transient_table(region, label="fill") as table:
             run_command("fill", table=table, extra_args=["--numitems", "100", "--generator", "default"])
     """
+    if provisioned is not None and on_demand_max_write_units is not None:
+        raise ValueError(
+            "provisioned and on_demand_max_write_units are mutually exclusive: "
+            "on-demand max applies only to PAY_PER_REQUEST tables."
+        )
     ddb = boto3.client("dynamodb", region_name=region)
     suffix = uuid.uuid4().hex[:8]
     table_name = f"bulk-e2e-{label}-{suffix}"
@@ -140,12 +155,24 @@ def transient_table(
         TableName=table_name,
         AttributeDefinitions=attrs,
         KeySchema=keys,
-        BillingMode="PAY_PER_REQUEST",
         Tags=[
             {"Key": "purpose", "Value": "bulk_executor e2e command test"},
             {"Key": "ephemeral", "Value": "true"},
         ],
     )
+    if provisioned is not None:
+        read_cap, write_cap = provisioned
+        create_kwargs["BillingMode"] = "PROVISIONED"
+        create_kwargs["ProvisionedThroughput"] = {
+            "ReadCapacityUnits": int(read_cap),
+            "WriteCapacityUnits": int(write_cap),
+        }
+    else:
+        create_kwargs["BillingMode"] = "PAY_PER_REQUEST"
+        if on_demand_max_write_units is not None:
+            create_kwargs["OnDemandThroughput"] = {
+                "MaxWriteRequestUnits": int(on_demand_max_write_units),
+            }
     if warm_write_units is not None or warm_read_units is not None:
         warm = {}
         if warm_read_units is not None:
@@ -167,3 +194,47 @@ def transient_table(
     finally:
         with contextlib.suppress(ClientError):
             ddb.delete_table(TableName=table_name)
+
+
+@contextlib.contextmanager
+def autoscaling_target(
+    region: str,
+    table_name: str,
+    *,
+    min_write: int,
+    max_write: int,
+) -> Iterator[int]:
+    """Register an application-autoscaling write target on a provisioned table.
+
+    Exercises the #89 autoscaling-aware capacity warnings, which consult
+    ``application-autoscaling:DescribeScalableTargets`` to learn the table's
+    autoscaling MaxCapacity. Registers a scalable target on the write
+    dimension with the given Min/Max and deregisters it in ``finally`` so a
+    failing test still tears the target down.
+
+    Yields ``max_write`` (the ceiling the connector should read back), so the
+    caller can pick a request above it (hard warn) or between the provisioned
+    floor and it (soft note).
+
+    The table must already be BillingMode=PROVISIONED (create it with
+    ``transient_table(..., provisioned=(r, w))``).
+    """
+    aas = boto3.client("application-autoscaling", region_name=region)
+    resource_id = f"table/{table_name}"
+    scalable_dimension = "dynamodb:table:WriteCapacityUnits"
+    try:
+        aas.register_scalable_target(
+            ServiceNamespace="dynamodb",
+            ResourceId=resource_id,
+            ScalableDimension=scalable_dimension,
+            MinCapacity=int(min_write),
+            MaxCapacity=int(max_write),
+        )
+        yield int(max_write)
+    finally:
+        with contextlib.suppress(ClientError):
+            aas.deregister_scalable_target(
+                ServiceNamespace="dynamodb",
+                ResourceId=resource_id,
+                ScalableDimension=scalable_dimension,
+            )
