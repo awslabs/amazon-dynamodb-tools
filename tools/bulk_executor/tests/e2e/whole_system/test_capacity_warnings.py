@@ -56,7 +56,7 @@ PK_PREFIX = "ws-cap-warn"
 WARN_PROVISIONED = "exceeds the table's provisioned capacity of"
 WARN_AUTOSCALING_MAX = "exceeds the table's autoscaling maximum of"
 WARN_SOFT_SCALE_UP = "autoscaling will need to scale up"
-WARN_ON_DEMAND_MAX = "on-demand maximum of"
+WARN_ON_DEMAND_MAX = "on-demand maximum throughput of"
 # Emitted by table_info._warn_if_job_may_timeout (issue #89 check 1).
 WARN_JOB_TIMEOUT = "the job will likely time out before finishing"
 
@@ -198,7 +198,8 @@ class TestCapacityWarningsLive:
         self, e2e_config, ws_perf_collector
     ):
         """Scenario 4 — on-demand table with MaxWriteRequestUnits set: a write
-        rate above that table max produces the 'on-demand maximum' warning."""
+        rate above that table max produces the 'on-demand maximum throughput'
+        warning."""
         region = e2e_config.aws_region
         run_id = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
         s3_path = _upload_fixture(run_id, region)
