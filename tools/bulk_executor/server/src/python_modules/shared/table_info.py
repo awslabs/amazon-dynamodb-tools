@@ -33,6 +33,25 @@ def _job_elapsed_minutes():
     """Minutes elapsed since the job started (module import), never negative."""
     return max(0.0, (time.monotonic() - _JOB_START_MONOTONIC) / 60.0)
 
+def _price_or_skip(pricing, category):
+    """Return the per-unit price for `category`, or None if it isn't available.
+
+    Cost estimation is purely informational, so a missing price must never crash
+    the job. The AWS Pricing API's shape is only loosely guaranteed (a renamed
+    product family or group, a region without a published price yet, or a
+    transient oddity can all leave the expected key absent), so we degrade
+    gracefully: warn and let the caller skip the estimate rather than KeyError /
+    float(None) the whole run. See issue #272.
+    """
+    price = pricing.get(category)
+    if price is None:
+        log.warning(
+            f"DynamoDB price for '{category}' unavailable; "
+            f"skipping cost estimate (the job is unaffected)."
+        )
+        return None
+    return float(price)
+
 def get_quota_value(quota_name, region_name):
     """
     Get the value of a specific DynamoDB quota from Service Quotas API.
@@ -261,7 +280,9 @@ def get_and_print_table_scan_cost(table_info, region_name=None, fraction=1.0, nu
 
     pricing_utility = PricingUtility()
     ondemand_pricing = pricing_utility.get_on_demand_capacity_pricing(region_name)
-    rru_cost = float(ondemand_pricing[table_info['read_pricing_category']])
+    rru_cost = _price_or_skip(ondemand_pricing, table_info['read_pricing_category'])
+    if rru_cost is None:
+        return 0
     od_cost = read_units * rru_cost
     prov_cost = od_cost / 1.5  # very rough, look into updating this
     if table_info['billing_mode'] == "PROVISIONED":
@@ -285,7 +306,9 @@ def get_and_print_table_write_cost(table_info, item_count, size_bytes):
 
     pricing_utility = PricingUtility()
     ondemand_pricing = pricing_utility.get_on_demand_capacity_pricing(region_name)
-    wru_cost = float(ondemand_pricing.get(table_info['write_pricing_category']))
+    wru_cost = _price_or_skip(ondemand_pricing, table_info['write_pricing_category'])
+    if wru_cost is None:
+        return 0
     od_cost = write_units * wru_cost
     prov_cost = od_cost / 1.5  # very rough, look into updating this
 
@@ -323,7 +346,9 @@ def get_and_print_table_copy_write_cost(source_info, target_info):
 
     pricing_utility = PricingUtility()
     ondemand_pricing = pricing_utility.get_on_demand_capacity_pricing(region_name)
-    wru_cost = float(ondemand_pricing[target_info["write_pricing_category"]])
+    wru_cost = _price_or_skip(ondemand_pricing, target_info["write_pricing_category"])
+    if wru_cost is None:
+        return 0
     od_cost = write_units * wru_cost
     prov_cost = od_cost / 1.5  # very rough, look into updating this
     if target_info['billing_mode'] == "PROVISIONED":
