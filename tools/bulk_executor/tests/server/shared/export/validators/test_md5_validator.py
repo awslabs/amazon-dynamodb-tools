@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 from python_modules.shared.export.validators.md5_validator import MD5Validator
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 
 
 class TestMD5Validator:
@@ -83,7 +84,7 @@ class TestMD5Validator:
         wrong_md5 = "wrong_checksum_value=="
         
         # Should raise ValueError with descriptive message
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(BulkExecutorError) as exc_info:
             MD5Validator.validate_file_checksum(content, wrong_md5)
         
         # Verify error message contains both checksums
@@ -101,7 +102,7 @@ class TestMD5Validator:
         checksum1 = MD5Validator.compute_md5(content1)
         
         # Validating content2 with content1's checksum should fail
-        with pytest.raises(ValueError):
+        with pytest.raises(BulkExecutorError):
             MD5Validator.validate_file_checksum(content2, checksum1)
     
     def test_validate_file_checksum_with_various_sizes(self):

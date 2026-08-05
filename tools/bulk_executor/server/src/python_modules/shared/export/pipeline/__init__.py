@@ -182,12 +182,12 @@ def run_export_pipeline(spark_context, parsed_args, transform_package, post_vali
         log.error(f"  - Execution time: {execution_time:.1f} seconds")
         log.error("=" * 80)
         log.error("Job terminated due to validation failure")
-        # Validation errors are user-input problems (bad --s3-path, missing export,
-        # denied access, malformed manifest, schema mismatch). Surface them as
-        # BulkExecutorError so root.py prints the clean one-line message instead of
-        # a Glue stack trace. Re-raising as BulkExecutorError here fixes every
-        # validator at once without changing each validator's own raise type (and
-        # so without disturbing their internal `except ValueError` handling).
+        # The validators now raise BulkExecutorError directly at the point of the
+        # bad-input check (clean one-line message via root.py, no Glue stack trace).
+        # This handler stays as a defense-in-depth net: any validation-phase
+        # ValueError we haven't converted still gets surfaced cleanly rather than
+        # escaping as a raw trace. A BulkExecutorError is re-raised as-is (no
+        # double-wrap); its cause chain is preserved.
         if isinstance(e, BulkExecutorError):
             raise
         raise BulkExecutorError(str(e)) from e
