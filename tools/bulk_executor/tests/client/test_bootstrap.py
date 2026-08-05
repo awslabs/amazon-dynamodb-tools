@@ -748,15 +748,62 @@ class TestCreateGlueLogGroups:
         for c in retention_calls:
             assert c.kwargs['retentionInDays'] == GLUE_LOG_GROUP_RETENTION_IN_DAYS
 
-    def test_existing_log_group_still_updates_retention(self, bootstrap):
+    def test_existing_log_group_without_retention_gets_default(self, bootstrap):
+        from infrastructure.constants import (
+            GLUE_LOG_GROUP_NAMES,
+            GLUE_LOG_GROUP_RETENTION_IN_DAYS,
+        )
+        bootstrap.logs_client.create_log_group.side_effect = ClientError(
+            {'Error': {'Code': 'ResourceAlreadyExistsException', 'Message': 'exists'}},
+            'CreateLogGroup',
+        )
+        # Existing groups report no retention set.
+        bootstrap.logs_client.describe_log_groups.side_effect = lambda logGroupNamePrefix: {
+            'logGroups': [{'logGroupName': logGroupNamePrefix}]  # no retentionInDays key
+        }
+
+        bootstrap._create_glue_log_groups()
+
+        # A group with no retention still gets our default, for each group.
+        assert bootstrap.logs_client.put_retention_policy.call_count == len(
+            GLUE_LOG_GROUP_NAMES
+        )
+        for c in bootstrap.logs_client.put_retention_policy.call_args_list:
+            assert c.kwargs['retentionInDays'] == GLUE_LOG_GROUP_RETENTION_IN_DAYS
+
+    def test_existing_log_group_with_retention_is_left_untouched(self, bootstrap):
+        bootstrap.logs_client.create_log_group.side_effect = ClientError(
+            {'Error': {'Code': 'ResourceAlreadyExistsException', 'Message': 'exists'}},
+            'CreateLogGroup',
+        )
+        # Owner deliberately set 30 days; bootstrap must not clobber it.
+        bootstrap.logs_client.describe_log_groups.side_effect = lambda logGroupNamePrefix: {
+            'logGroups': [{'logGroupName': logGroupNamePrefix, 'retentionInDays': 30}]
+        }
+
+        bootstrap._create_glue_log_groups()
+
+        # No retention writes at all — the existing policy is preserved.
+        bootstrap.logs_client.put_retention_policy.assert_not_called()
+
+    def test_existing_group_retention_matches_exact_name_not_prefix(self, bootstrap):
         from infrastructure.constants import GLUE_LOG_GROUP_NAMES
         bootstrap.logs_client.create_log_group.side_effect = ClientError(
             {'Error': {'Code': 'ResourceAlreadyExistsException', 'Message': 'exists'}},
             'CreateLogGroup',
         )
+        # describe_log_groups returns a prefix sibling first that DOES have a
+        # retention; only the exact-name match (no retention) should count, so we
+        # still set the default.
+        def _describe(logGroupNamePrefix):
+            return {'logGroups': [
+                {'logGroupName': logGroupNamePrefix + '-other', 'retentionInDays': 7},
+                {'logGroupName': logGroupNamePrefix},  # exact match, no retention
+            ]}
+        bootstrap.logs_client.describe_log_groups.side_effect = _describe
 
         bootstrap._create_glue_log_groups()
-        # Retention still applied for each group
+
         assert bootstrap.logs_client.put_retention_policy.call_count == len(
             GLUE_LOG_GROUP_NAMES
         )
@@ -773,6 +820,33 @@ class TestCreateGlueLogGroups:
         with pytest.raises(SystemExit) as exc:
             bootstrap._create_glue_log_groups()
         assert exc.value.code == 1
+
+
+class TestGetLogGroupRetention:
+    def test_returns_retention_when_set(self, bootstrap):
+        bootstrap.logs_client.describe_log_groups.return_value = {
+            'logGroups': [{'logGroupName': '/aws-glue/jobs/output', 'retentionInDays': 90}]
+        }
+        assert bootstrap._get_log_group_retention('/aws-glue/jobs/output') == 90
+
+    def test_returns_none_when_unset(self, bootstrap):
+        bootstrap.logs_client.describe_log_groups.return_value = {
+            'logGroups': [{'logGroupName': '/aws-glue/jobs/output'}]  # no retentionInDays
+        }
+        assert bootstrap._get_log_group_retention('/aws-glue/jobs/output') is None
+
+    def test_returns_none_when_group_absent(self, bootstrap):
+        bootstrap.logs_client.describe_log_groups.return_value = {'logGroups': []}
+        assert bootstrap._get_log_group_retention('/aws-glue/jobs/output') is None
+
+    def test_matches_exact_name_ignoring_prefix_siblings(self, bootstrap):
+        bootstrap.logs_client.describe_log_groups.return_value = {
+            'logGroups': [
+                {'logGroupName': '/aws-glue/jobs/output-2', 'retentionInDays': 7},
+                {'logGroupName': '/aws-glue/jobs/output', 'retentionInDays': 30},
+            ]
+        }
+        assert bootstrap._get_log_group_retention('/aws-glue/jobs/output') == 30
 
 
 # -- _prompt_for_role ---------------------------------------------------

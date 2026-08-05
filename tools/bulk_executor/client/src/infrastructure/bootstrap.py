@@ -533,6 +533,18 @@ class BootstrapInfrastructure:
         self.s3_client.upload_file(f"./{LOG4J_PROPERTIES_FILE}", glue_job_bucket, LOG4J_PROPERTIES_FILE)
         log.info(f"Properties files '{LOG4J_PROPERTIES_FILE}' uploaded into S3 successfully!")
 
+    def _get_log_group_retention(self, log_group_name):
+        """Return the retentionInDays set on log_group_name, or None if unset.
+
+        describe_log_groups takes a name *prefix* and can return multiple groups,
+        so match the exact name rather than trusting the first result.
+        """
+        response = self.logs_client.describe_log_groups(logGroupNamePrefix=log_group_name)
+        for group in response.get('logGroups', []):
+            if group.get('logGroupName') == log_group_name:
+                return group.get('retentionInDays')
+        return None
+
     def _create_glue_log_groups(self):
         """
         Create CloudWatch log groups for Glue job logging ahead of time.
@@ -555,11 +567,18 @@ class BootstrapInfrastructure:
             except ClientError as e:
                 if e.response['Error']['Code'] == 'ResourceAlreadyExistsException':
                     log.info(f"Log group '{log_group_name}' already exists.")
-                    self.logs_client.put_retention_policy(
-                        logGroupName=log_group_name,
-                        retentionInDays=GLUE_LOG_GROUP_RETENTION_IN_DAYS
-                    )
-                    log.info(f"Updated retention policy for existing log group {log_group_name}")
+                    # Only set retention if the group has none. If an account owner
+                    # deliberately chose a retention (e.g. 30 days for cost, or a
+                    # longer window for compliance), we must not clobber it on every
+                    # bootstrap. A group with no policy (e.g. auto-created by Glue,
+                    # so "never expire") still gets our default. Staying silent when
+                    # we leave an existing policy alone keeps the console clean.
+                    if self._get_log_group_retention(log_group_name) is None:
+                        self.logs_client.put_retention_policy(
+                            logGroupName=log_group_name,
+                            retentionInDays=GLUE_LOG_GROUP_RETENTION_IN_DAYS
+                        )
+                        log.info(f"Set retention policy for existing log group {log_group_name} to {GLUE_LOG_GROUP_RETENTION_IN_DAYS} days (had none)")
                 else:
                     raise e # Handle failure case for all other errors at the higher level catch
             except Exception as e:
