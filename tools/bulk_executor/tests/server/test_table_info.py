@@ -1056,6 +1056,24 @@ class TestGetAndPrintTableScanCost:
         assert cost > 0
         pricing_mock.return_value.get_on_demand_capacity_pricing.assert_called_with('us-east-1')
 
+    def test_missing_price_key_returns_zero_without_crashing(
+        self, boto3_mock, monkeypatch, ondemand_table_info, caplog
+    ):
+        # #272: an empty/incomplete pricing dict (e.g. renamed family/group,
+        # region without a published price) must fail soft, not KeyError.
+        import logging
+        mock = MagicMock()
+        mock.return_value.get_on_demand_capacity_pricing.return_value = {}  # no keys
+        monkeypatch.setattr(table_info, 'PricingUtility', mock)
+
+        with caplog.at_level(logging.WARNING):
+            cost = table_info.get_and_print_table_scan_cost(
+                ondemand_table_info, region_name='us-west-2'
+            )
+        assert cost == 0
+        assert "unavailable" in caplog.text
+        assert "std_rcu_pricing" in caplog.text
+
 
 # --- get_and_print_table_write_cost ----------------------------------------
 
@@ -1142,6 +1160,21 @@ class TestGetAndPrintTableWriteCost:
             table_info_provisioned, item_count=100, size_bytes=10240
         )
         assert cost == 0
+
+    def test_missing_price_key_returns_zero_without_crashing(
+        self, boto3_mock, monkeypatch, table_info_ondemand, caplog
+    ):
+        # #272: previously float(None) -> TypeError on this path.
+        import logging
+        mock = MagicMock()
+        mock.return_value.get_on_demand_capacity_pricing.return_value = {}
+        monkeypatch.setattr(table_info, 'PricingUtility', mock)
+        with caplog.at_level(logging.WARNING):
+            cost = table_info.get_and_print_table_write_cost(
+                table_info_ondemand, item_count=1000, size_bytes=2048000
+            )
+        assert cost == 0
+        assert "unavailable" in caplog.text
 
 
 # --- get_and_print_table_copy_write_cost -----------------------------------
@@ -1232,6 +1265,21 @@ class TestGetAndPrintTableCopyWriteCost:
             source_info, target
         )
         assert cost == 0
+
+    def test_missing_price_key_returns_zero_without_crashing(
+        self, boto3_mock, monkeypatch, source_info, target_ondemand, caplog
+    ):
+        # #272: copy-write path also hard-indexed the pricing dict.
+        import logging
+        mock = MagicMock()
+        mock.return_value.get_on_demand_capacity_pricing.return_value = {}
+        monkeypatch.setattr(table_info, 'PricingUtility', mock)
+        with caplog.at_level(logging.WARNING):
+            cost = table_info.get_and_print_table_copy_write_cost(
+                source_info, target_ondemand
+            )
+        assert cost == 0
+        assert "unavailable" in caplog.text
 
 
 # --- get_quota_value additional branches -----------------------------------
