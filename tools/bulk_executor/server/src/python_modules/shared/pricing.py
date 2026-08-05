@@ -30,7 +30,14 @@ class PricingUtility(object):
 
         for entry in price_list:
             product = json.loads(entry)
-            product_group = product['product']['attributes']['group']
+            # The pricing API returns products outside the four throughput
+            # groups we map below; those lack an 'attributes.group' field.
+            # Skip them rather than KeyError — a crash here aborts the whole
+            # Glue job (surfacing as "Error in writing to table: 'group'").
+            product_group = (
+                product.get('product', {}).get('attributes', {}).get('group'))
+            if product_group is None:
+                continue
             offer = product['terms']['OnDemand'].popitem()
             offer_terms = offer[1]
             price_dimensions = offer_terms['priceDimensions']
