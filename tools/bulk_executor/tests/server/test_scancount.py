@@ -483,9 +483,10 @@ class TestCountDataScanKwargs:
         return table.scan.call_args.kwargs
 
     def test_base_scan_kwargs_always_present(self, monkeypatch):
-        """Lines 119-124: TableName, Select=COUNT, Segment, TotalSegments always set."""
+        """Lines 118-122: Select=COUNT, Segment, TotalSegments always set (not
+        TableName — the Table resource already knows its name)."""
         kwargs = self._run_count_data(monkeypatch, table_name='my-tbl')
-        assert kwargs['TableName'] == 'my-tbl'
+        assert 'TableName' not in kwargs
         assert kwargs['Select'] == 'COUNT'
         assert kwargs['Segment'] == 3
         assert kwargs['TotalSegments'] == 10

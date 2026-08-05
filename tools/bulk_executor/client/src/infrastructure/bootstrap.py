@@ -35,7 +35,6 @@ from .constants import (
     ROLE_TYPE_READ_ONLY,
     ROLE_TYPE_READ_WRITE,
     READ_WRITE_ROLE_TYPES,
-    THIRD_PARTY_PYTHON_MODULES,
 )
 
 
@@ -123,6 +122,23 @@ class BootstrapInfrastructure:
             ]
         }
 
+        # Read-only visibility into a table's autoscaling configuration so the
+        # job can tell whether autoscaling would lift a provisioned table's
+        # ceiling above a user-requested rate (issue #89). DescribeScalableTargets
+        # does not support resource-level scoping, so the resource must be "*".
+        autoscaling_policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                        "application-autoscaling:DescribeScalableTargets"
+                    ],
+                    "Resource": "*"
+                }
+            ]
+        }
+
         # Create the role
         try:
             response = self.iam_client.create_role(
@@ -134,7 +150,21 @@ class BootstrapInfrastructure:
             log.debug(f'Role ARN: {response["Role"]["Arn"]}')
         except self.iam_client.exceptions.EntityAlreadyExistsException as e:
             log.info(f"Found Bulk Executor Glue Job Role: {role_name}")
-            return # Roles exists. No additional actions needed.
+            if not self._needs_role_refresh():
+                return
+            # The role already exists, so create_role (which sets the trust
+            # policy) was skipped. Re-apply the trust policy on refresh so the
+            # role ends up with the same AssumeRolePolicyDocument a fresh
+            # bootstrap would create, not the one baked in when it was first made.
+            try:
+                self.iam_client.update_assume_role_policy(
+                    RoleName=role_name,
+                    PolicyDocument=json.dumps(trust_policy)
+                )
+                log.debug(f'Refreshed trust policy on role {role_name}')
+            except Exception as e:
+                log.error(f'Unexpected error: {e}')
+                exit(1)
         except Exception as e:
             log.error(f'Unexpected error: {e}')
             exit(1)
@@ -172,9 +202,33 @@ class BootstrapInfrastructure:
                 PolicyDocument=json.dumps(quotas_policy)
             )
             log.debug(f'Attached quotas policy to role {role_name}')
+
+            # Give read-only access to autoscaling targets (issue #89 rate warnings)
+            self.iam_client.put_role_policy(
+                RoleName=role_name,
+                PolicyName='MinimalAutoScalingAccess',
+                PolicyDocument=json.dumps(autoscaling_policy)
+            )
+            log.debug(f'Attached autoscaling policy to role {role_name}')
         except Exception as e:
             log.error(f'Unexpected error: {e}')
             exit(1)
+
+    def _needs_role_refresh(self):
+        job_details = self._get_glue_job_details()
+        if not job_details:
+            return True
+        deployed_version = job_details['Job']['DefaultArguments'].get('--bulk-dynamodb-version')
+        if not deployed_version:
+            return True
+        if deployed_version != VERSION:
+            log.info(
+                f"Version mismatch (deployed Glue job is v{deployed_version}, "
+                f"local is v{VERSION}); refreshing the role's IAM policies to "
+                f"match the version being bootstrapped."
+            )
+            return True
+        return False
 
     def _is_existing_role(self, role_name):
         try:
@@ -222,7 +276,6 @@ class BootstrapInfrastructure:
             '--s3-bucket-name': glue_job_bucket,
             '--s3-script-location': s3_script_location,
             '--extra-py-files': s3_python_module_location,
-            '--additional-python-modules': THIRD_PARTY_PYTHON_MODULES,
             '--bulk-dynamodb-version': VERSION
         })
 
@@ -484,6 +537,18 @@ class BootstrapInfrastructure:
         self.s3_client.upload_file(f"./{LOG4J_PROPERTIES_FILE}", glue_job_bucket, LOG4J_PROPERTIES_FILE)
         log.info(f"Properties files '{LOG4J_PROPERTIES_FILE}' uploaded into S3 successfully!")
 
+    def _get_log_group_retention(self, log_group_name):
+        """Return the retentionInDays set on log_group_name, or None if unset.
+
+        describe_log_groups takes a name *prefix* and can return multiple groups,
+        so match the exact name rather than trusting the first result.
+        """
+        response = self.logs_client.describe_log_groups(logGroupNamePrefix=log_group_name)
+        for group in response.get('logGroups', []):
+            if group.get('logGroupName') == log_group_name:
+                return group.get('retentionInDays')
+        return None
+
     def _create_glue_log_groups(self):
         """
         Create CloudWatch log groups for Glue job logging ahead of time.
@@ -506,11 +571,18 @@ class BootstrapInfrastructure:
             except ClientError as e:
                 if e.response['Error']['Code'] == 'ResourceAlreadyExistsException':
                     log.info(f"Log group '{log_group_name}' already exists.")
-                    self.logs_client.put_retention_policy(
-                        logGroupName=log_group_name,
-                        retentionInDays=GLUE_LOG_GROUP_RETENTION_IN_DAYS
-                    )
-                    log.info(f"Updated retention policy for existing log group {log_group_name}")
+                    # Only set retention if the group has none. If an account owner
+                    # deliberately chose a retention (e.g. 30 days for cost, or a
+                    # longer window for compliance), we must not clobber it on every
+                    # bootstrap. A group with no policy (e.g. auto-created by Glue,
+                    # so "never expire") still gets our default. Staying silent when
+                    # we leave an existing policy alone keeps the console clean.
+                    if self._get_log_group_retention(log_group_name) is None:
+                        self.logs_client.put_retention_policy(
+                            logGroupName=log_group_name,
+                            retentionInDays=GLUE_LOG_GROUP_RETENTION_IN_DAYS
+                        )
+                        log.info(f"Set retention policy for existing log group {log_group_name} to {GLUE_LOG_GROUP_RETENTION_IN_DAYS} days (had none)")
                 else:
                     raise e # Handle failure case for all other errors at the higher level catch
             except Exception as e:

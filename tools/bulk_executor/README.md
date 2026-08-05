@@ -1,8 +1,8 @@
 # Bulk Executor for Amazon DynamoDB
 
-![tests](https://img.shields.io/badge/tests-1219%20passing-brightgreen)
-![line coverage](https://img.shields.io/badge/line%20coverage-95.4%25-brightgreen)
-![branch coverage](https://img.shields.io/badge/branch%20coverage-92.2%25-brightgreen)
+![tests](https://img.shields.io/badge/tests-1443%20passing-brightgreen)
+![line coverage](https://img.shields.io/badge/line%20coverage-94.9%25-brightgreen)
+![branch coverage](https://img.shields.io/badge/branch%20coverage-91.0%25-brightgreen)
 
 Bulk Executor for Amazon DynamoDB lets you efficiently run bulk commands against even large tables. It:
 
@@ -25,13 +25,13 @@ Here are some example use cases:
 # https://spark.apache.org/docs/latest/api/sql/index.html
 # This sample finds items where the a attribute is larger than the b attribute, 
 # the ts is before 2024, and val is from the given set.
-./bulk count --table t --where "a > b and ts < '2024' and val = ('x' or 'y')"
+./bulk count --table t --where "a > b and ts < '2024' and val IN ('x', 'y')"
 
 
 # It's possible to print the results instead of counting
 # The first 10 items appear on the command line, one item per line
 # Large result sets are written to S3
-./bulk find --table t --where "a > b and ts < '2024' and val = ('x' or 'y')"
+./bulk find --table t --where "a > b and ts < '2024' and val IN ('x', 'y')"
 
 # Print the 100 oldest items, using the Connector, no GSI required
 ./bulk find --table t --orderby timestamp --limit 100
@@ -327,6 +327,7 @@ If you provide a custom IAM role for your AWS Glue job:
 * Attach the managed policy `AWSGlueServiceRole` to grant Glue its baseline execution permissions.
 * Attach `ServiceQuotasReadOnlyAccess` to allow the job to read service quota information (used to detect account-level read/write limits), or for maximum lockdown allow the `pricing:GetProducts` action.
 * Attach `AWSPriceListServiceFullAccess` to allow the job to query AWS pricing APIs (used to estimate DynamoDB operation costs), or for maximum lockdown allow the `servicequotas:GetServiceQuota` and `servicequotas:GetAWSDefaultServiceQuota` actions.
+* Allow the `application-autoscaling:DescribeScalableTargets` action (used to detect a provisioned table's autoscaling maximum when warning that a requested rate exceeds the table's capacity). This action does not support resource-level scoping, so it must be granted on `"Resource": "*"`. If the role lacks this permission the job still runs — it simply skips the autoscaling-aware capacity warning and logs that it is proceeding without visibility into the table's autoscaling settings.
 * Add custom IAM permissions for DynamoDB access. You may attach `AmazonDynamoDBReadOnlyAccess` or `AmazonDynamoDBFullAccess`, or define a more restrictive policy targeting specific tables.
 
 ### Security: Consider adjusting S3 bucket behaviors
@@ -596,6 +597,8 @@ These are provided as `--X` flags even though they're actually implemented insid
 
 With `diff` which reads from two tables, the max read rate is applied per table.
 
+At the start of a run the effective rate is also checked against the table's size: if moving the table's data at that rate would take longer than the Glue job timeout (`--XTimeout`, default 60 minutes), a warning is logged that the job will likely time out before finishing — raise the rate or the timeout. The check applies whether the rate was set explicitly or derived from the table's capacity, and is observational only (it never blocks the run). Conversely, a rate below the recommended minimum, or above what the table can actually deliver (its provisioned/autoscaling/on-demand ceiling), is warned about too.
+
 ## Cost management
 
 At the start of each run, each command outputs discovered metrics about the table(s) being used and a cost estimate for any reads and writes that will be performed. If the estimate is too high, you can hit Control-C to cancel the execution. The estimates are rough and not guaranteed. Table metrics use the table metadata available when describing a table, which updates about every 4 hours.
@@ -616,13 +619,16 @@ Bulk Executor has two test layers, both driven from the Makefile in `tools/bulk_
 * **Unit tests** (`make test`) — fast, offline, no AWS. `awsglue` and `pyspark` are mocked, so the full client + server suite runs in seconds. This is what CI and most development relies on. See [`tests/README.md`](tests/README.md).
 * **End-to-end tests** (`make test-e2e-*`) — opt-in, run **real Glue jobs against real DynamoDB tables** in your own account. These verify the pieces unit tests can't: the live Glue connector, real bootstrap IAM, and the command orchestration end to end (important after a Glue runtime upgrade). They never run as part of `make test`. See [`tests/e2e/README.md`](tests/e2e/README.md).
 
-The e2e harness has three suites:
+The e2e harness has these suites:
 
 | Suite | Command | What it checks |
 |-------|---------|----------------|
 | Connector | `make test-e2e-connector` | `count`/`find`/`sql`/`load` against the live DynamoDB DataFrame connector |
 | Commands  | `make test-e2e-commands`  | `fill`/`update`/`delete`/`copy`/`diff` orchestration, each against its own transient table |
 | Security  | `make test-e2e-security`  | the documented bootstrap IAM policy actually bootstraps (and is minimal) |
+| Whole-system | `make test-e2e-whole-system` | true end-to-end: 60k `load` round-trip fidelity + observed write-rate enforcement from CloudWatch |
+| Max-rate | `make test-e2e-max-rate` | **expensive, opt-in:** proves `load` sustains a write rate above the old connector's 60k WCU/s ceiling (millions of items + pre-warmed table) |
+| Capacity warnings | `make test-e2e-capacity-warnings` | issue #89: `load --XMaxWriteRate` above a table's ceiling emits the right warning live (provisioned / autoscaling-max / autoscaling-soft-note / on-demand-max), plus the missing-`DescribeScalableTargets` visibility degradation — asserted in the real Glue job's log stream |
 
 Each command/connector smoke creates its own short-lived table (`bulk-e2e-<command>-<random>`, tagged `ephemeral=true`) and **tears it down in a `finally` block** even on failure — the suite never touches your existing tables. If a run is hard-killed mid-test, sweep any orphans with `make test-e2e-cleanup`. The first e2e run prompts once for account/region/test-table config and caches it in `tests/e2e/.e2e-config` (gitignored, per-developer).
 
@@ -636,7 +642,7 @@ You're encouraged to write your own scripts if you have needs beyond those suppo
 
 If writing a custom script, it's important to do proper exception handling.
 
-* When in the Glue driver code block (main control flow), if the problem is a developer-type problem indicating a code issue, you can just let the underlying exception propagate and kill execution. Glue handles it nicely.
-* When in the Glue driver code block, if the problem is instead a user-input type problem, you can notice the issue and raise it as `raise Exception("reason") from None`. This will halt execution and the `from None` (useful when inside an `except` clause) will suppress the original exception. We don't need bit stack traces for user-input type problems.
+* When in the Glue driver code block (main control flow), if the problem is a developer-type problem indicating a code issue, you can just let the underlying exception propagate and kill execution. Glue handles it nicely. The user sees a stack trace.
+* When in the Glue driver code block, if the problem is instead a user-input type problem, you can notice the issue and raise it as `raise BulkExecutorError("reason") from None`. This will halt execution and the `from None` (useful when inside an `except` clause) will suppress the original exception. We don't need big stack traces for user-input type problems. The use of `BulkExecutorError` will ensure elegant handling and the user will see no stack trace.
 * When in a Glue executor code block (the code being run in parallel), do NOT raise an exception. If you do, usually lots of workers hit the same issue and it generates a fireworks of error output. Instead, use the `error_accumulator` pattern that the `fill` verb (and others) demonstrate. Add a description of the problem to the `error_accumulator` and return. In the driver code, find the first accumulated error and raise it.
 

@@ -455,12 +455,10 @@ class TestRootMissingRunFunction:
 
 
 class TestRootBulkExecutorErrorPropagation:
-    """BulkExecutorError from a verb is re-raised (lines 86-87)."""
+    """BulkExecutorError from a verb is logged and exits cleanly (lines 86-88)."""
 
-    def test_bulk_executor_error_propagates(self, monkeypatch):
-        """Lines 86-87: BulkExecutorError from run() is re-raised after the except."""
-        # We need the same BulkExecutorError class root.py imports — install
-        # the stub first, get back the class, then build the verb.
+    def test_bulk_executor_error_exits_cleanly(self, monkeypatch):
+        """Lines 86-88: BulkExecutorError from run() is logged and sys.exit'd."""
         awsglue = _build_awsglue_stubs()
         install = dict(awsglue["modules"])
         logger_module = _install_logger_stub(install)
@@ -477,11 +475,11 @@ class TestRootBulkExecutorErrorPropagation:
         spec = importlib.util.spec_from_file_location(
             "_root_under_test", str(ROOT_PY_PATH))
         module = importlib.util.module_from_spec(spec)
-        with pytest.raises(BulkExecutorError, match="user error"):
+        with pytest.raises(SystemExit) as exc_info:
             spec.loader.exec_module(module)
 
+        assert "user error" in str(exc_info.value)
         run_mock.assert_called_once()
-        # commit/stop never reached because the exception propagates out.
         awsglue["job_instance"].commit.assert_not_called()
         awsglue["spark_ctx"].stop.assert_not_called()
 

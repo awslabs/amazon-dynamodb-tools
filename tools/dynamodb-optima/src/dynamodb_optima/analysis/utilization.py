@@ -6,12 +6,13 @@ to reduce costs by adjusting capacity or switching to On-Demand mode.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from functools import lru_cache
 
 from ..logging import get_logger
 from ..aws.pricing_collector import PricingCollector
+from ..database import lake
 
 logger = get_logger(__name__)
 
@@ -377,6 +378,7 @@ class UtilizationAnalyzer:
         read_consumed, write_consumed = self._get_consumed_metrics(
             resource['account_id'],
             resource['region'],
+            resource['table_name'],
             resource['resource_name'],
             resource['resource_type'],
             days
@@ -464,49 +466,47 @@ class UtilizationAnalyzer:
         self,
         account_id: str,
         region: str,
+        table_name: str,
         resource_name: str,
         resource_type: str,
         days: int
     ) -> Tuple[List[float], List[float]]:
-        """Get consumed capacity metrics from database."""
-        cutoff = datetime.now() - timedelta(days=days)
-        
-        # Get read consumed capacity (per second, converted from Sum/period)
-        read_results = self.connection.execute(
-            """
-            SELECT value
-            FROM metrics
-            WHERE account_id = ?
-                AND region = ?
-                AND resource_name = ?
-                AND metric_name = 'ConsumedReadCapacityUnits'
-                AND statistic = 'Sum'
-                AND timestamp >= ?
-            ORDER BY timestamp
-            """,
-            (account_id, region, resource_name, cutoff)
-        ).fetchall()
-        
-        # Get write consumed capacity
-        write_results = self.connection.execute(
-            """
-            SELECT value
-            FROM metrics
-            WHERE account_id = ?
-                AND region = ?
-                AND resource_name = ?
-                AND metric_name = 'ConsumedWriteCapacityUnits'
-                AND statistic = 'Sum'
-                AND timestamp >= ?
-            ORDER BY timestamp
-            """,
-            (account_id, region, resource_name, cutoff)
-        ).fetchall()
-        
-        # Convert Sum to per-second by dividing by 60 (1-minute period)
-        read_consumed = [row[0] / 60.0 for row in read_results]
-        write_consumed = [row[0] / 60.0 for row in write_results]
-        
+        """Get consumed capacity metrics from the Parquet lake.
+
+        The lake is partitioned by (account_id, region, table_name); resource_name
+        (table_name or table_name#gsi_name) is filtered from the returned rows, same
+        scoping the old `metrics` table query did via the resource_name column.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        end = datetime.now(timezone.utc)
+
+        df = lake.read_metrics(account_id, region, table_name, cutoff, end)
+
+        if df.empty:
+            return [], []
+
+        df = df.sort_values("timestamp")
+        df = df[df["resource_name"] == resource_name]
+
+        read_df = df[
+            (df["metric_name"] == "ConsumedReadCapacityUnits") & (df["statistic"] == "Sum")
+        ]
+        write_df = df[
+            (df["metric_name"] == "ConsumedWriteCapacityUnits") & (df["statistic"] == "Sum")
+        ]
+
+        # Sum -> per-second rate: divide by each row's ACTUAL period_seconds, not a
+        # hardcoded 60. The lake stores mixed 60s and 300s rows; assuming 60 makes
+        # 5-min data read 5x too high.
+        read_consumed = [
+            v / float(p) if p else v
+            for v, p in zip(read_df["value"].tolist(), read_df["period_seconds"].tolist())
+        ]
+        write_consumed = [
+            v / float(p) if p else v
+            for v, p in zip(write_df["value"].tolist(), write_df["period_seconds"].tolist())
+        ]
+
         return read_consumed, write_consumed
     
     def _generate_recommendation(

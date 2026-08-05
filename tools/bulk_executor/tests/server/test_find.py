@@ -441,13 +441,13 @@ class TestParseSortOrder:
     def test_empty_spec_in_orderby_raises_value_error(
         self, monkeypatch, table_info_mocks, boto3_session_mock, glue_context
     ):
-        """Line 97: empty spec (e.g. trailing comma) fails regex → ValueError."""
+        """Empty spec (e.g. trailing comma) fails regex → clean BulkExecutorError."""
         args = {
             'splits': '200', 'table': 't',
             'where': None, 'orderby': 'col asc,', 'limit': None,
             'XAction': 'count',
         }
-        with pytest.raises(ValueError, match="Invalid sort specification"):
+        with pytest.raises(find_module.BulkExecutorError, match="Invalid sort specification"):
             find_module.run(MagicMock(), MagicMock(), glue_context, args)
 
     def test_orderby_sets_needsRepartitioning(
@@ -1232,3 +1232,52 @@ class TestRunMiscBehavior:
 
         out = capsys.readouterr().out
         assert '8' in out
+
+
+class TestRunLimitErrorViaWrapper:
+    """Issue #137 case 2, asserted against the current wrapper boundary
+    (read_dynamodb_dataframe), not the legacy DynamicFrame path. `--limit -1`
+    passes int() but Spark's .limit() rejects it; find.py must surface that as
+    a BulkExecutorError so root.py can print a clean one-line message."""
+
+    def test_negative_limit_raises_bulk_executor_error(
+        self, monkeypatch, table_info_mocks, boto3_session_mock
+    ):
+        monkeypatch.setattr(find_module, 'get_error_message', lambda e: str(e))
+
+        records = MagicMock()
+        records.limit.side_effect = RuntimeError(
+            "[INVALID_LIMIT_LIKE_EXPRESSION.IS_NEGATIVE] The limit like "
+            'expression "-1" is invalid ... but got -1.'
+        )
+        monkeypatch.setattr(
+            find_module, 'read_dynamodb_dataframe',
+            lambda *a, **k: records,
+        )
+
+        args = {
+            'splits': '200', 'table': 't',
+            'where': None, 'orderby': None, 'limit': '-1',
+            'XAction': 'count',
+        }
+        with pytest.raises(find_module.BulkExecutorError, match="Invalid 'limit'"):
+            find_module.run(MagicMock(), MagicMock(), MagicMock(), args)
+
+
+class TestRunOrderByParseErrorViaWrapper:
+    """A malformed `--orderby` is a user-parameter error and must surface as a
+    clean BulkExecutorError, not a raw ValueError that becomes a Glue stack trace.
+    parse_sort_order runs before the dataframe read, so no wrapper mock is needed.
+    Asserted against run()'s current boundary, not the skipped legacy suite."""
+
+    def test_bad_sort_specification_raises_bulk_executor_error(
+        self, monkeypatch, table_info_mocks, boto3_session_mock
+    ):
+        # A trailing comma yields an empty spec that fails the parser regex.
+        args = {
+            'splits': '200', 'table': 't',
+            'where': None, 'orderby': 'col asc,', 'limit': None,
+            'XAction': 'count',
+        }
+        with pytest.raises(find_module.BulkExecutorError, match="Invalid sort specification"):
+            find_module.run(MagicMock(), MagicMock(), MagicMock(), args)

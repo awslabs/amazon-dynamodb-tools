@@ -107,6 +107,11 @@ class TestConvertClientDictToScriptArgs:
         result = convert_client_dict_to_script_args({'XMaxReadRate': 500})
         assert result == ['--XMaxReadRate', '500']
 
+    def test_keeps_xtimeout_for_server_estimate(self):
+        """XTimeout is forwarded so the server can race the job-timeout estimate (#89)."""
+        result = convert_client_dict_to_script_args({'XTimeout': 2})
+        assert result == ['--XTimeout', '2']
+
     def test_str_coerces_values(self):
         """Non-string values are coerced via str()."""
         result = convert_client_dict_to_script_args({'count': 42, 'flag': True})

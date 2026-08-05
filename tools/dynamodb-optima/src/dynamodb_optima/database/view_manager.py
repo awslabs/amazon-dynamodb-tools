@@ -158,7 +158,7 @@ class ViewManager:
         missing_deps = {}
 
         # Check if base tables exist
-        required_tables = ["metrics", "table_metadata", "gsi_metadata"]
+        required_tables = ["table_metadata", "gsi_metadata"]
 
         for table in required_tables:
             try:

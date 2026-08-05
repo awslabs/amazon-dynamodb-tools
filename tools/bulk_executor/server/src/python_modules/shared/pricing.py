@@ -30,7 +30,13 @@ class PricingUtility(object):
 
         for entry in price_list:
             product = json.loads(entry)
-            product_group = product['product']['attributes']['group']
+            # Some products in this family carry no 'group' attribute (e.g. the
+            # DynamoDB vector-search offerings AWS added to PayPerRequest). We only
+            # bucket the four DDB-*Units groups below, so a product without a group
+            # is not one we price -- skip it rather than KeyError on it.
+            product_group = product['product']['attributes'].get('group')
+            if product_group is None:
+                continue
             offer = product['terms']['OnDemand'].popitem()
             offer_terms = offer[1]
             price_dimensions = offer_terms['priceDimensions']

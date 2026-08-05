@@ -55,6 +55,44 @@ def _upload_fixture(bucket: str, key: str, body: str, region: str) -> str:
     return f"s3://{bucket}/{key}"
 
 
+def _scope_count(table_name: str, pk_attr: str, sk_attr: str | None,
+                 run_id: str, region: str) -> int:
+    """Count only the items this run inserted, via a consistent query/scan.
+
+    Scoped to the run's PK prefix so it proves *these* items landed without
+    depending on whatever else lives in the shared writable table.
+    """
+    ddb = boto3.resource("dynamodb", region_name=region)
+    table = ddb.Table(table_name)
+    if sk_attr:
+        pk_value = f"{PK_PREFIX}-{run_id}"
+        resp = table.query(
+            Select="COUNT",
+            ConsistentRead=True,
+            KeyConditionExpression="#pk = :pk",
+            ExpressionAttributeNames={"#pk": pk_attr},
+            ExpressionAttributeValues={":pk": pk_value},
+        )
+        return resp["Count"]
+    # No SK: items use per-row PKs, so scan-count the run's prefix.
+    prefix = f"{PK_PREFIX}-{run_id}-"
+    count = 0
+    kwargs = {
+        "Select": "COUNT",
+        "ConsistentRead": True,
+        "FilterExpression": "begins_with(#pk, :p)",
+        "ExpressionAttributeNames": {"#pk": pk_attr},
+        "ExpressionAttributeValues": {":p": prefix},
+    }
+    while True:
+        resp = table.meta.client.scan(TableName=table_name, **kwargs)
+        count += resp["Count"]
+        last_key = resp.get("LastEvaluatedKey")
+        if not last_key:
+            return count
+        kwargs["ExclusiveStartKey"] = last_key
+
+
 def _scope_delete(table_name: str, pk_attr: str, sk_attr: str | None,
                   run_id: str, region: str) -> int:
     """Delete the items this run inserted. Returns count deleted."""
@@ -106,6 +144,60 @@ class TestLoadSmoke:
 
             perf_collector.add(PerfRow(
                 command="load",
+                wall_seconds=result.wall_seconds,
+                dpu_seconds=perf.dpu_seconds if perf else None,
+                items=NUM_SMOKE_ITEMS,
+            ))
+        finally:
+            _scope_delete(
+                e2e_config.write_table, pk_attr, sk_attr, run_id,
+                e2e_config.aws_region,
+            )
+
+    def test_load_with_xmax_write_rate_enforced(self, e2e_config, perf_collector):
+        """`load --XMaxWriteRate` must succeed on real Glue AND land the items.
+
+        This is the enforcement proof for #182: the connector write path now
+        emits a direct-integer ``dynamodb.throughput.write`` option (replacing
+        the old ``dynamodb.throughput.write.percent`` math). A unit test only
+        proves the value is passed as a kwarg — it can't prove the Glue 5.x
+        connector *accepts* that option. If the connector rejected it, the job
+        would end FAILED (while ``./bulk`` still exits 0), so we assert the
+        authoritative JobRunState and that the run's items actually landed.
+        """
+        run_id = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
+
+        pk_attr, sk_attr = _describe_key_schema(
+            e2e_config.write_table, e2e_config.aws_region
+        )
+        body = _build_csv(pk_attr, sk_attr, run_id)
+        bucket = discover_bucket(e2e_config.aws_region)
+        s3_key = f"e2e/load-smoke/{run_id}-ratelimited.csv"
+        s3_path = _upload_fixture(bucket, s3_key, body, e2e_config.aws_region)
+
+        try:
+            result = run_command(
+                "load",
+                table=e2e_config.write_table,
+                extra_args=[
+                    "--format", "csv",
+                    "--s3-path", s3_path,
+                    "--XMaxWriteRate", "5000",
+                ],
+            )
+            perf = assert_glue_succeeded("load", result, e2e_config.aws_region)
+
+            landed = _scope_count(
+                e2e_config.write_table, pk_attr, sk_attr, run_id,
+                e2e_config.aws_region,
+            )
+            assert landed == NUM_SMOKE_ITEMS, (
+                f"load --XMaxWriteRate landed {landed} items, "
+                f"expected {NUM_SMOKE_ITEMS} — rate-limited write path lost data."
+            )
+
+            perf_collector.add(PerfRow(
+                command="load --XMaxWriteRate 5000",
                 wall_seconds=result.wall_seconds,
                 dpu_seconds=perf.dpu_seconds if perf else None,
                 items=NUM_SMOKE_ITEMS,

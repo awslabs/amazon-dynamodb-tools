@@ -42,9 +42,9 @@ class GlueJobDefaults(Enum):
     WorkerType='G.1X'
 
 # Third Party Dependencies as an alpha-numeric list
-_THIRD_PARTY_PYTHON_MODULES = [
-  'faker'
-]
+# NOTE: verb-specific deps (e.g. faker for fill) are injected at runtime
+# in runner._get_glue_job_arguments to avoid installing them for every verb.
+_THIRD_PARTY_PYTHON_MODULES = []
 
 # Convert to AWS Glue Readable Format
 THIRD_PARTY_PYTHON_MODULES = ','.join(map(str, _THIRD_PARTY_PYTHON_MODULES))

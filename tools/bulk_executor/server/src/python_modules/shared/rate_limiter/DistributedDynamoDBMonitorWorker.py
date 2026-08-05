@@ -31,10 +31,13 @@ class DistributedDynamoDBMonitorWorker:
         self.worker_id = worker_id or str(uuid.uuid4())
 
         # default initial rates
+        # Floor at 1.0: tiny tables (aggregate capacity < 10) would otherwise
+        # divide down to a sub-1 rate that DynamoDBMonitor rejects, making them
+        # unscannable. The aggregator's sync loop corrects any overshoot.
         if worker_initial_read_rate is None:
-            worker_initial_read_rate = min(worker_max_read_rate, aggregate_max_read_rate / 10)
+            worker_initial_read_rate = max(1.0, min(worker_max_read_rate, aggregate_max_read_rate / 10))
         if worker_initial_write_rate is None:
-            worker_initial_write_rate = min(worker_max_write_rate, aggregate_max_write_rate / 10)
+            worker_initial_write_rate = max(1.0, min(worker_max_write_rate, aggregate_max_write_rate / 10))
 
         self.aggregate_max_read_rate = aggregate_max_read_rate
         self.aggregate_max_write_rate = aggregate_max_write_rate

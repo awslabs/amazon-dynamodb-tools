@@ -12,6 +12,12 @@ def pytest_configure(config):
         "markers",
         "e2e: real-AWS end-to-end test; opt-in via 'make test-e2e-*'",
     )
+    config.addinivalue_line(
+        "markers",
+        "max_rate: expensive high-throughput test (millions of items + warm "
+        "throughput); excluded from the default sweep, run via "
+        "'make test-e2e-max-rate'",
+    )
 
 
 @pytest.fixture(scope="session")

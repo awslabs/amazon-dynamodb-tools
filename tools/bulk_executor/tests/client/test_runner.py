@@ -269,11 +269,60 @@ class TestPrettyPrintLogEvent:
         bulk_runner._pretty_print_log_event(ev)
         assert capsys.readouterr().out == ''
 
+    def test_suppresses_benign_netty_stream_error(self, bulk_runner, capsys):
+        """Issue #247: the real (non-monkeypatched) ignore list drops the benign
+        Netty error that otherwise prints red.
+
+        log4j emits this stack trace as a single logging record with embedded
+        newlines (which is why all its lines print uniformly red), so it arrives
+        as one log event. The whole event -- header plus the ...ChannelException
+        and `at ...` continuation lines -- must be suppressed together, since only
+        the header carries the ignore-list anchor substring."""
+        ev = _make_event(message=(
+            "2026-08-04 04:17:36 ERROR TransportRequestHandler:326 - Error sending "
+            "result StreamResponse[streamId=/jars/x.jar,byteCount=36261796,body=...] "
+            "to /172.34.52.242:55286; closing connection\n"
+            "io.netty.channel.StacklessClosedChannelException: null\n"
+            "\tat io.netty.channel.AbstractChannel.close(ChannelPromise)(Unknown Source) "
+            "~[emr-spark-goodies-3.21.0.jar:3.21.0]"
+        ))
+        bulk_runner._pretty_print_log_event(ev)
+        captured = capsys.readouterr()
+        # Nothing leaks -- not the header, not the continuation lines.
+        assert captured.out == ''
+        assert captured.err == ''
+
+    def test_warning_merged_with_info_still_colors_yellow(self, bulk_runner, capsys):
+        """Regression: a WARNING delivered in the same event as a preceding INFO
+        line (internal newline, INFO has no timestamp prefix) must still color
+        yellow. The reassembler splits on the record boundary so the WARNING is
+        evaluated on its own rather than as a continuation of the INFO line."""
+        info_line = '[before] Max read rate set to specified limit: 20'
+        warn_line = ('2026-08-04 08:08:15,393 WARNING [MainThread] root - '
+                     '[before] Read rate 20 less than recommended value of 100.')
+        merged = _make_event(
+            message=f'{info_line}\n{warn_line}\n',
+            log_group='123456789012:/aws-glue/jobs/output',
+        )
+        # Drive the real reassembler → tailer path.
+        reassembler = runner_module.GlueLogReassembler(buffer_time_ms=0)
+        for ev in reassembler.process([merged]):
+            bulk_runner._pretty_print_log_event(ev)
+        for ev in reassembler.flush():
+            bulk_runner._pretty_print_log_event(ev)
+
+        out = capsys.readouterr().out
+        warn_pos = out.find('WARNING')
+        assert warn_pos != -1, "WARNING line should have been printed"
+        # The WARNING segment carries a YELLOW code; the INFO segment before it
+        # does not (it is not a recognized level, so it stays uncolored).
+        assert runner_module.ColorCodes.YELLOW in out[:warn_pos]
+        assert runner_module.ColorCodes.YELLOW not in out[:out.find(info_line) + len(info_line)]
+
     def test_bulk_executor_error_sets_suppress_flag(self, bulk_runner, monkeypatch):
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         ev = _make_event(message='BulkExecutorError fatal')
         bulk_runner._pretty_print_log_event(ev)
         assert bulk_runner._suppress_glue_noise is True
@@ -282,7 +331,6 @@ class TestPrettyPrintLogEvent:
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         bulk_runner._suppress_glue_noise = True
         ev = _make_event(message='GlueExceptionAnalysisListener spam')
         bulk_runner._pretty_print_log_event(ev)
@@ -292,7 +340,6 @@ class TestPrettyPrintLogEvent:
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         bulk_runner._suppress_glue_noise = True
         ev = _make_event(message='Error Category: foo')
         bulk_runner._pretty_print_log_event(ev)
@@ -302,7 +349,6 @@ class TestPrettyPrintLogEvent:
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         ev = _make_event(
             message='hello world',
             log_group='123456789012:/aws-glue/jobs/output',
@@ -316,7 +362,6 @@ class TestPrettyPrintLogEvent:
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         ev = _make_event(
             message='something',
             log_group='123456789012:/aws-glue/jobs/somewhere-else',
@@ -329,7 +374,6 @@ class TestPrettyPrintLogEvent:
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', ['arguments:'])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         ev = _make_event(
             message='arguments: foo',
             log_group='123456789012:/aws-glue/jobs/output',
@@ -343,7 +387,6 @@ class TestPrettyPrintLogEvent:
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', ['exception'])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         ev = _make_event(
             message='java exception thrown',
             log_group='123456789012:/aws-glue/jobs/output',
@@ -353,24 +396,93 @@ class TestPrettyPrintLogEvent:
         # Output goes to stderr (PINK).
         assert runner_module.ColorCodes.PINK in captured.err
 
-    def test_warn_keys_route_to_yellow(self, bulk_runner, capsys, monkeypatch):
+    def test_warning_level_routes_to_yellow(self, bulk_runner, capsys, monkeypatch):
+        # A real server WARNING line (identified by its leading "<asctime> WARNING"
+        # prefix) is yellow regardless of its body.
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [' warn '])
         ev = _make_event(
-            message=' WARN something',
+            message='2026-08-04 04:41:33,623 WARNING [MainThread] root - [t] too slow',
             log_group='123456789012:/aws-glue/jobs/output',
         )
         bulk_runner._pretty_print_log_event(ev)
         out = capsys.readouterr().out
         assert runner_module.ColorCodes.YELLOW in out
 
+    def test_error_level_routes_to_pink_stderr(self, bulk_runner, capsys, monkeypatch):
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
+        ev = _make_event(
+            message='2026-08-04 04:41:33,623 ERROR [MainThread] root - boom',
+            log_group='123456789012:/aws-glue/jobs/output',
+        )
+        bulk_runner._pretty_print_log_event(ev)
+        captured = capsys.readouterr()
+        assert runner_module.ColorCodes.PINK in captured.err
+
+    def test_critical_level_routes_to_pink_stderr(self, bulk_runner, capsys, monkeypatch):
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
+        ev = _make_event(
+            message='2026-08-04 04:41:33,623 CRITICAL [MainThread] root - fatal',
+            log_group='123456789012:/aws-glue/jobs/output',
+        )
+        bulk_runner._pretty_print_log_event(ev)
+        assert runner_module.ColorCodes.PINK in capsys.readouterr().err
+
+    def test_warning_with_error_keyword_in_body_is_yellow_not_red(self, bulk_runner, capsys, monkeypatch):
+        # The core bug (#252): the timeout WARNING contains the word "timeout",
+        # which is a STD_ERROR keyword. Level-anchoring must win so it stays yellow
+        # on stdout rather than red on stderr.
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', ['timeout', 'exception'])
+        ev = _make_event(
+            message='2026-08-04 05:28:27,649 WARNING [MainThread] root - '
+                    '[t] ...exceeds the ~60 min remaining before the job timeout...',
+            log_group='123456789012:/aws-glue/jobs/output',
+        )
+        bulk_runner._pretty_print_log_event(ev)
+        captured = capsys.readouterr()
+        assert runner_module.ColorCodes.YELLOW in captured.out
+        assert captured.err == ''
+
+    def test_config_keys_win_over_level(self, bulk_runner, capsys, monkeypatch):
+        # CONFIG (gray) is checked before the level so WARNING-level external-lib
+        # noise stays de-emphasized rather than turning yellow.
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', ['timeout='])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
+        ev = _make_event(
+            message='2026-08-04 04:41:33,623 WARNING [MainThread] botocore - Connection timeout=30',
+            log_group='123456789012:/aws-glue/jobs/output',
+        )
+        bulk_runner._pretty_print_log_event(ev)
+        out = capsys.readouterr().out
+        assert runner_module.ColorCodes.GRAY in out
+        assert runner_module.ColorCodes.YELLOW not in out
+
+    def test_keyword_fallback_for_lines_without_level_prefix(self, bulk_runner, capsys, monkeypatch):
+        # Foreign lines (e.g. Spark/log4j with a different timestamp format) don't
+        # match our level prefix, so the keyword fallback still colors them.
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', ['exception'])
+        ev = _make_event(
+            message='2026-08-04 04:17:36 ERROR TransportRequestHandler exception',
+            log_group='123456789012:/aws-glue/jobs/output',
+        )
+        bulk_runner._pretty_print_log_event(ev)
+        # No comma-millis → no level match → falls to keyword branch (pink/stderr).
+        assert runner_module.ColorCodes.PINK in capsys.readouterr().err
+
     def test_default_path_no_color(self, bulk_runner, capsys, monkeypatch):
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
-        monkeypatch.setattr(runner_module.utils, 'WARN_LOG_MESSAGE_KEYS', [])
         ev = _make_event(
             message='regular message',
             log_group='123456789012:/aws-glue/jobs/output',
@@ -841,6 +953,16 @@ class TestGetGlueJobArguments:
         result = bulk_runner._get_glue_job_arguments({}, ['--key', None])
         assert '--key' not in result
 
+    def test_fill_verb_includes_faker_module(self, bulk_runner):
+        result = bulk_runner._get_glue_job_arguments({}, ['--verb', 'fill', '--table', 't'])
+        assert '--additional-python-modules' in result
+        assert 'faker' in result['--additional-python-modules']
+
+    def test_non_fill_verb_excludes_faker_module(self, bulk_runner):
+        result = bulk_runner._get_glue_job_arguments({}, ['--verb', 'copy', '--table', 't'])
+        assert '--additional-python-modules' not in result or \
+            'faker' not in result.get('--additional-python-modules', '')
+
 
 # --- _assert_expected_script_args -------------------------------------------
 
@@ -1066,53 +1188,80 @@ def _wire_run_dependencies(bulk_runner, *, final_state, error_message=None,
 class TestRunStateBranches:
     """Tests for end-state messaging in run() (lines 466-477)."""
 
+    def _final_line_record(self, caplog):
+        """The closing 'Job ... Job duration:' line, whatever level it was logged at."""
+        return next(r for r in caplog.records if 'Job duration:' in r.getMessage())
+
     def test_succeeded_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.SUCCEEDED_STATE)
         import logging as _logging
         with caplog.at_level(_logging.INFO):
+            # A successful job must NOT raise SystemExit — it exits 0.
             bulk_runner.run({}, [])
         assert any('completed successfully' in m for m in caplog.messages)
+        # Success stays plain INFO.
+        assert self._final_line_record(caplog).levelname == 'INFO'
 
     def test_stopping_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.STOPPING_STATE)
         import logging as _logging
         with caplog.at_level(_logging.INFO):
-            bulk_runner.run({}, [])
+            # Non-success terminal state must exit non-zero (issue #137).
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('stopping' in m for m in caplog.messages)
+        # A user-interrupted stop is a warning (yellow), not an error.
+        assert self._final_line_record(caplog).levelname == 'WARNING'
 
     def test_stopped_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.STOPPED_STATE)
         import logging as _logging
         with caplog.at_level(_logging.INFO):
-            bulk_runner.run({}, [])
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('stopped' in m for m in caplog.messages)
+        assert self._final_line_record(caplog).levelname == 'WARNING'
 
     def test_failed_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.FAILED_STATE)
         import logging as _logging
         with caplog.at_level(_logging.INFO):
-            bulk_runner.run({}, [])
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('failed' in m.lower() for m in caplog.messages)
+        # A genuine failure is an error (red).
+        assert self._final_line_record(caplog).levelname == 'ERROR'
 
     def test_timeout_state(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.TIMEOUT_STATE)
         import logging as _logging
         with caplog.at_level(_logging.INFO):
-            bulk_runner.run({}, [])
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('timed out' in m for m in caplog.messages)
+        assert self._final_line_record(caplog).levelname == 'ERROR'
 
     def test_unhandled_state_logs_error(self, bulk_runner, caplog):
         _wire_run_dependencies(bulk_runner, final_state='WEIRD_STATE')
         import logging as _logging
         with caplog.at_level(_logging.ERROR):
-            bulk_runner.run({}, [])
-        assert any('Unhandled Job State' in m for m in caplog.messages)
+            # An unrecognized terminal state is treated as failure, not success.
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
+        # The state name is surfaced in the closing line, logged at ERROR.
+        rec = self._final_line_record(caplog)
+        assert rec.levelname == 'ERROR'
+        assert 'WEIRD_STATE' in rec.getMessage()
 
     def test_starts_job_with_arguments(self, bulk_runner):
         _wire_run_dependencies(bulk_runner, final_state=runner_module.SUCCEEDED_STATE)
         bulk_runner.run({'XDebug': True}, ['--table', 'tbl'])
         bulk_runner._start_glue_job.assert_called_once()
-
 
 class TestRunDpuFormatting:
     """Tests for DPU-hours branching in run() (lines 482-489)."""
@@ -1144,7 +1293,9 @@ class TestRunErrorMessageLogging:
                                error_message='something exploded')
         import logging as _logging
         with caplog.at_level(_logging.ERROR):
-            bulk_runner.run({}, [])
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner.run({}, [])
+        assert exc.value.code == 1
         assert any('something exploded' in m for m in caplog.messages)
 
     def test_no_error_message_branch(self, bulk_runner, caplog):
@@ -1155,6 +1306,78 @@ class TestRunErrorMessageLogging:
             bulk_runner.run({}, [])
         # No ERROR-level log lines should be emitted.
         assert not any(rec.levelname == 'ERROR' for rec in caplog.records)
+
+
+# --- Clean error messages (no tracebacks) -----------------------------------
+
+
+class TestCleanErrorMessages:
+    """Bad parameters or runtime failures produce clean human-readable errors,
+    never raw Python tracebacks (issue #137)."""
+
+    def test_run_catches_unexpected_exception_and_exits_cleanly(self, bulk_runner):
+        """If _start_glue_job raises an unhandled exception, run() should
+        sys.exit with a clean message instead of propagating a traceback."""
+        bulk_runner._get_glue_job_arguments = MagicMock(return_value={})
+        bulk_runner._assert_expected_script_args = MagicMock()
+        bulk_runner._start_glue_job = MagicMock(
+            side_effect=RuntimeError('something unexpected went wrong')
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            bulk_runner.run({}, [])
+        exit_msg = str(exc_info.value)
+        assert 'Traceback' not in exit_msg
+        assert 'something unexpected went wrong' in exit_msg
+
+    def test_run_catches_client_error_and_exits_with_clean_message(self, bulk_runner):
+        """A ClientError during job start produces a clean exit message."""
+        bulk_runner._get_glue_job_arguments = MagicMock(return_value={})
+        bulk_runner._assert_expected_script_args = MagicMock()
+        err = ClientError(
+            {'Error': {'Code': 'InvalidInputException', 'Message': 'Parameter X is invalid'}},
+            'StartJobRun',
+        )
+        bulk_runner._start_glue_job = MagicMock(side_effect=err)
+        with pytest.raises(SystemExit) as exc_info:
+            bulk_runner.run({}, [])
+        exit_msg = str(exc_info.value)
+        assert 'Traceback' not in exit_msg
+        assert 'Parameter X is invalid' in exit_msg
+
+    def test_run_catches_value_error_from_post_start_code(self, bulk_runner):
+        """A ValueError in post-start code (e.g. bad state) exits cleanly."""
+        bulk_runner._get_glue_job_arguments = MagicMock(return_value={})
+        bulk_runner._assert_expected_script_args = MagicMock()
+        bulk_runner._start_glue_job = MagicMock(return_value='jr-1')
+        bulk_runner._watch_glue_job = MagicMock()
+        bulk_runner._watch_for_interrupt = MagicMock(
+            side_effect=ValueError('invalid job run id format')
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            bulk_runner.run({}, [])
+        exit_msg = str(exc_info.value)
+        assert 'Traceback' not in exit_msg
+        assert 'invalid job run id format' in exit_msg
+
+    def test_run_keyboard_interrupt_still_propagates(self, bulk_runner):
+        """KeyboardInterrupt should not be swallowed by error handling."""
+        bulk_runner._get_glue_job_arguments = MagicMock(return_value={})
+        bulk_runner._assert_expected_script_args = MagicMock()
+        bulk_runner._start_glue_job = MagicMock(side_effect=KeyboardInterrupt)
+        with pytest.raises(KeyboardInterrupt):
+            bulk_runner.run({}, [])
+
+    def test_exit_messages_do_not_contain_exception_class_prefix(self, bulk_runner):
+        """Error messages shown to users should not include 'ExceptionName:' prefix."""
+        bulk_runner._get_glue_job_arguments = MagicMock(return_value={})
+        bulk_runner._assert_expected_script_args = MagicMock()
+        bulk_runner._start_glue_job = MagicMock(
+            side_effect=RuntimeError('bad input value')
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            bulk_runner.run({}, [])
+        exit_msg = str(exc_info.value)
+        assert not exit_msg.startswith('RuntimeError')
 
 
 # --- Module constants -------------------------------------------------------

@@ -246,10 +246,8 @@ class TestGetQuotaValue:
 class TestProvisionedConnectorFormat:
     """Provisioned table, format='connector'.
 
-    Read path emits dynamodb.throughput.read = provisioned RCU and
-    dynamodb.throughput.read.percent = '1.0'. Write path emits only
-    dynamodb.throughput.write.percent computed as write_rate / WCU,
-    capped at 1.5.
+    The new connector accepts direct integer rates for both read and write.
+    No percentage math needed.
     """
 
     def test_read_uses_provisioned_rcu(self, boto3_mock, provisioned_table):
@@ -258,29 +256,24 @@ class TestProvisionedConnectorFormat:
             args={}, table_name='t', modes=['read']
         )
         assert opts['dynamodb.throughput.read'] == '1000'
-        assert opts['dynamodb.throughput.read.percent'] == '1.0'
 
-    def test_write_percent_equals_rate_over_provisioned(
+    def test_write_uses_provisioned_wcu(
+        self, boto3_mock, provisioned_table
+    ):
+        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
+        opts = table_info.get_dynamodb_throughput_configs(
+            args={}, table_name='t', modes=['write']
+        )
+        assert opts['dynamodb.throughput.write'] == '500'
+
+    def test_xmax_write_rate_overrides_provisioned(
         self, boto3_mock, provisioned_table
     ):
         boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
         opts = table_info.get_dynamodb_throughput_configs(
             args={'XMaxWriteRate': '250'}, table_name='t', modes=['write']
         )
-        # 250 / 500 = 0.5
-        assert opts['dynamodb.throughput.write.percent'] == '0.5'
-
-    def test_write_percent_capped_at_1_5(
-        self, boto3_mock, provisioned_table
-    ):
-        boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
-        opts = table_info.get_dynamodb_throughput_configs(
-            args={'XMaxWriteRate': '100000'},
-            table_name='t',
-            modes=['write'],
-        )
-        # 100000 / 500 = 200; capped at 1.5
-        assert opts['dynamodb.throughput.write.percent'] == '1.5'
+        assert opts['dynamodb.throughput.write'] == '250'
 
     def test_read_xmax_overrides_provisioned(
         self, boto3_mock, provisioned_table
@@ -290,7 +283,6 @@ class TestProvisionedConnectorFormat:
             args={'XMaxReadRate': '750'}, table_name='t', modes=['read']
         )
         assert opts['dynamodb.throughput.read'] == '750'
-        assert opts['dynamodb.throughput.read.percent'] == '1.0'
 
     def test_combined_modes_returns_both_read_and_write_keys(
         self, boto3_mock, provisioned_table
@@ -300,8 +292,7 @@ class TestProvisionedConnectorFormat:
             args={}, table_name='t', modes=['read', 'write']
         )
         assert 'dynamodb.throughput.read' in opts
-        assert 'dynamodb.throughput.read.percent' in opts
-        assert 'dynamodb.throughput.write.percent' in opts
+        assert 'dynamodb.throughput.write' in opts
 
 
 # --- get_dynamodb_throughput_configs : on-demand, format=connector ----------
@@ -313,7 +304,7 @@ class TestOnDemandConnectorFormat:
         table-level OnDemandThroughput >
         account-level service quota >
         DEFAULT_ON_DEMAND_CAPACITY (40000)
-    Write percent always uses 40000 as denominator on on-demand tables.
+    Direct integer rates passed to the connector — no percentage math.
     """
 
     def test_read_uses_table_level_limit_when_present(
@@ -343,7 +334,6 @@ class TestOnDemandConnectorFormat:
         self, boto3_mock, ondemand_table
     ):
         boto3_mock.dynamodb_client.describe_table.return_value = ondemand_table
-        # Service Quotas access denied → quota lookup returns None → default
         boto3_mock.service_quotas_client.get_service_quota.side_effect = (
             botocore.exceptions.ClientError(
                 {'Error': {'Code': 'AccessDeniedException', 'Message': 'denied'}},
@@ -355,7 +345,7 @@ class TestOnDemandConnectorFormat:
         )
         assert opts['dynamodb.throughput.read'] == '40000'
 
-    def test_write_percent_uses_40k_denominator(
+    def test_write_uses_xmax_directly(
         self, boto3_mock, ondemand_table
     ):
         boto3_mock.dynamodb_client.describe_table.return_value = ondemand_table
@@ -364,8 +354,7 @@ class TestOnDemandConnectorFormat:
             table_name='t',
             modes=['write'],
         )
-        # 10000 / 40000 = 0.25
-        assert opts['dynamodb.throughput.write.percent'] == '0.25'
+        assert opts['dynamodb.throughput.write'] == '10000'
 
     def test_write_xmax_overrides_table_level_limit(
         self, boto3_mock, ondemand_table_with_limits
@@ -378,9 +367,18 @@ class TestOnDemandConnectorFormat:
             table_name='t',
             modes=['write'],
         )
-        # XMaxWriteRate=20000 set; denominator is still 40000 for on-demand
-        # because no provisioned WCU is found. 20000/40000 = 0.5
-        assert opts['dynamodb.throughput.write.percent'] == '0.5'
+        assert opts['dynamodb.throughput.write'] == '20000'
+
+    def test_write_falls_back_to_table_limit(
+        self, boto3_mock, ondemand_table_with_limits
+    ):
+        boto3_mock.dynamodb_client.describe_table.return_value = (
+            ondemand_table_with_limits
+        )
+        opts = table_info.get_dynamodb_throughput_configs(
+            args={}, table_name='t', modes=['write']
+        )
+        assert opts['dynamodb.throughput.write'] == '15000'
 
 
 # --- get_dynamodb_throughput_configs : format=monitor -----------------------
@@ -469,8 +467,7 @@ class TestBelowMinRecommended:
             table_name='t',
             modes=['write'],
         )
-        # Returns the percent — 10 / 500 = 0.02
-        assert opts['dynamodb.throughput.write.percent'] == '0.02'
+        assert opts['dynamodb.throughput.write'] == '10'
 
 
 class TestDescribeTableFailure:
@@ -489,10 +486,7 @@ class TestDescribeTableFailure:
             modes=['read', 'write'],
         )
         assert opts['dynamodb.throughput.read'] == '500'
-        assert opts['dynamodb.throughput.read.percent'] == '1.0'
-        # No provisioned WCU found → denominator falls to DEFAULT (40000)
-        # 300 / 40000 = 0.0075
-        assert opts['dynamodb.throughput.write.percent'] == '0.0075'
+        assert opts['dynamodb.throughput.write'] == '300'
 
 
 # --- get_dynamodb_throughput_configs : additional branches -------------------
@@ -511,8 +505,7 @@ class TestThroughputConfigsOnDemandWriteBranches:
         opts = table_info.get_dynamodb_throughput_configs(
             args={}, table_name='t', modes=['write']
         )
-        # table_write_limit=15000, denominator=40000 → 15000/40000 = 0.375
-        assert opts['dynamodb.throughput.write.percent'] == '0.375'
+        assert opts['dynamodb.throughput.write'] == '15000'
 
     def test_write_uses_quota_when_no_table_limit(
         self, boto3_mock, ondemand_table
@@ -524,8 +517,7 @@ class TestThroughputConfigsOnDemandWriteBranches:
         opts = table_info.get_dynamodb_throughput_configs(
             args={}, table_name='t', modes=['write']
         )
-        # quota_write_limit=60000, denominator=40000 → 60000/40000 = 1.5
-        assert opts['dynamodb.throughput.write.percent'] == '1.5'
+        assert opts['dynamodb.throughput.write'] == '60000'
 
     def test_write_falls_back_to_default_40k(
         self, boto3_mock, ondemand_table
@@ -537,15 +529,13 @@ class TestThroughputConfigsOnDemandWriteBranches:
         opts = table_info.get_dynamodb_throughput_configs(
             args={}, table_name='t', modes=['write']
         )
-        # default=40000, denominator=40000 → 40000/40000 = 1.0
-        assert opts['dynamodb.throughput.write.percent'] == '1.0'
+        assert opts['dynamodb.throughput.write'] == '40000'
 
-    def test_provisioned_no_wcu_found_raises_type_error(
+    def test_provisioned_no_wcu_found_emits_no_write_key(
         self, boto3_mock
     ):
-        """When ProvisionedThroughput has WriteCapacityUnits=0 (falsy), the
-        function logs the Glue fallback message but then hits int(write_rate)
-        where write_rate is still None — a latent bug. Pin current behavior."""
+        """When ProvisionedThroughput has WriteCapacityUnits=0 (falsy),
+        write_rate stays None and no write key is emitted."""
         response = {
             'Table': {
                 'BillingModeSummary': {'BillingMode': 'PROVISIONED'},
@@ -553,16 +543,16 @@ class TestThroughputConfigsOnDemandWriteBranches:
             }
         }
         boto3_mock.dynamodb_client.describe_table.return_value = response
-        with pytest.raises(TypeError):
-            table_info.get_dynamodb_throughput_configs(
-                args={}, table_name='t', modes=['write']
-            )
+        opts = table_info.get_dynamodb_throughput_configs(
+            args={}, table_name='t', modes=['write']
+        )
+        assert 'dynamodb.throughput.write' not in opts
 
-    def test_provisioned_no_rcu_found_raises_type_error(
+    def test_provisioned_no_rcu_found_emits_no_read_key(
         self, boto3_mock
     ):
         """When ProvisionedThroughput has ReadCapacityUnits=0 (falsy),
-        read_rate stays None and int(read_rate) at line 355 raises TypeError."""
+        read_rate stays None and no read key is emitted."""
         response = {
             'Table': {
                 'BillingModeSummary': {'BillingMode': 'PROVISIONED'},
@@ -570,41 +560,35 @@ class TestThroughputConfigsOnDemandWriteBranches:
             }
         }
         boto3_mock.dynamodb_client.describe_table.return_value = response
-        with pytest.raises(TypeError):
-            table_info.get_dynamodb_throughput_configs(
-                args={}, table_name='t', modes=['read']
-            )
+        opts = table_info.get_dynamodb_throughput_configs(
+            args={}, table_name='t', modes=['read']
+        )
+        assert 'dynamodb.throughput.read' not in opts
 
-    def test_write_desired_percent_exceeds_cap_provisioned_note(
-        self, boto3_mock, caplog, provisioned_table
+    def test_xmax_write_rate_above_provisioned_still_passed(
+        self, boto3_mock, provisioned_table
     ):
         boto3_mock.dynamodb_client.describe_table.return_value = provisioned_table
-        import logging
-        with caplog.at_level(logging.DEBUG):
-            opts = table_info.get_dynamodb_throughput_configs(
-                args={'XMaxWriteRate': '1000'},
-                table_name='t',
-                modes=['write'],
-            )
-        assert opts['dynamodb.throughput.write.percent'] == '1.5'
-        assert '150%' in caplog.text
+        opts = table_info.get_dynamodb_throughput_configs(
+            args={'XMaxWriteRate': '1000'},
+            table_name='t',
+            modes=['write'],
+        )
+        assert opts['dynamodb.throughput.write'] == '1000'
 
-    def test_write_desired_percent_exceeds_cap_ondemand_note(
-        self, boto3_mock, caplog, ondemand_table
+    def test_xmax_write_rate_above_default_ondemand_still_passed(
+        self, boto3_mock, ondemand_table
     ):
         boto3_mock.dynamodb_client.describe_table.return_value = ondemand_table
         boto3_mock.service_quotas_client.get_service_quota.side_effect = (
             RuntimeError('fail')
         )
-        import logging
-        with caplog.at_level(logging.DEBUG):
-            opts = table_info.get_dynamodb_throughput_configs(
-                args={'XMaxWriteRate': '100000'},
-                table_name='t',
-                modes=['write'],
-            )
-        assert opts['dynamodb.throughput.write.percent'] == '1.5'
-        assert '60000' in caplog.text
+        opts = table_info.get_dynamodb_throughput_configs(
+            args={'XMaxWriteRate': '100000'},
+            table_name='t',
+            modes=['write'],
+        )
+        assert opts['dynamodb.throughput.write'] == '100000'
 
 
 class TestThroughputConfigsRegionResolution:
@@ -736,6 +720,37 @@ class TestGetAndPrintDynamoDBTableInfo:
         assert result['write_pricing_category'] == 'std_wcu_pricing'
         assert result['read_pricing_category'] == 'std_rcu_pricing'
 
+    def test_autoscaling_describe_denied_does_not_crash_print(
+        self, boto3_mock, full_provisioned_response, caplog
+    ):
+        # Issue #89: the Auto Scaling Settings block in the info-print is a
+        # best-effort DIAGNOSTIC. If the Glue role lacks
+        # application-autoscaling:DescribeScalableTargets, the describe call
+        # raises AccessDenied — this must NOT take the whole job down at
+        # info-print time (a provisioned load previously crashed here, before
+        # any data moved). Instead: log an honest "could not read ... skipping"
+        # note naming the permission, and still return the table metadata.
+        import logging
+        boto3_mock.dynamodb_client.describe_table.return_value = full_provisioned_response
+        boto3_mock.autoscaling_client.describe_scalable_targets.side_effect = (
+            RuntimeError(
+                'AccessDeniedException: not authorized to perform: '
+                'application-autoscaling:DescribeScalableTargets'
+            )
+        )
+        with caplog.at_level(logging.DEBUG):
+            result = table_info.get_and_print_dynamodb_table_info('my-table')
+        # Did not crash; metadata came back intact.
+        assert result['billing_mode'] == 'PROVISIONED'
+        assert result['item_count'] == 1000000
+        # Honest skip note, naming the missing permission.
+        skip = [
+            m for m in caplog.messages
+            if 'Could not read autoscaling settings' in m
+            and 'DescribeScalableTargets' in m
+        ]
+        assert skip, caplog.messages
+
     def test_provisioned_table_quiet_mode(
         self, boto3_mock, full_provisioned_response, caplog
     ):
@@ -793,7 +808,7 @@ class TestGetAndPrintDynamoDBTableInfo:
         boto3_mock.dynamodb_client.describe_table.side_effect = (
             ResourceNotFoundException('not found')
         )
-        with pytest.raises(ValueError, match="does not exist"):
+        with pytest.raises(table_info.BulkExecutorError, match="does not exist"):
             table_info.get_and_print_dynamodb_table_info('ghost-table')
 
     def test_gsi_provisioned_returns_index_metadata(
@@ -1041,6 +1056,24 @@ class TestGetAndPrintTableScanCost:
         assert cost > 0
         pricing_mock.return_value.get_on_demand_capacity_pricing.assert_called_with('us-east-1')
 
+    def test_missing_price_key_returns_zero_without_crashing(
+        self, boto3_mock, monkeypatch, ondemand_table_info, caplog
+    ):
+        # #272: an empty/incomplete pricing dict (e.g. renamed family/group,
+        # region without a published price) must fail soft, not KeyError.
+        import logging
+        mock = MagicMock()
+        mock.return_value.get_on_demand_capacity_pricing.return_value = {}  # no keys
+        monkeypatch.setattr(table_info, 'PricingUtility', mock)
+
+        with caplog.at_level(logging.WARNING):
+            cost = table_info.get_and_print_table_scan_cost(
+                ondemand_table_info, region_name='us-west-2'
+            )
+        assert cost == 0
+        assert "unavailable" in caplog.text
+        assert "std_rcu_pricing" in caplog.text
+
 
 # --- get_and_print_table_write_cost ----------------------------------------
 
@@ -1127,6 +1160,21 @@ class TestGetAndPrintTableWriteCost:
             table_info_provisioned, item_count=100, size_bytes=10240
         )
         assert cost == 0
+
+    def test_missing_price_key_returns_zero_without_crashing(
+        self, boto3_mock, monkeypatch, table_info_ondemand, caplog
+    ):
+        # #272: previously float(None) -> TypeError on this path.
+        import logging
+        mock = MagicMock()
+        mock.return_value.get_on_demand_capacity_pricing.return_value = {}
+        monkeypatch.setattr(table_info, 'PricingUtility', mock)
+        with caplog.at_level(logging.WARNING):
+            cost = table_info.get_and_print_table_write_cost(
+                table_info_ondemand, item_count=1000, size_bytes=2048000
+            )
+        assert cost == 0
+        assert "unavailable" in caplog.text
 
 
 # --- get_and_print_table_copy_write_cost -----------------------------------
@@ -1217,6 +1265,21 @@ class TestGetAndPrintTableCopyWriteCost:
             source_info, target
         )
         assert cost == 0
+
+    def test_missing_price_key_returns_zero_without_crashing(
+        self, boto3_mock, monkeypatch, source_info, target_ondemand, caplog
+    ):
+        # #272: copy-write path also hard-indexed the pricing dict.
+        import logging
+        mock = MagicMock()
+        mock.return_value.get_on_demand_capacity_pricing.return_value = {}
+        monkeypatch.setattr(table_info, 'PricingUtility', mock)
+        with caplog.at_level(logging.WARNING):
+            cost = table_info.get_and_print_table_copy_write_cost(
+                source_info, target_ondemand
+            )
+        assert cost == 0
+        assert "unavailable" in caplog.text
 
 
 # --- get_quota_value additional branches -----------------------------------
@@ -1323,11 +1386,8 @@ class TestGetThroughputConfigsModesDefault:
             table_name='t',
             modes=None,
         )
-        # Read side present
         assert opts['dynamodb.throughput.read'] == '200'
-        assert opts['dynamodb.throughput.read.percent'] == '1.0'
-        # Write side present (50/500 = 0.1)
-        assert opts['dynamodb.throughput.write.percent'] == '0.1'
+        assert opts['dynamodb.throughput.write'] == '50'
 
     def test_modes_default_arg_omitted_entirely(
         self, boto3_mock, provisioned_table
@@ -1339,24 +1399,20 @@ class TestGetThroughputConfigsModesDefault:
             table_name='t',
         )
         assert 'dynamodb.throughput.read' in opts
-        assert 'dynamodb.throughput.write.percent' in opts
+        assert 'dynamodb.throughput.write' in opts
 
 
 class TestGetThroughputConfigsReadRateFalsyConnector:
-    """Cover the 399->401 branch: when `read_rate` is falsy at the connector
-    serialization step, the `dynamodb.throughput.read` key is omitted while
-    `dynamodb.throughput.read.percent` is still set.
+    """When `read_rate` is falsy at the connector serialization step, the
+    `dynamodb.throughput.read` key is omitted.
 
     This branch is taken when a provisioned table has no detectable
     ReadCapacityUnits (e.g. a malformed describe_table response) and the
-    user passed a falsy XMaxReadRate (0). The function logs a warning but
-    must still emit a valid connector option dict.
+    user passed a falsy XMaxReadRate (0).
     """
 
-    def test_read_rate_zero_emits_only_percent_key(self, boto3_mock):
+    def test_read_rate_zero_omits_read_key(self, boto3_mock):
         """args XMaxReadRate=0 + provisioned table with no RCU → no read key."""
-        # Provisioned response with no ReadCapacityUnits at all → falsy
-        # provisioned_read, so read_rate stays at the args-supplied 0.
         response = {
             'Table': {
                 'BillingModeSummary': {'BillingMode': 'PROVISIONED'},
@@ -1370,7 +1426,5 @@ class TestGetThroughputConfigsReadRateFalsyConnector:
             table_name='t',
             modes=['read', 'write'],
         )
-        # Branch 399->401: read_rate is falsy → skip the read-rate key,
-        # but the read percent key is always set.
         assert 'dynamodb.throughput.read' not in opts
-        assert opts['dynamodb.throughput.read.percent'] == '1.0'
+        assert opts['dynamodb.throughput.write'] == '100'
