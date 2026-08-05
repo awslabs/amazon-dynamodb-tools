@@ -34,7 +34,11 @@ def init(args=None):
     # log.debug("DEBUG LOGS ENABLED SERVER SIDE") # Client and Server side should be in sync for all log levels. Uncomment if needed.
 
 class BulkDynamoDBServerSideFormatter(logging.Formatter):
-    full_format='%(asctime)s %(levelname)-5s [%(threadName)s] %(name)s - %(message)s'
+    # Console-facing format: keep the timestamp and level (the level is what the
+    # client tailer colors on) but drop the "[<threadName>] <name>" middle, which
+    # is Python-logging boilerplate ("[MainThread] root") that only clutters the
+    # user's console. See issue #262. The client formatter mirrors this string.
+    full_format='%(asctime)s %(levelname)-5s - %(message)s'
     info_format='%(message)s'
 
     FORMATS = {
