@@ -3,6 +3,7 @@
 import json
 from typing import Dict
 
+from ...bulk_executor_error import BulkExecutorError
 from ...logger import log
 from ..utils.export_path_resolver import ExportPathResolver
 from .md5_validator import MD5Validator
@@ -62,7 +63,7 @@ class ManifestValidator:
             if MD5Validator is not None:
                 MD5Validator.validate_file_checksum(manifest_summary_content, manifest_summary_expected_md5)
             log.debug("manifest-summary.json MD5 checksum validated successfully")
-        except ValueError as e:
+        except (ValueError, BulkExecutorError) as e:
             log.error(f"manifest-summary.json MD5 validation failed: {e}")
             raise
         
@@ -72,7 +73,7 @@ class ManifestValidator:
             manifest_summary = json.loads(manifest_summary_content.decode('utf-8'))
         except json.JSONDecodeError as e:
             log.error(f"Failed to parse manifest-summary.json: {e}")
-            raise ValueError(f"Invalid JSON in manifest-summary.json: {e}")
+            raise BulkExecutorError(f"Invalid JSON in manifest-summary.json: {e}")
         
         total_item_count = manifest_summary.get('itemCount')
         output_format = manifest_summary.get('outputFormat')
@@ -94,7 +95,7 @@ class ManifestValidator:
         if output_format != 'DYNAMODB_JSON':
             error_msg = f"Unsupported output format: {output_format}. Only DYNAMODB_JSON is currently supported (ION is not supported)."
             log.error(error_msg)
-            raise ValueError(error_msg)
+            raise BulkExecutorError(error_msg)
         log.debug("Output format validated successfully")
         
         # Step 5: Validate output view for incremental exports
@@ -104,7 +105,7 @@ class ManifestValidator:
         if export_type == 'INCREMENTAL_EXPORT':
             output_view = manifest_summary.get('outputView')
             if output_view not in ('NEW_AND_OLD_IMAGES', 'NEW_IMAGE'):
-                raise ValueError(
+                raise BulkExecutorError(
                     f"Unsupported output view: {output_view}. "
                     f"Only NEW_AND_OLD_IMAGES and NEW_IMAGE are supported for incremental exports."
                 )
@@ -122,7 +123,7 @@ class ManifestValidator:
             if MD5Validator is not None:
                 MD5Validator.validate_file_checksum(manifest_files_content, manifest_files_expected_md5)
             log.debug("manifest-files.json MD5 checksum validated successfully")
-        except ValueError as e:
+        except (ValueError, BulkExecutorError) as e:
             log.error(f"manifest-files.json MD5 validation failed: {e}")
             raise
         
@@ -138,7 +139,7 @@ class ManifestValidator:
                         data_files.append(file_entry)
                     except json.JSONDecodeError as e:
                         log.error(f"Failed to parse line {line_num} in manifest-files.json: {e}")
-                        raise ValueError(f"Invalid JSON at line {line_num} in manifest-files.json: {e}")
+                        raise BulkExecutorError(f"Invalid JSON at line {line_num} in manifest-files.json: {e}")
         except Exception as e:
             log.error(f"Failed to parse manifest-files.json: {e}")
             raise
@@ -155,7 +156,7 @@ class ManifestValidator:
                 f"but manifest-files.json entries sum to {calculated_item_count:,} items"
             )
             log.error(error_msg)
-            raise ValueError(error_msg)
+            raise BulkExecutorError(error_msg)
         
         log.debug(f"Item count validated successfully: {total_item_count:,} items")
         
@@ -195,16 +196,16 @@ class ManifestValidator:
         if not table_arn:
             error_msg = "Missing tableArn in manifest-summary.json"
             log.error(error_msg)
-            raise ValueError(error_msg)
+            raise BulkExecutorError(error_msg)
         
         # Extract table name from ARN: arn:aws:dynamodb:region:account:table/table-name
         try:
             if not table_arn.startswith('arn:') or ':dynamodb:' not in table_arn:
-                raise ValueError("Not a valid DynamoDB table ARN")
+                raise BulkExecutorError("Not a valid DynamoDB table ARN")
             table_name = table_arn.split('/')[-1]
             log.debug(f"Extracted table name: {table_name}")
             return table_name
         except Exception as e:
             error_msg = f"Invalid tableArn format: {table_arn} - {e}"
             log.error(error_msg)
-            raise ValueError(error_msg)
+            raise BulkExecutorError(error_msg)

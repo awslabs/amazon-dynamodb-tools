@@ -3,6 +3,8 @@
 import hashlib
 import base64
 
+from ...bulk_executor_error import BulkExecutorError
+
 class MD5Validator:
     """Validates MD5 checksums for manifest and data files."""
     
@@ -33,12 +35,12 @@ class MD5Validator:
             True if checksums match
             
         Raises:
-            ValueError: If checksums don't match
+            BulkExecutorError: If checksums don't match
         """
         actual_md5 = MD5Validator.compute_md5(file_content)
-        
+
         if actual_md5 != expected_md5:
-            raise ValueError(
+            raise BulkExecutorError(
                 f"MD5 checksum mismatch. Expected: {expected_md5}, Actual: {actual_md5}"
             )
         

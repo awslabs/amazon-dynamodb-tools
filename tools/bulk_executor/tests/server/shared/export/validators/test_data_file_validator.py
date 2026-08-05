@@ -3,6 +3,7 @@ import pytest
 from unittest.mock import Mock, patch
 from python_modules.shared.export.validators.data_file_validator import DataFileValidator
 from python_modules.shared.export.validators.md5_validator import MD5Validator
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 
 
 class TestDataFileValidatorChecksums:
@@ -55,15 +56,15 @@ class TestDataFileValidatorChecksums:
         mock_file_loader.read_file.return_value = b"content"
 
         with patch.object(MD5Validator, 'validate_file_checksum', side_effect=ValueError("MD5 mismatch")):
-            with pytest.raises(ValueError, match="Data file validation failed"):
+            with pytest.raises(BulkExecutorError, match="Data file validation failed"):
                 validator.validate(data_files, 's3://bucket', validate_all=True)
 
     def test_validate_missing_data_file_key(self):
-        with pytest.raises(ValueError, match="Data file validation failed"):
+        with pytest.raises(BulkExecutorError, match="Data file validation failed"):
             self._make_validator().validate([{'md5Checksum': 'checksum1'}], 's3://bucket', validate_all=True)
 
     def test_validate_missing_md5_checksum(self):
-        with pytest.raises(ValueError, match="Data file validation failed"):
+        with pytest.raises(BulkExecutorError, match="Data file validation failed"):
             self._make_validator().validate([{'dataFileS3Key': 'data/file1.gz'}], 's3://bucket', validate_all=True)
 
     def test_validate_sample_size_larger_than_total(self):
@@ -91,5 +92,5 @@ class TestDataFileValidatorChecksums:
         mock_file_loader.join_path.side_effect = lambda base, key: f"{base}/{key}"
         mock_file_loader.read_file.side_effect = IOError("Network timeout")
 
-        with pytest.raises(ValueError, match="Data file validation failed"):
+        with pytest.raises(BulkExecutorError, match="Data file validation failed"):
             validator.validate(data_files, 's3://bucket', validate_all=True)
