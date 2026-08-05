@@ -1,8 +1,8 @@
 # Bulk Executor for Amazon DynamoDB
 
-![tests](https://img.shields.io/badge/tests-1330%20passing-brightgreen)
-![line coverage](https://img.shields.io/badge/line%20coverage-94.1%25-brightgreen)
-![branch coverage](https://img.shields.io/badge/branch%20coverage-91.7%25-brightgreen)
+![tests](https://img.shields.io/badge/tests-1374%20passing-brightgreen)
+![line coverage](https://img.shields.io/badge/line%20coverage-94.5%25-brightgreen)
+![branch coverage](https://img.shields.io/badge/branch%20coverage-90.3%25-brightgreen)
 
 Bulk Executor for Amazon DynamoDB lets you efficiently run bulk commands against even large tables. It:
 
@@ -631,7 +631,7 @@ The e2e harness has these suites:
 
 | Suite | Command | What it checks |
 |-------|---------|----------------|
-| Connector | `make test-e2e-connector` | `count`/`find`/`sql`/`load` against the live DynamoDB DataFrame connector |
+| Connector | `make test-e2e-connector` | `count`/`find`/`sql`/`load` against the live DynamoDB DataFrame connector, plus `scancount` (parallel segmented scan, incl. `--per-segment` skew report) |
 | Commands  | `make test-e2e-commands`  | `fill`/`update`/`delete`/`copy`/`diff` orchestration, each against its own transient table |
 | Security  | `make test-e2e-security`  | the documented bootstrap IAM policy actually bootstraps (and is minimal) |
 | Whole-system | `make test-e2e-whole-system` | true end-to-end: 60k `load` round-trip fidelity + observed write-rate enforcement from CloudWatch |

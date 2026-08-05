@@ -139,60 +139,19 @@ def _print_per_segment_counts(spark_context, monitor_options, table_name,
                   "The hottest segment has >5x the average item count.")
 
 
-def _count_segment(monitor_options, table_name, index_name, filter_expression,
-                   expression_values, expression_names, segment, total_segments,
-                   rate_limiter_shared_config):
-    """Count items in a single segment. Returns the count (no accumulator side-effects)."""
-    rate_limiter_worker = RateLimiterWorker(
-        shared_config=rate_limiter_shared_config,
-        **monitor_options
-    )
+def _scan_and_count(monitor_options, table_name, index_name, filter_expression,
+                    expression_values, expression_names, segment, total_segments,
+                    rate_limiter_shared_config, on_error):
+    """Run the rate-limited, segmented ``Select=COUNT`` scan for one segment and
+    return its item count.
 
-    session = rate_limiter_worker.get_session()
-    dynamodb_resource = session.resource('dynamodb', config=Config(
-        connect_timeout=4.0,
-        read_timeout=4.0,
-        retries={
-            'mode': 'standard',
-            'total_max_attempts': 50
-        }
-    ))
-
-    local_count = 0
-
-    try:
-        table = dynamodb_resource.Table(table_name)
-
-        scan_kwargs = {
-            "TableName": table_name,
-            "Select": "COUNT",
-            "Segment": segment,
-            "TotalSegments": total_segments
-        }
-        if index_name:
-            scan_kwargs["IndexName"] = index_name
-        if filter_expression:
-            scan_kwargs["FilterExpression"] = filter_expression
-        if expression_names:
-            scan_kwargs["ExpressionAttributeNames"] = json.loads(expression_names, cls=DecimalEncoder)
-        if expression_values:
-            scan_kwargs["ExpressionAttributeValues"] = json.loads(expression_values, cls=DecimalEncoder)
-
-        while True:
-            response = table.scan(**scan_kwargs)
-            local_count += response.get("Count", 0)
-            if "LastEvaluatedKey" not in response:
-                break
-            scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
-    except Exception as e:
-        log.warning(f"Error in segment {segment}: {get_error_message(e)}")
-    finally:
-        rate_limiter_worker.shutdown()
-
-    return local_count
-
-def _count_data(monitor_options, table_name, index_name, filter_expression, expression_values, expression_names, segment, total_segments, total_matched_accumulator, error_accumulator, rate_limiter_shared_config):
-
+    This is the shared body behind both :func:`_count_data` (the main scan-count
+    workers) and :func:`_count_segment` (the per-segment skew report). The two
+    only differ in how they react to a scan failure, so that behavior is injected
+    via ``on_error(exception)``. Any exception raised while scanning is passed to
+    ``on_error`` and then swallowed, so the RateLimiterWorker is always shut down
+    and the partial count accumulated so far is still returned.
+    """
     rate_limiter_worker = RateLimiterWorker(
         shared_config=rate_limiter_shared_config,
         **monitor_options
@@ -235,10 +194,35 @@ def _count_data(monitor_options, table_name, index_name, filter_expression, expr
                 break
             scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
     except Exception as e:
-        error_accumulator.add([f"Error in worker {segment}: {get_error_message(e)}"])
+        on_error(e)
         # Let control drop down to exit
     finally:
         rate_limiter_worker.shutdown()
+
+    return local_count
+
+
+def _count_segment(monitor_options, table_name, index_name, filter_expression,
+                   expression_values, expression_names, segment, total_segments,
+                   rate_limiter_shared_config):
+    """Count items in a single segment. Returns the count (no accumulator side-effects)."""
+    def on_error(e):
+        log.warning(f"Error in segment {segment}: {get_error_message(e)}")
+
+    return _scan_and_count(
+        monitor_options, table_name, index_name, filter_expression,
+        expression_values, expression_names, segment, total_segments,
+        rate_limiter_shared_config, on_error)
+
+
+def _count_data(monitor_options, table_name, index_name, filter_expression, expression_values, expression_names, segment, total_segments, total_matched_accumulator, error_accumulator, rate_limiter_shared_config):
+    def on_error(e):
+        error_accumulator.add([f"Error in worker {segment}: {get_error_message(e)}"])
+
+    local_count = _scan_and_count(
+        monitor_options, table_name, index_name, filter_expression,
+        expression_values, expression_names, segment, total_segments,
+        rate_limiter_shared_config, on_error)
 
     print(f"Worker {segment}/{total_segments} counted {local_count} records.")
     total_matched_accumulator.add(local_count)

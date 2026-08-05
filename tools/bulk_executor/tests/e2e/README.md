@@ -13,9 +13,10 @@ account. They are opt-in. `make test` will never invoke them.
 
 ## Cost
 
-Each `make test-e2e-connector` run launches one Glue job per command (4 total).
-On the smallest Glue capacity, that's a few dollars and ~5-10 minutes of wall
-time. **Don't run it in tight loops.**
+Each `make test-e2e-connector` run launches one Glue job per smoke (6 total:
+count, find, sql, load, scancount, scancount --per-segment). On the smallest
+Glue capacity, that's a few dollars and ~5-10 minutes of wall time. **Don't run
+it in tight loops.**
 
 ## First run
 
@@ -41,10 +42,11 @@ Delete that file to be re-prompted.
 
 | Command | Coverage                                                              |
 |---------|-----------------------------------------------------------------------|
-| `count` | Run on read table; assert returned count is non-negative.             |
-| `find`  | Run with `--limit 100`; assert at least one item came back inline.    |
-| `sql`   | Run `SELECT * LIMIT 100`; assert at least one row came back inline.   |
-| `load`  | Load a 10-row CSV into the writable table; assert exit 0; cleanup.    |
+| `count`     | Run on read table; assert returned count is non-negative.                          |
+| `find`      | Run with `--limit 100`; assert at least one item came back inline.                 |
+| `sql`       | Run `SELECT * LIMIT 100`; assert at least one row came back inline.                 |
+| `load`      | Load a 10-row CSV into the writable table; assert exit 0; cleanup.                 |
+| `scancount` | Run on read table; assert total is non-negative. `--per-segment` renders the skew report (segment table + skew ratio ≥ 1.0). |
 
 Each run captures wall-time (from the `[connector] took Xs` log line) and
 DPU-seconds (from `glue.get_job_run`). A Connector Smoke Report appears at the
@@ -67,9 +69,13 @@ jump (PR #162):
 Each command smoke creates its own transient table, asserts exit 0, and tears
 down on exit. See `tests/e2e/commands/README.md` and `specs/e2e-commands.md`.
 
-Still uncovered (followup PRs): `load-export` (needs an export S3 prefix),
-cross-region/cross-account `copy`/`diff`, and `scancount` (bypasses the
-connector by design).
+`scancount` is covered by the connector suite (`test_scancount_smoke.py`): a
+plain count and a `--per-segment` run that asserts the skew report renders. It
+uses a parallel segmented `Select=COUNT` scan rather than the DataFrame
+connector, but the smoke lives with the other read-count paths.
+
+Still uncovered (followup PRs): `load-export` (needs an export S3 prefix) and
+cross-region/cross-account `copy`/`diff`.
 
 ### Security / bootstrap coverage (`make test-e2e-security`)
 
