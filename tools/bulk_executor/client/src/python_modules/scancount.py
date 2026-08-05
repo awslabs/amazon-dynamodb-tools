@@ -13,6 +13,8 @@ help_text = f"""
         Optional --filter-expression parameter to specify a push-down FilterExpression predicate
         Optional --expression-names parameter to specify the expression names used in the filter-expression
         Optional --expression-values parameter to specify the expression values used in the filter-expression
+        Optional --per-segment flag to print item counts per segment (reveals data skew)
+        Optional --segments parameter to control how many parallel scan segments to use (default 200)
 
     Examples:
         # Count all items in a table
@@ -20,6 +22,12 @@ help_text = f"""
 
         # Count using a filter expression (uses DynamoDB FilterExpression syntax)
         bulk scancount --table audit --filter-expression "#touched > :touched" --expression-names '{{"#touched": "touched"}}' --expression-values '{{":touched":1742359403.0}}'
+
+        # Show per-segment counts to diagnose hot partitions
+        bulk scancount --table orders --per-segment
+
+        # Use fewer segments for a smaller table
+        bulk scancount --table orders --segments 10
     """
 
 def json_type(s):
@@ -41,6 +49,13 @@ def run(env_configs):
     parser.add_argument('--expression-names', type=json_type, default=argparse.SUPPRESS, help='Expression names to use')
     parser.add_argument('--expression-values', type=json_type, default=argparse.SUPPRESS, help='Expression values to use')
     parser.add_argument('--index', type=str, default=argparse.SUPPRESS, help='Index to use')
+    # store_true with SUPPRESS (matching --XWaitForDPU): the flag is only placed
+    # in the arg dict when set, so it is only forwarded to the Glue job when the
+    # user asks for it. A plain default=False would serialize to the string
+    # "False" over the argv wire (root.py parses values as strings), which the
+    # server would read as truthy — firing the per-segment report unconditionally.
+    parser.add_argument('--per-segment', action='store_true', default=argparse.SUPPRESS, help='Print item count per segment to reveal data skew')
+    parser.add_argument('--segments', type=int, default=200, help='Number of parallel scan segments (default 200)')
     args = parser.parse_args()
 
     if hasattr(args, "filter_expression"):
