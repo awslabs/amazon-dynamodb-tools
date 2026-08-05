@@ -1,6 +1,8 @@
 """Path resolver for DynamoDB export S3 locations."""
 import re
 
+from ...bulk_executor_error import BulkExecutorError
+
 class ExportPathResolver:
     """Resolves S3 paths for DynamoDB export manifests and data files."""
     
@@ -20,14 +22,14 @@ class ExportPathResolver:
         # Parse s3://bucket-name/prefix/AWSDynamoDB/export-id
         match = re.match(r'^s3://([^/]+)/(.+)$', s3_path)
         if not match:
-            raise ValueError(f"Invalid S3 path format: {s3_path}. Expected: s3://bucket-name/prefix/AWSDynamoDB/export-id")
+            raise BulkExecutorError(f"Invalid S3 path format: {s3_path}. Expected: s3://bucket-name/prefix/AWSDynamoDB/export-id")
         
         self.bucket = match.group(1)
         path_parts = match.group(2)
         
         # Find AWSDynamoDB in the path
         if f"/{self.AWS_DYNAMODB_PREFIX}/" not in f"/{path_parts}":
-            raise ValueError(f"Path must contain '/{self.AWS_DYNAMODB_PREFIX}/' segment: {s3_path}")
+            raise BulkExecutorError(f"Path must contain '/{self.AWS_DYNAMODB_PREFIX}/' segment: {s3_path}")
         
         # Split on AWSDynamoDB to get prefix and export_id
         prefix_part, export_part = f"/{path_parts}".split(f"/{self.AWS_DYNAMODB_PREFIX}/", 1)

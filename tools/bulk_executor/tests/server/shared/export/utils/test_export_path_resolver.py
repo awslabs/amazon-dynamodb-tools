@@ -2,6 +2,7 @@
 
 import pytest
 from python_modules.shared.export.utils.export_path_resolver import ExportPathResolver
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 
 
 class TestExportPathResolver:
@@ -36,7 +37,7 @@ class TestExportPathResolver:
 
     def test_invalid_path_missing_s3_prefix(self):
         """Test error on invalid path missing s3:// prefix."""
-        with pytest.raises(ValueError, match="Invalid S3 path format"):
+        with pytest.raises(BulkExecutorError, match="Invalid S3 path format"):
             ExportPathResolver("my-bucket/AWSDynamoDB/export-id")
 
     def test_parse_path_without_prefix_single_slash(self):
@@ -59,7 +60,7 @@ class TestExportPathResolver:
 
     def test_invalid_path_missing_awsdynamodb(self):
         """Test error on path missing AWSDynamoDB segment."""
-        with pytest.raises(ValueError, match="must contain '/AWSDynamoDB/' segment"):
+        with pytest.raises(BulkExecutorError, match="must contain '/AWSDynamoDB/' segment"):
             ExportPathResolver("s3://my-bucket/prod/export-id")
 
     def test_get_manifest_base_path(self):

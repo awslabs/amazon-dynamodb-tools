@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import Mock, patch
 from python_modules.shared.export.validators.s3_validator import S3Validator
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 
 class TestS3Validator:
     """Test suite for S3Validator class."""
@@ -54,7 +55,7 @@ class TestS3Validator:
         path_resolver = mock_path_resolver('my-bucket', 'my-prefix')
         
         # Should raise ValueError for empty path
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(BulkExecutorError) as exc_info:
             validator.validate_path_exists(path_resolver)
         
         # Verify error message includes path details
@@ -72,7 +73,7 @@ class TestS3Validator:
         path_resolver = mock_path_resolver('test-bucket', 'prefix')
         
         # Should raise ValueError
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(BulkExecutorError) as exc_info:
             validator.validate_path_exists(path_resolver)
         
         error_message = str(exc_info.value)
@@ -92,7 +93,7 @@ class TestS3Validator:
         path_resolver = mock_path_resolver('non-existent-bucket', 'my-prefix')
         
         # Should raise ValueError for non-existent bucket
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(BulkExecutorError) as exc_info:
             validator.validate_path_exists(path_resolver)
         
         # Verify error message includes bucket name
@@ -110,7 +111,7 @@ class TestS3Validator:
         path_resolver = mock_path_resolver('restricted-bucket', 'my-prefix')
         
         # Should raise ValueError for access denied
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(BulkExecutorError) as exc_info:
             validator.validate_path_exists(path_resolver)
         
         # Verify error message mentions access denied
@@ -129,7 +130,7 @@ class TestS3Validator:
         path_resolver = mock_path_resolver('forbidden-bucket', 'my-prefix')
 
         # Should raise ValueError
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(BulkExecutorError) as exc_info:
             validator.validate_path_exists(path_resolver)
         
         error_message = str(exc_info.value)
@@ -145,7 +146,7 @@ class TestS3Validator:
         mock_resolver.get_data_base_path.return_value = "invalid-path/bucket"
         
         # Should raise ValueError for path not starting with s3://
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(BulkExecutorError) as exc_info:
             validator.validate_path_exists(mock_resolver)
         
         error_message = str(exc_info.value)
@@ -219,7 +220,7 @@ class TestS3Validator:
         path_resolver = mock_path_resolver('test-bucket', 'prefix')
 
         # Should raise ValueError with error details
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(BulkExecutorError) as exc_info:
             validator.validate_path_exists(path_resolver)
         
         error_message = str(exc_info.value)
@@ -252,7 +253,7 @@ class TestS3Validator:
         validator = S3Validator(mock_s3)
         path_resolver = mock_path_resolver('test-bucket', 'empty')
         
-        with pytest.raises(ValueError):
+        with pytest.raises(BulkExecutorError):
             validator.validate_path_exists(path_resolver)
         
         # Verify error log was captured
@@ -269,7 +270,7 @@ class TestS3Validator:
         validator = S3Validator(mock_s3)
         path_resolver = mock_path_resolver('non-existent', 'empty')
         
-        with pytest.raises(ValueError):
+        with pytest.raises(BulkExecutorError):
             validator.validate_path_exists(path_resolver)
         
         # Verify error log was captured
@@ -285,7 +286,7 @@ class TestS3Validator:
         validator = S3Validator(mock_s3)
         path_resolver = mock_path_resolver('restricted', 'empty')
 
-        with pytest.raises(ValueError):
+        with pytest.raises(BulkExecutorError):
             validator.validate_path_exists(path_resolver)
         
         # Verify error log was captured

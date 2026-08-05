@@ -4,6 +4,7 @@ import json
 import pytest
 from unittest.mock import Mock
 from python_modules.shared.export.validators.key_schema_validator import KeySchemaValidator
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 
 
 PK_ONLY_SCHEMA = {'pk': {'name': 'name', 'type': 'S'}}
@@ -46,19 +47,19 @@ class TestKeySchemaValidatorFullExport:
     def test_missing_key_attribute(self):
         lines = [json.dumps({"Item": {"age": {"N": "30"}}})]
         validator, files = _make_validator(lines)
-        with pytest.raises(ValueError, match="Key validation failed"):
+        with pytest.raises(BulkExecutorError, match="Key validation failed"):
             validator.validate(files, 's3://bucket', PK_ONLY_SCHEMA, 'FULL_EXPORT')
 
     def test_wrong_key_type(self):
         lines = [json.dumps({"Item": {"name": {"N": "123"}}})]
         validator, files = _make_validator(lines)
-        with pytest.raises(ValueError, match="Key validation failed"):
+        with pytest.raises(BulkExecutorError, match="Key validation failed"):
             validator.validate(files, 's3://bucket', PK_ONLY_SCHEMA, 'FULL_EXPORT')
 
     def test_missing_item_field(self):
         lines = [json.dumps({"NotItem": {"name": {"S": "Alice"}}})]
         validator, files = _make_validator(lines)
-        with pytest.raises(ValueError, match="Key validation failed"):
+        with pytest.raises(BulkExecutorError, match="Key validation failed"):
             validator.validate(files, 's3://bucket', PK_ONLY_SCHEMA, 'FULL_EXPORT')
 
     def test_uncompressed_file(self):
@@ -117,25 +118,25 @@ class TestKeySchemaValidatorIncrementalExport:
     def test_missing_key_attribute(self):
         lines = [_incremental_row(keys={"wrong": {"S": "x"}})]
         validator, files = _make_validator(lines)
-        with pytest.raises(ValueError, match="Key validation failed"):
+        with pytest.raises(BulkExecutorError, match="Key validation failed"):
             validator.validate(files, 's3://bucket', PK_ONLY_SCHEMA, 'INCREMENTAL_EXPORT')
 
     def test_wrong_key_type(self):
         lines = [_incremental_row(keys={"name": {"N": "123"}})]
         validator, files = _make_validator(lines)
-        with pytest.raises(ValueError, match="Key validation failed"):
+        with pytest.raises(BulkExecutorError, match="Key validation failed"):
             validator.validate(files, 's3://bucket', PK_ONLY_SCHEMA, 'INCREMENTAL_EXPORT')
 
     def test_extra_key_attributes(self):
         lines = [_incremental_row(keys={"name": {"S": "Alice"}, "extra": {"S": "bad"}})]
         validator, files = _make_validator(lines)
-        with pytest.raises(ValueError, match="Key validation failed"):
+        with pytest.raises(BulkExecutorError, match="Key validation failed"):
             validator.validate(files, 's3://bucket', PK_ONLY_SCHEMA, 'INCREMENTAL_EXPORT')
 
     def test_missing_keys_field(self):
         lines = [json.dumps({"Metadata": {"WriteTimestampMicros": {"N": "123"}}, "OldImage": {"name": {"S": "x"}}})]
         validator, files = _make_validator(lines)
-        with pytest.raises(ValueError, match="Key validation failed"):
+        with pytest.raises(BulkExecutorError, match="Key validation failed"):
             validator.validate(files, 's3://bucket', PK_ONLY_SCHEMA, 'INCREMENTAL_EXPORT')
 
     def test_multiple_rows_mixed(self):
@@ -144,7 +145,7 @@ class TestKeySchemaValidatorIncrementalExport:
             _incremental_row(keys={"wrong": {"S": "x"}}),
         ]
         validator, files = _make_validator(lines)
-        with pytest.raises(ValueError, match="Key validation failed"):
+        with pytest.raises(BulkExecutorError, match="Key validation failed"):
             validator.validate(files, 's3://bucket', PK_ONLY_SCHEMA, 'INCREMENTAL_EXPORT')
 
 
@@ -176,7 +177,7 @@ class TestKeySchemaValidatorEdgeCases:
         """Malformed JSON in a data row should cause validation failure."""
         lines = ['{"Item": {"name": {"S": "Alice"}}}', 'not valid json at all']
         validator, files = _make_validator(lines)
-        with pytest.raises(ValueError, match="Key validation failed"):
+        with pytest.raises(BulkExecutorError, match="Key validation failed"):
             validator.validate(files, 's3://bucket', PK_ONLY_SCHEMA, 'FULL_EXPORT')
 
     def test_avg_item_size_computed_correctly(self):
@@ -193,5 +194,5 @@ class TestKeySchemaValidatorEdgeCases:
         """When the first row is malformed JSON, error diagnostics don't crash."""
         lines = ['not-json-at-all', json.dumps({"Item": {"name": {"S": "Alice"}}})]
         validator, files = _make_validator(lines)
-        with pytest.raises(ValueError, match="Key validation failed"):
+        with pytest.raises(BulkExecutorError, match="Key validation failed"):
             validator.validate(files, 's3://bucket', PK_ONLY_SCHEMA, 'FULL_EXPORT')

@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import Mock, patch
 from python_modules.shared.export.validators.manifest_validator import ManifestValidator
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 
 
 class TestManifestValidator:
@@ -93,16 +94,16 @@ class TestManifestValidator:
         mock_file_loader.read_file.side_effect = mock_read_file
         mock_file_loader.join_path.side_effect = lambda base, *parts: f"{base}/{'/'.join(parts)}"
         
-        # Mock MD5 validator to raise error for manifest-summary
+        # Mock MD5 validator to raise as the real one does (BulkExecutorError).
         with patch('python_modules.shared.export.validators.manifest_validator.MD5Validator') as mock_md5:
-            mock_md5.validate_file_checksum.side_effect = ValueError("MD5 checksum mismatch")
-            
+            mock_md5.validate_file_checksum.side_effect = BulkExecutorError("MD5 checksum mismatch")
+
             validator = ManifestValidator(mock_file_loader)
             path_resolver = mock_path_resolver('test-bucket', '01716790307109-5f9d6aaa')
-            
-            with pytest.raises(ValueError) as exc_info:
+
+            with pytest.raises(BulkExecutorError) as exc_info:
                 validator.validate_and_parse_manifests(path_resolver)
-            
+
             assert "MD5 checksum mismatch" in str(exc_info.value)
     
     def test_md5_mismatch_for_manifest_files(self, mock_path_resolver):
@@ -135,7 +136,7 @@ class TestManifestValidator:
             if call_count[0] == 1:  # First call (manifest-summary)
                 return True
             else:  # Second call (manifest-files)
-                raise ValueError("MD5 checksum mismatch")
+                raise BulkExecutorError("MD5 checksum mismatch")
         
         with patch('python_modules.shared.export.validators.manifest_validator.MD5Validator') as mock_md5:
             mock_md5.validate_file_checksum.side_effect = mock_validate
@@ -143,7 +144,7 @@ class TestManifestValidator:
             validator = ManifestValidator(mock_file_loader)
             path_resolver = mock_path_resolver('test-bucket', '01716790307109-5f9d6aaa')
             
-            with pytest.raises(ValueError) as exc_info:
+            with pytest.raises(BulkExecutorError) as exc_info:
                 validator.validate_and_parse_manifests(path_resolver)
             
             assert "MD5 checksum mismatch" in str(exc_info.value)
@@ -183,7 +184,7 @@ class TestManifestValidator:
             validator = ManifestValidator(mock_file_loader)
             path_resolver = mock_path_resolver('test-bucket', '01716790307109-5f9d6aaa')
             
-            with pytest.raises(ValueError) as exc_info:
+            with pytest.raises(BulkExecutorError) as exc_info:
                 validator.validate_and_parse_manifests(path_resolver)
             
             error_message = str(exc_info.value)
@@ -220,7 +221,7 @@ class TestManifestValidator:
             validator = ManifestValidator(mock_file_loader)
             path_resolver = mock_path_resolver('test-bucket', '01716790307109-5f9d6aaa')
             
-            with pytest.raises(ValueError) as exc_info:
+            with pytest.raises(BulkExecutorError) as exc_info:
                 validator.validate_and_parse_manifests(path_resolver)
             
             assert "UNKNOWN_VIEW" in str(exc_info.value)
@@ -347,7 +348,7 @@ class TestManifestValidator:
             validator = ManifestValidator(mock_file_loader)
             path_resolver = mock_path_resolver('test-bucket', '01716790307109-5f9d6aaa')
             
-            with pytest.raises(ValueError) as exc_info:
+            with pytest.raises(BulkExecutorError) as exc_info:
                 validator.validate_and_parse_manifests(path_resolver)
             
             error_message = str(exc_info.value)
@@ -566,7 +567,7 @@ class TestManifestValidator:
             validator = ManifestValidator(mock_file_loader)
             path_resolver = mock_path_resolver('test-bucket', 'export-id')
 
-            with pytest.raises(ValueError, match="Missing tableArn"):
+            with pytest.raises(BulkExecutorError, match="Missing tableArn"):
                 validator.validate_and_parse_manifests(path_resolver)
 
     def test_invalid_table_arn_not_dynamodb(self, mock_path_resolver):
@@ -597,7 +598,7 @@ class TestManifestValidator:
             validator = ManifestValidator(mock_file_loader)
             path_resolver = mock_path_resolver('test-bucket', 'export-id')
 
-            with pytest.raises(ValueError, match="Invalid tableArn format"):
+            with pytest.raises(BulkExecutorError, match="Invalid tableArn format"):
                 validator.validate_and_parse_manifests(path_resolver)
 
     def test_invalid_table_arn_not_arn_prefix(self, mock_path_resolver):
@@ -628,7 +629,7 @@ class TestManifestValidator:
             validator = ManifestValidator(mock_file_loader)
             path_resolver = mock_path_resolver('test-bucket', 'export-id')
 
-            with pytest.raises(ValueError, match="Invalid tableArn format"):
+            with pytest.raises(BulkExecutorError, match="Invalid tableArn format"):
                 validator.validate_and_parse_manifests(path_resolver)
 
     def test_malformed_json_line_in_manifest_files_with_valid_summary(self, mock_path_resolver):
@@ -665,7 +666,7 @@ class TestManifestValidator:
             validator = ManifestValidator(mock_file_loader)
             path_resolver = mock_path_resolver('test-bucket', 'export-id')
 
-            with pytest.raises(ValueError, match="Invalid JSON at line 2"):
+            with pytest.raises(BulkExecutorError, match="Invalid JSON at line 2"):
                 validator.validate_and_parse_manifests(path_resolver)
 
     def test_manifest_files_empty_lines_skipped(self, mock_path_resolver):
