@@ -292,6 +292,33 @@ class TestPrettyPrintLogEvent:
         assert captured.out == ''
         assert captured.err == ''
 
+    def test_warning_merged_with_info_still_colors_yellow(self, bulk_runner, capsys):
+        """Regression: a WARNING delivered in the same event as a preceding INFO
+        line (internal newline, INFO has no timestamp prefix) must still color
+        yellow. The reassembler splits on the record boundary so the WARNING is
+        evaluated on its own rather than as a continuation of the INFO line."""
+        info_line = '[before] Max read rate set to specified limit: 20'
+        warn_line = ('2026-08-04 08:08:15,393 WARNING [MainThread] root - '
+                     '[before] Read rate 20 less than recommended value of 100.')
+        merged = _make_event(
+            message=f'{info_line}\n{warn_line}\n',
+            log_group='123456789012:/aws-glue/jobs/output',
+        )
+        # Drive the real reassembler → tailer path.
+        reassembler = runner_module.GlueLogReassembler(buffer_time_ms=0)
+        for ev in reassembler.process([merged]):
+            bulk_runner._pretty_print_log_event(ev)
+        for ev in reassembler.flush():
+            bulk_runner._pretty_print_log_event(ev)
+
+        out = capsys.readouterr().out
+        warn_pos = out.find('WARNING')
+        assert warn_pos != -1, "WARNING line should have been printed"
+        # The WARNING segment carries a YELLOW code; the INFO segment before it
+        # does not (it is not a recognized level, so it stays uncolored).
+        assert runner_module.ColorCodes.YELLOW in out[:warn_pos]
+        assert runner_module.ColorCodes.YELLOW not in out[:out.find(info_line) + len(info_line)]
+
     def test_bulk_executor_error_sets_suppress_flag(self, bulk_runner, monkeypatch):
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
