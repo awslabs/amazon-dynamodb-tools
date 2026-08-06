@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install test test-client test-server coverage clean test-e2e test-e2e-connector test-e2e-cleanup test-e2e-security test-e2e-security-simulator test-e2e-security-real test-e2e-commands test-e2e-whole-system test-e2e-max-rate test-e2e-capacity-warnings
+.PHONY: help install test test-client test-server coverage clean test-e2e test-e2e-connector test-e2e-cleanup test-e2e-security test-e2e-security-simulator test-e2e-security-real test-e2e-security-validator test-e2e-commands test-e2e-whole-system test-e2e-max-rate test-e2e-capacity-warnings
 
 VENV := .venv
 PIP := $(VENV)/bin/pip
@@ -24,6 +24,7 @@ help:
 	@echo "  make test-e2e-security              Security: simulator + real-bootstrap (~3 min, ~\$$0)"
 	@echo "  make test-e2e-security-simulator    Security tier 1 only: iam:SimulateCustomPolicy"
 	@echo "  make test-e2e-security-real         Security tier 2 only: real temp IAM user + bootstrap"
+	@echo "  make test-e2e-security-validator    Custom-role validator vs real IAM (throwaway roles, safe)"
 	@echo "  make test-e2e-commands              Bulk-command smokes against transient tables"
 	@echo "  make test-e2e-whole-system          True e2e: 60k load round-trip + observed rate enforcement"
 	@echo "  make test-e2e-max-rate              EXPENSIVE: prove load beats the old 60k connector ceiling (~\$$ per run)"
@@ -92,6 +93,14 @@ test-e2e-security-real:
 	$(PYTEST) tests/e2e/security/test_iam_policy_live.py -s -v --tb=short --no-cov \
 	  --override-ini="testpaths=tests/e2e" \
 	  --e2e-suite="security real-bootstrap"
+
+# Custom-role validator against real IAM. IAM-only (create/read/delete
+# throwaway AWSGlueServiceRole-* roles), parallel-safe, touches no shared
+# Glue job -- so it's safe to run anytime, unlike the destructive real tier.
+test-e2e-security-validator:
+	$(PYTEST) tests/e2e/security/test_custom_role_validation_live.py -s -v --tb=short --no-cov \
+	  --override-ini="testpaths=tests/e2e" \
+	  --e2e-suite="security custom-role validator"
 
 # Commands suite: exercises bulk commands (fill/update/delete/copy/diff)
 # against transient tables created+torn-down per test. No pre-existing

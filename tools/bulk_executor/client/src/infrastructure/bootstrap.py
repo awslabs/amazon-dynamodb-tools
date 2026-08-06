@@ -11,6 +11,7 @@ from clients import Clients
 from infrastructure.verifier import is_existing_glue_job
 from utils import module_zipper
 from utils.logger import log
+from utils.role_validator import FATAL, validate_custom_role_permissions
 
 from __version__ import __version__ as VERSION
 
@@ -48,6 +49,13 @@ class BootstrapInfrastructure:
         self.glue_client = clients.glue_client
         self.logs_client = clients.logs_client
 
+        # Custom --XRole names whose permissions have already been validated
+        # this run. bootstrap() resolves the role name twice (_add_glue_job_role
+        # and _create_or_update_glue_job), and validation is now heavyweight
+        # (IAM reads + SimulatePrincipalPolicy). Without this, the reads fire
+        # twice and every WARNING is logged twice. See _get_role_name.
+        self._validated_custom_roles = set()
+
     def _get_role_name(self, args):
         """
         Determine the appropriate role name based on the provided arguments.
@@ -66,6 +74,35 @@ class BootstrapInfrastructure:
             if not self._is_existing_role(role_param):
                 print(f"Provided --XRole '{role_param}' name does not exist!")
                 exit(1)
+            # Validate each custom role at most once per run. A FATAL finding
+            # exits below before the name is cached, so re-resolving after an
+            # eject can't happen; a role that only warned (or was clean) skips
+            # the second, redundant IAM read + SimulatePrincipalPolicy pass and
+            # avoids logging the same WARNINGs twice.
+            if role_param in self._validated_custom_roles:
+                return role_param
+            findings = validate_custom_role_permissions(self.iam_client, role_param)
+            # Surface every finding, then abort if any is FATAL. FATAL means the
+            # role provably cannot work (wrong name prefix, or a trust policy
+            # that won't let Glue assume it), so we eject here -- before any
+            # infrastructure is created -- rather than letting the operator hit
+            # an opaque Glue failure later. WARNINGs are advisory and never block.
+            fatal_found = False
+            for finding in findings:
+                if finding.severity == FATAL:
+                    log.error(finding.message)
+                    fatal_found = True
+                else:
+                    log.warning(finding.message)
+            if fatal_found:
+                print(
+                    f"Provided --XRole '{role_param}' cannot be used by the Glue "
+                    f"job (see the errors above). Aborting."
+                )
+                exit(1)
+            # Reached only when no finding was FATAL: record the role so the
+            # second resolution in this run doesn't re-validate or re-warn.
+            self._validated_custom_roles.add(role_param)
             return role_param
 
         # Handle standard role types
