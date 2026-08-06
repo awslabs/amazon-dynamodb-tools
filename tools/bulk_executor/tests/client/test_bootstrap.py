@@ -161,6 +161,69 @@ class TestGetRoleName:
         assert 'NoSuchRole' in out
 
 
+class TestCustomRoleValidatedOncePerRun:
+    """bootstrap() resolves the role name twice (_add_glue_job_role and
+    _create_or_update_glue_job). Custom-role validation is heavyweight (IAM
+    reads + SimulatePrincipalPolicy), so a custom --XRole must be validated at
+    most once per run and its WARNINGs logged only once — but a FATAL must
+    still eject on the first resolution and never be cached."""
+
+    def test_clean_custom_role_validated_only_once_across_two_resolutions(
+        self, bootstrap
+    ):
+        bootstrap._is_existing_role = MagicMock(return_value=True)
+        with patch(
+            'infrastructure.bootstrap.validate_custom_role_permissions',
+            return_value=[],
+        ) as validate:
+            first = bootstrap._get_role_name({'XRole': 'AWSGlueServiceRole-Mine'})
+            second = bootstrap._get_role_name({'XRole': 'AWSGlueServiceRole-Mine'})
+
+        assert first == second == 'AWSGlueServiceRole-Mine'
+        validate.assert_called_once()
+
+    def test_warnings_logged_only_once_across_two_resolutions(
+        self, bootstrap, caplog
+    ):
+        import logging
+
+        from utils.role_validator import Finding, WARNING
+
+        bootstrap._is_existing_role = MagicMock(return_value=True)
+        finding = Finding(WARNING, 'role lacks pricing:GetProducts')
+        with patch(
+            'infrastructure.bootstrap.validate_custom_role_permissions',
+            return_value=[finding],
+        ) as validate, caplog.at_level(logging.WARNING):
+            bootstrap._get_role_name({'XRole': 'AWSGlueServiceRole-Mine'})
+            bootstrap._get_role_name({'XRole': 'AWSGlueServiceRole-Mine'})
+
+        # Validation runs once and the warning is emitted once, not doubled.
+        validate.assert_called_once()
+        warnings = [
+            r.message for r in caplog.records
+            if r.levelno == logging.WARNING and 'pricing:GetProducts' in r.message
+        ]
+        assert len(warnings) == 1, f"expected one warning, got {warnings}"
+
+    def test_fatal_role_never_cached_and_ejects(self, bootstrap):
+        from utils.role_validator import FATAL, Finding
+
+        bootstrap._is_existing_role = MagicMock(return_value=True)
+        finding = Finding(FATAL, "trust policy doesn't allow glue.amazonaws.com")
+        with patch(
+            'infrastructure.bootstrap.validate_custom_role_permissions',
+            return_value=[finding],
+        ):
+            with pytest.raises(SystemExit) as exc:
+                bootstrap._get_role_name({'XRole': 'AWSGlueServiceRole-Broken'})
+
+        assert exc.value.code == 1
+        # A FATAL role must not be recorded as validated — re-resolving it would
+        # (correctly) eject again rather than silently returning a bad role.
+        assert 'AWSGlueServiceRole-Broken' not in bootstrap._validated_custom_roles
+
+
 # -- _is_existing_role --------------------------------------------------
 
 class TestIsExistingRole:
