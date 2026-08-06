@@ -11,7 +11,7 @@ from clients import Clients
 from infrastructure.verifier import is_existing_glue_job
 from utils import module_zipper
 from utils.logger import log
-from utils.role_validator import validate_custom_role_permissions
+from utils.role_validator import FATAL, validate_custom_role_permissions
 
 from __version__ import __version__ as VERSION
 
@@ -67,9 +67,25 @@ class BootstrapInfrastructure:
             if not self._is_existing_role(role_param):
                 print(f"Provided --XRole '{role_param}' name does not exist!")
                 exit(1)
-            warnings = validate_custom_role_permissions(self.iam_client, role_param)
-            for warning in warnings:
-                log.warning(warning)
+            findings = validate_custom_role_permissions(self.iam_client, role_param)
+            # Surface every finding, then abort if any is FATAL. FATAL means the
+            # role provably cannot work (wrong name prefix, or a trust policy
+            # that won't let Glue assume it), so we eject here -- before any
+            # infrastructure is created -- rather than letting the operator hit
+            # an opaque Glue failure later. WARNINGs are advisory and never block.
+            fatal_found = False
+            for finding in findings:
+                if finding.severity == FATAL:
+                    log.error(finding.message)
+                    fatal_found = True
+                else:
+                    log.warning(finding.message)
+            if fatal_found:
+                print(
+                    f"Provided --XRole '{role_param}' cannot be used by the Glue "
+                    f"job (see the errors above). Aborting."
+                )
+                exit(1)
             return role_param
 
         # Handle standard role types

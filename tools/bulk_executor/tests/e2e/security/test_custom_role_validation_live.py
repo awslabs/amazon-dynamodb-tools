@@ -1,13 +1,20 @@
 """Tier 2 e2e: the custom-role permission validator against REAL IAM roles.
 
 Truth oracle for ``utils.role_validator.validate_custom_role_permissions``. The
-unit tests feed a stubbed IAM client canned policy documents; a MagicMock can't
-prove the validator's real read path (get_role -> list_attached_role_policies ->
-get_policy/get_policy_version + list_role_policies/get_role_policy) actually
-returns what the validator expects from live IAM, nor that its effective-action
-model matches how IAM really shapes managed-policy documents. This proves it end
-to end by building throwaway roles at known shapes and asserting the validator
-warns exactly when it should.
+unit tests feed a stubbed IAM client canned documents and a hand-rolled fake
+simulator; a MagicMock can't prove the validator's real paths against live IAM:
+
+  * the read path (get_role -> list_attached_role_policies ->
+    get_policy/get_policy_version + list_role_policies/get_role_policy) that
+    feeds the DynamoDB presence check, and
+  * the ``iam:SimulatePrincipalPolicy`` path that evaluates the ``Resource:"*"``
+    capabilities (pricing / quota / autoscaling). Only real IAM proves the
+    simulator actually reports ``allowed`` for a granted action and a denial for
+    an ungranted one on a live role.
+
+This proves it end to end by building throwaway roles at known shapes and
+asserting the validator returns the right findings (with the right severities)
+exactly when it should.
 
 Why this matters (the false-green it guards against): the validator's whole
 reason to exist is to NOT warn on the documented "maximum lockdown" setups --
@@ -36,7 +43,16 @@ import boto3
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "client" / "src"))
-from utils.role_validator import validate_custom_role_permissions  # noqa: E402
+from utils.role_validator import (  # noqa: E402
+    FATAL,
+    WARNING,
+    validate_custom_role_permissions,
+)
+
+
+def _messages(findings):
+    """Message strings of a findings list (assertion convenience)."""
+    return [f.message for f in findings]
 
 GLUE_BASELINE_ARN = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
 DDB_READONLY_ARN = "arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess"
@@ -188,12 +204,13 @@ def test_fully_valid_lockdown_role_produces_no_warnings(e2e_config):
             managed_arns=[GLUE_BASELINE_ARN, DDB_READONLY_ARN],
             inline={"MinimalExtras": _LOCKDOWN_EXTRAS},
         )
-        warnings = validate_custom_role_permissions(iam, role_name)
-        assert warnings == [], (
-            "A fully-valid lockdown role should yield no warnings, but the "
-            f"validator returned: {warnings!r}. If this fails, the validator is "
+        findings = validate_custom_role_permissions(iam, role_name)
+        assert findings == [], (
+            "A fully-valid lockdown role should yield no findings, but the "
+            f"validator returned: {findings!r}. If this fails, the validator is "
             "false-warning on a documented-valid role — the exact bug this "
-            "rework fixes."
+            "rework fixes. NB: this also proves SimulatePrincipalPolicy reports "
+            "pricing/quota/autoscaling as allowed against real IAM."
         )
     finally:
         _delete_role(iam, role_name)
@@ -224,10 +241,10 @@ def test_restrictive_inline_dynamodb_does_not_false_warn(e2e_config):
             managed_arns=[GLUE_BASELINE_ARN],  # NO managed DynamoDB policy
             inline={"MinimalExtras": _LOCKDOWN_EXTRAS, "ScopedDynamo": scoped_ddb},
         )
-        warnings = validate_custom_role_permissions(iam, role_name)
-        assert not any("no DynamoDB permissions" in w for w in warnings), (
+        findings = validate_custom_role_permissions(iam, role_name)
+        assert not any("no DynamoDB permissions" in w for w in _messages(findings)), (
             f"Restrictive inline DynamoDB policy should satisfy the check, but "
-            f"got a DynamoDB warning. All warnings: {warnings!r}"
+            f"got a DynamoDB warning. All findings: {findings!r}"
         )
     finally:
         _delete_role(iam, role_name)
@@ -253,29 +270,38 @@ def test_missing_pricing_and_quota_warns_against_real_iam(e2e_config):
             managed_arns=[GLUE_BASELINE_ARN, DDB_READONLY_ARN],
             inline={"AutoscalingOnly": autoscaling_only},
         )
-        warnings = validate_custom_role_permissions(iam, role_name)
-        assert any("pricing:GetProducts" in w for w in warnings), (
-            f"expected a pricing warning; got {warnings!r}"
+        findings = validate_custom_role_permissions(iam, role_name)
+        msgs = _messages(findings)
+        # These are all WARNING (soft) — a missing pricing/quota grant does not
+        # abort bootstrap, so none of these should be FATAL.
+        assert all(f.severity == WARNING for f in findings), (
+            f"missing pricing/quota should warn, never eject; got {findings!r}"
         )
-        assert any("servicequotas" in w.lower() for w in warnings), (
-            f"expected a servicequotas warning; got {warnings!r}"
+        # Proves SimulatePrincipalPolicy reports implicitDeny for the ungranted
+        # actions against real IAM (not just on the fake in unit tests).
+        assert any("pricing:GetProducts" in w for w in msgs), (
+            f"expected a pricing warning; got {findings!r}"
+        )
+        assert any("servicequotas" in w.lower() for w in msgs), (
+            f"expected a servicequotas warning; got {findings!r}"
         )
         # DynamoDB + autoscaling ARE present, so they must NOT warn. Match the
         # DynamoDB warning by its distinctive text ("no DynamoDB permissions"),
         # NOT the bare substring "DynamoDB" -- the pricing warning above also
         # contains the word "DynamoDB" ("...estimate DynamoDB operation
         # costs"), so a substring check would false-match it.
-        assert not any("no DynamoDB permissions" in w for w in warnings), (
-            f"unexpected DynamoDB-permissions warning; got {warnings!r}"
+        assert not any("no DynamoDB permissions" in w for w in msgs), (
+            f"unexpected DynamoDB-permissions warning; got {findings!r}"
         )
-        assert not any("application-autoscaling" in w for w in warnings)
+        assert not any("application-autoscaling" in w for w in msgs)
     finally:
         _delete_role(iam, role_name)
 
 
-def test_wrong_trust_principal_warns_against_real_iam(e2e_config):
-    """A role whose trust policy doesn't allow glue.amazonaws.com must warn,
-    even when every permission is otherwise present -- verified on real IAM."""
+def test_wrong_trust_principal_ejects_against_real_iam(e2e_config):
+    """A role whose trust policy doesn't allow glue.amazonaws.com must produce a
+    FATAL finding (bootstrap ejects), even when every permission is otherwise
+    present -- verified on real IAM. Glue literally cannot assume the role."""
     iam = boto3.client("iam")
     role_name = _unique_role_name()
     try:
@@ -286,14 +312,29 @@ def test_wrong_trust_principal_warns_against_real_iam(e2e_config):
                           PRICING_FULL_ARN, QUOTAS_RO_ARN],
             inline={"MinimalExtras": _LOCKDOWN_EXTRAS},
         )
-        warnings = validate_custom_role_permissions(iam, role_name)
-        assert any("glue.amazonaws.com" in w for w in warnings), (
-            f"expected a trust-policy warning; got {warnings!r}"
-        )
+        findings = validate_custom_role_permissions(iam, role_name)
         # Everything else is satisfied via managed + inline, so ONLY the trust
-        # warning should appear.
-        assert len(warnings) == 1, (
-            f"expected exactly the trust warning, got {warnings!r}"
+        # finding should appear -- and it must be FATAL.
+        assert len(findings) == 1, (
+            f"expected exactly the trust finding, got {findings!r}"
         )
+        assert findings[0].severity == FATAL, (
+            f"a trust policy that blocks Glue must be FATAL; got {findings!r}"
+        )
+        assert "glue.amazonaws.com" in findings[0].message
     finally:
         _delete_role(iam, role_name)
+
+
+def test_wrong_name_prefix_ejects(e2e_config):
+    """A role whose name lacks the AWSGlueServiceRole prefix must produce a
+    FATAL finding. This needs no live role at all (the check is name-only), but
+    we run it here so the eject contract is exercised end to end alongside the
+    real-IAM cases. The bootstrap passrole grant is scoped to that prefix, so a
+    non-matching name provably can't be handed to Glue."""
+    iam = boto3.client("iam")
+    findings = validate_custom_role_permissions(iam, "NotAGluePrefixRole")
+    fatal = [f for f in findings if f.severity == FATAL]
+    assert any("does not start" in f.message for f in fatal), (
+        f"expected a FATAL name-prefix finding; got {findings!r}"
+    )

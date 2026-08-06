@@ -138,9 +138,19 @@ class TestGetRoleName:
         assert name == f"{GLUE_JOB_ROOT_ROLE_NAME}-{READ_WRITE_ROLE_ID}-us-east-1"
 
     def test_existing_custom_role_is_returned(self, bootstrap):
+        # This test covers param routing (a custom role name is returned), not
+        # validation, so stub the validator to no findings. The validator's own
+        # warn/eject behavior is covered in test_role_validator's
+        # TestIntegrationWithBootstrap.
         bootstrap._is_existing_role = MagicMock(return_value=True)
-        assert bootstrap._get_role_name({'XRole': 'MyCustomRole'}) == 'MyCustomRole'
-        bootstrap._is_existing_role.assert_called_once_with('MyCustomRole')
+        with patch(
+            'infrastructure.bootstrap.validate_custom_role_permissions',
+            return_value=[],
+        ):
+            assert bootstrap._get_role_name(
+                {'XRole': 'AWSGlueServiceRole-MyCustom'}
+            ) == 'AWSGlueServiceRole-MyCustom'
+        bootstrap._is_existing_role.assert_called_once_with('AWSGlueServiceRole-MyCustom')
 
     def test_missing_custom_role_exits(self, bootstrap, capsys):
         bootstrap._is_existing_role = MagicMock(return_value=False)
