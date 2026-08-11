@@ -94,7 +94,7 @@ Here are some example use cases:
 # This command divides the table into 10,000 segments, samples 1% (100) of them,
 # limits the count to older items, and prints the counts per segment and the
 # likely extrapolated overall count based on the statistical sampling.
-./bulk scancount --table t --segments 10000 --sample-fraction 0.01 --filter-expression "#ts < :cutoff" --expression-names '{"#ts": "timestamp"}' --expression-values '{":cutoff":"2025-01-01"}'
+./bulk scancount --table t --segments 10000 --sample-fraction 0.01 --per-segment --filter-expression "#ts < :cutoff" --expression-names '{"#ts": "timestamp"}' --expression-values '{":cutoff":"2025-01-01"}'
 
 
 # Compare two tables for differences (uses segmented scans internally)
