@@ -14,7 +14,6 @@ from python_modules.shared.table_info import (
     get_and_print_table_scan_cost,
     get_dynamodb_throughput_configs,
     _region_from_table_ref,
-    infer_region,
     _default_region
 )
 
@@ -34,7 +33,7 @@ class BinaryAwareEncoder(json.JSONEncoder):
         return super().default(obj)
 
 class SegmentStream:
-    def __init__(self, session, table_name, segment, total_segments, consistent_read, pk, sk):
+    def __init__(self, session, table_name, segment, total_segments, consistent_read, pk, sk, region_name=None):
         self.segment = segment
         self.total_segments = total_segments
         self.consistent_read = consistent_read
@@ -45,14 +44,19 @@ class SegmentStream:
 
         # use the low level Client API so that Items can be compared easily later
         # as they are built entirely of strings
-        self.dynamodb = session.client('dynamodb', config=Config(
-            connect_timeout=4.0,
-            read_timeout=4.0,
-            retries={
-                'mode': 'standard',
-                'total_max_attempts': 50
-            }
-        ))
+        client_kwargs = {
+            'config': Config(
+                connect_timeout=4.0,
+                read_timeout=4.0,
+                retries={
+                    'mode': 'standard',
+                    'total_max_attempts': 50
+                }
+            )
+        }
+        if region_name:
+            client_kwargs['region_name'] = region_name
+        self.dynamodb = session.client('dynamodb', **client_kwargs)
 
         self.pk = pk
         self.sk = sk
@@ -158,25 +162,27 @@ def log_diff(symbol, stream, concise_format):
 
 
 def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_options_b, segment, total_segments, consistent_read, concise_format, job_id, use_s3, bucket, schema_broadcast, rate_limiter_shared_config):
-    table1_region = infer_region(stream_a_name)
-    table2_region = infer_region(stream_b_name)
     rate_limiter_worker_a = RateLimiterWorker(
         shared_config=rate_limiter_shared_config,
-        region_name=table1_region,
         **monitor_options_a
     )
 
     rate_limiter_worker_b = RateLimiterWorker(
         shared_config=rate_limiter_shared_config,
-        region_name=table2_region,
         **monitor_options_b
     )
 
     schema = schema_broadcast.value
 
+    # Talk to the right region if the table name is an ARN to a diff region
+    session_a = rate_limiter_worker_a.get_session()
+    session_b = rate_limiter_worker_b.get_session()
+    table1_region = _region_from_table_ref(stream_a_name) or session_a.region_name
+    table2_region = _region_from_table_ref(stream_b_name) or session_b.region_name
+
     try:
-        stream_a = SegmentStream(rate_limiter_worker_a.get_session(), stream_a_name, segment, total_segments, consistent_read, pk=schema['table1']['pk'], sk=schema['table1']['sk'])
-        stream_b = SegmentStream(rate_limiter_worker_b.get_session(), stream_b_name, segment, total_segments, consistent_read, pk=schema['table2']['pk'], sk=schema['table2']['sk'])
+        stream_a = SegmentStream(session_a, stream_a_name, segment, total_segments, consistent_read, pk=schema['table1']['pk'], sk=schema['table1']['sk'], region_name=table1_region)
+        stream_b = SegmentStream(session_b, stream_b_name, segment, total_segments, consistent_read, pk=schema['table2']['pk'], sk=schema['table2']['sk'], region_name=table2_region)
 
         diff = []
 
@@ -330,8 +336,8 @@ def run(job, spark_context, glue_context, parsed_args):
     print(f"TOTAL DynamoDB cost for scanning both tables (approx): ${total_cost:,.2f}")
     print()
 
-    table1_region = infer_region(table1)
-    table2_region = infer_region(table2)
+    table1_region = _region_from_table_ref(table1) or _default_region()
+    table2_region = _region_from_table_ref(table2) or _default_region()
     schema1 = boto3.client("dynamodb", region_name=table1_region).describe_table(TableName=table1)['Table']['KeySchema']
     schema2 = boto3.client("dynamodb", region_name=table2_region).describe_table(TableName=table2)['Table']['KeySchema']
 
@@ -360,7 +366,7 @@ def run(job, spark_context, glue_context, parsed_args):
     )
 
     # uses S3 from bootstrapping process -> should use same default region
-    rate_limiter_aggregator = RateLimiterAggregator(shared_config=rate_limiter_shared_config, region_name=_default_region())
+    rate_limiter_aggregator = RateLimiterAggregator(shared_config=rate_limiter_shared_config)
 
     monitor_options_1 = get_dynamodb_throughput_configs(parsed_args, table1, modes=("read"), format="monitor")
     monitor_options_2 = get_dynamodb_throughput_configs(parsed_args, table2, modes=("read"), format="monitor")

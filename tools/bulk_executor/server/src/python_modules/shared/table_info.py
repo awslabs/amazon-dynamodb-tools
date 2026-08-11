@@ -457,17 +457,3 @@ def _region_from_table_ref(table_ref: str) -> str | None:
     if not arn.get("resource", "").startswith("table/"):
         return None
     return arn.get("region")
-
-def infer_region(table_ref: str) -> str:
-    """
-    Infers the most appropriate region to use for a table reference:
-    If an ARN is provided, that region is used. Without an ARN,
-    we look on the client or the environment for the region.
-    If nothing succeeds, this results in an exception.
-    :param table_ref: reference to table like ARN or its name
-    :return: region in which we assume table to be
-    """
-    region_name = _region_from_table_ref(table_ref) or _default_region()
-    if not region_name:
-        raise ValueError(f"Unable to determine region_name from {table_ref} or environment.")
-    return region_name

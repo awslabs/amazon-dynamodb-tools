@@ -1592,35 +1592,14 @@ if _prev_table_info is not None:
 _real_region_from_table_ref = _real_table_info._region_from_table_ref
 
 
-def _make_infer_region(default_region='us-east-1'):
-    """Create an infer_region function with a configurable default region fallback.
-
-    The real infer_region calls _default_region() which needs boto3.Session().
-    For tests we provide the default region explicitly.
-    """
-    def infer_region(table_ref):
-        region = _real_region_from_table_ref(table_ref)
-        if region:
-            return region
-        return default_region
-    return infer_region
-
-
-@pytest.fixture
-def patch_region_funcs(monkeypatch):
-    """Fixture to replace the mocked region functions on diff_module with real ones."""
-    monkeypatch.setattr(diff_module, '_region_from_table_ref', _real_region_from_table_ref)
-    monkeypatch.setattr(diff_module, 'infer_region', _make_infer_region('us-east-1'))
-
-
 class TestCrossRegionDiff:
     """Tests for cross-region table comparison support."""
 
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
     def test_diff_segment_passes_different_regions_to_workers(self, mock_stream_cls, mock_rl, monkeypatch):
-        """Two ARNs from different regions should create workers with different regions."""
-        monkeypatch.setattr(diff_module, 'infer_region', _make_infer_region())
+        """Two ARNs from different regions should pass region to SegmentStream, not RateLimiterWorker."""
+        monkeypatch.setattr(diff_module, '_region_from_table_ref', _real_region_from_table_ref)
 
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
@@ -1648,18 +1627,25 @@ class TestCrossRegionDiff:
             schema_broadcast, MagicMock()
         )
 
-        calls = mock_rl.call_args_list
-        assert calls[0].kwargs['region_name'] == 'us-east-1'
-        assert calls[1].kwargs['region_name'] == 'eu-west-1'
+        # RateLimiterWorker should NOT receive region_name (S3 stays in bootstrap region)
+        for call in mock_rl.call_args_list:
+            assert 'region_name' not in call.kwargs
+
+        # SegmentStream should receive region_name for DynamoDB client
+        stream_calls = mock_stream_cls.call_args_list
+        assert stream_calls[0].kwargs['region_name'] == 'us-east-1'
+        assert stream_calls[1].kwargs['region_name'] == 'eu-west-1'
 
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
     def test_diff_segment_same_region_both_workers(self, mock_stream_cls, mock_rl, monkeypatch):
-        """Two plain table names should use the default region for both workers."""
-        monkeypatch.setattr(diff_module, 'infer_region', _make_infer_region('us-west-2'))
+        """Two plain table names should pass the session's default region to SegmentStream, not RateLimiterWorker."""
+        monkeypatch.setattr(diff_module, '_region_from_table_ref', _real_region_from_table_ref)
 
         mock_rl_instance = MagicMock()
-        mock_rl_instance.get_session.return_value = MagicMock()
+        mock_session = MagicMock()
+        mock_session.region_name = 'us-west-2'
+        mock_rl_instance.get_session.return_value = mock_session
         mock_rl.return_value = mock_rl_instance
 
         stream = MagicMock()
@@ -1681,18 +1667,25 @@ class TestCrossRegionDiff:
             schema_broadcast, MagicMock()
         )
 
-        calls = mock_rl.call_args_list
-        assert calls[0].kwargs['region_name'] == 'us-west-2'
-        assert calls[1].kwargs['region_name'] == 'us-west-2'
+        # RateLimiterWorker should NOT receive region_name
+        for call in mock_rl.call_args_list:
+            assert 'region_name' not in call.kwargs
+
+        # SegmentStream should receive the default region for both
+        stream_calls = mock_stream_cls.call_args_list
+        assert stream_calls[0].kwargs['region_name'] == 'us-west-2'
+        assert stream_calls[1].kwargs['region_name'] == 'us-west-2'
 
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
     def test_diff_segment_mixed_arn_and_plain_name(self, mock_stream_cls, mock_rl, monkeypatch):
-        """One ARN and one plain table name -> different region sources."""
-        monkeypatch.setattr(diff_module, 'infer_region', _make_infer_region('us-east-1'))
+        """One ARN and one plain table name -> region goes to SegmentStream, not RateLimiterWorker."""
+        monkeypatch.setattr(diff_module, '_region_from_table_ref', _real_region_from_table_ref)
 
         mock_rl_instance = MagicMock()
-        mock_rl_instance.get_session.return_value = MagicMock()
+        mock_session = MagicMock()
+        mock_session.region_name = 'us-east-1'
+        mock_rl_instance.get_session.return_value = mock_session
         mock_rl.return_value = mock_rl_instance
 
         stream = MagicMock()
@@ -1715,9 +1708,14 @@ class TestCrossRegionDiff:
             schema_broadcast, MagicMock()
         )
 
-        calls = mock_rl.call_args_list
-        assert calls[0].kwargs['region_name'] == 'ap-southeast-1'
-        assert calls[1].kwargs['region_name'] == 'us-east-1'
+        # RateLimiterWorker should NOT receive region_name
+        for call in mock_rl.call_args_list:
+            assert 'region_name' not in call.kwargs
+
+        # SegmentStream should receive the correct regions
+        stream_calls = mock_stream_cls.call_args_list
+        assert stream_calls[0].kwargs['region_name'] == 'ap-southeast-1'
+        assert stream_calls[1].kwargs['region_name'] == 'us-east-1'
 
     def test_print_dynamodb_table_info_uses_arn_region(self, monkeypatch):
         """When given an ARN, print_dynamodb_table_info passes the ARN region to scan cost."""
@@ -1754,7 +1752,7 @@ class TestCrossRegionDiff:
 
     def test_run_creates_clients_with_different_regions(self, monkeypatch, capsys):
         """run() should create DynamoDB clients with correct regions for each table."""
-        monkeypatch.setattr(diff_module, 'infer_region', _make_infer_region())
+        monkeypatch.setattr(diff_module, '_region_from_table_ref', _real_region_from_table_ref)
         monkeypatch.setattr(diff_module, 'print_dynamodb_table_info', MagicMock(return_value=0.10))
 
         boto3_mock = MagicMock()
@@ -1793,9 +1791,9 @@ class TestCrossRegionDiff:
         assert 'us-east-1' in regions
         assert 'eu-west-1' in regions
 
-    def test_run_aggregator_receives_default_region(self, monkeypatch, capsys):
-        """The RateLimiterAggregator should be initialized with the default region (for S3 bootstrapping)."""
-        monkeypatch.setattr(diff_module, 'infer_region', _make_infer_region())
+    def test_run_aggregator_does_not_receive_region_name(self, monkeypatch, capsys):
+        """The RateLimiterAggregator should NOT receive region_name — it uses Session() default."""
+        monkeypatch.setattr(diff_module, '_region_from_table_ref', _real_region_from_table_ref)
         monkeypatch.setattr(diff_module, '_default_region', lambda: 'us-east-1')
         monkeypatch.setattr(diff_module, 'print_dynamodb_table_info', MagicMock(return_value=0.10))
 
@@ -1831,7 +1829,7 @@ class TestCrossRegionDiff:
 
         agg_cls.assert_called_once()
         call_kwargs = agg_cls.call_args.kwargs
-        assert call_kwargs['region_name'] == 'us-east-1'
+        assert 'region_name' not in call_kwargs
 
 
 # --- RateLimiter Region Support ---------------------------------------------
@@ -1840,9 +1838,10 @@ class TestRateLimiterRegionSupport:
     """Tests that RateLimiterWorker and RateLimiterAggregator forward region_name to Session."""
 
     @patch.object(diff_module, 'SegmentStream')
-    def test_worker_receives_region_name_kwarg(self, mock_stream_cls, monkeypatch):
-        """Verify RateLimiterWorker is called with region_name from infer_region."""
-        monkeypatch.setattr(diff_module, 'infer_region', _make_infer_region('us-east-1'))
+    def test_worker_does_not_receive_region_name_kwarg(self, mock_stream_cls, monkeypatch):
+        """Verify RateLimiterWorker is NOT called with region_name (S3 stays in bootstrap region).
+        Instead, SegmentStream receives region_name for the DynamoDB client."""
+        monkeypatch.setattr(diff_module, '_region_from_table_ref', _real_region_from_table_ref)
 
         stream = MagicMock()
         stream.is_finished.return_value = True
@@ -1859,7 +1858,9 @@ class TestRateLimiterRegionSupport:
 
         with patch.object(diff_module, 'RateLimiterWorker') as mock_rl:
             mock_rl_instance = MagicMock()
-            mock_rl_instance.get_session.return_value = MagicMock()
+            mock_session = MagicMock()
+            mock_session.region_name = 'us-east-1'
+            mock_rl_instance.get_session.return_value = mock_session
             mock_rl.return_value = mock_rl_instance
 
             arn = 'arn:aws:dynamodb:sa-east-1:123456789012:table/t1'
@@ -1869,18 +1870,33 @@ class TestRateLimiterRegionSupport:
                 schema_broadcast, MagicMock()
             )
 
-            # First worker gets ARN region, second gets default
-            first_call = mock_rl.call_args_list[0]
-            second_call = mock_rl.call_args_list[1]
-            assert first_call.kwargs['region_name'] == 'sa-east-1'
-            assert second_call.kwargs['region_name'] == 'us-east-1'
+            # RateLimiterWorker should NOT receive region_name
+            for call in mock_rl.call_args_list:
+                assert 'region_name' not in call.kwargs
+
+            # SegmentStream should receive the correct regions
+            stream_calls = mock_stream_cls.call_args_list
+            assert stream_calls[0].kwargs['region_name'] == 'sa-east-1'
+            assert stream_calls[1].kwargs['region_name'] == 'us-east-1'
 
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_worker_none_region_when_no_arn_no_default(self, mock_stream_cls, mock_rl):
-        """If infer_region raises ValueError, diff_segment should propagate it."""
+    def test_worker_plain_name_uses_session_region(self, mock_stream_cls, mock_rl, monkeypatch):
+        """When table is a plain name (no ARN), SegmentStream gets session.region_name."""
+        monkeypatch.setattr(diff_module, '_region_from_table_ref', _real_region_from_table_ref)
+
         mock_rl_instance = MagicMock()
+        mock_session = MagicMock()
+        mock_session.region_name = 'ap-northeast-2'
+        mock_rl_instance.get_session.return_value = mock_session
         mock_rl.return_value = mock_rl_instance
+
+        stream = MagicMock()
+        stream.is_finished.return_value = True
+        stream.head.return_value = None
+        stream.has_sort_key = False
+        stream.pk = 'pk'
+        mock_stream_cls.return_value = stream
 
         schema_broadcast = MagicMock()
         schema_broadcast.value = {
@@ -1888,10 +1904,13 @@ class TestRateLimiterRegionSupport:
             'table2': {'pk': 'pk', 'sk': None}
         }
 
-        with patch.object(diff_module, 'infer_region', side_effect=ValueError("Unable to determine region_name")):
-            with pytest.raises(ValueError, match="Unable to determine region_name"):
-                diff_module.diff_segment(
-                    'table1', 'table2', {}, {},
-                    0, 1, False, True, 'job1', False, None,
-                    schema_broadcast, MagicMock()
-                )
+        diff_module.diff_segment(
+            'plain-table1', 'plain-table2', {}, {},
+            0, 1, False, True, 'job1', False, None,
+            schema_broadcast, MagicMock()
+        )
+
+        # SegmentStream should get session's region_name as fallback
+        stream_calls = mock_stream_cls.call_args_list
+        assert stream_calls[0].kwargs['region_name'] == 'ap-northeast-2'
+        assert stream_calls[1].kwargs['region_name'] == 'ap-northeast-2'
