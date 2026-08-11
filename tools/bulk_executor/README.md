@@ -1,8 +1,8 @@
 # Bulk Executor for Amazon DynamoDB
 
-![tests](https://img.shields.io/badge/tests-1443%20passing-brightgreen)
-![line coverage](https://img.shields.io/badge/line%20coverage-94.9%25-brightgreen)
-![branch coverage](https://img.shields.io/badge/branch%20coverage-91.0%25-brightgreen)
+![tests](https://img.shields.io/badge/tests-1502%20passing-brightgreen)
+![line coverage](https://img.shields.io/badge/line%20coverage-95.0%25-brightgreen)
+![branch coverage](https://img.shields.io/badge/branch%20coverage-91.5%25-brightgreen)
 
 Bulk Executor for Amazon DynamoDB lets you efficiently run bulk commands against even large tables. It:
 
@@ -76,6 +76,25 @@ Here are some example use cases:
 # You can add a filter expression
 # Use single quotes around the JSON and double quotes within!
 ./bulk scancount --table t --index i --filter-expression "a = :aval" --expression-values '{":aval":"foo"}'
+
+# Add --per-segment to print each segment's item count (sorted, with a
+# skew ratio and a warning when the hottest segment exceeds 5x the mean).
+# Useful for diagnosing hot partitions / uneven key distribution.
+./bulk scancount --table t --per-segment
+
+# By default scancount uses 200 parallel scan segments. Use --segments to
+# tune that: fewer for small tables, more to increase per-segment resolution.
+./bulk scancount --table t --per-segment --segments 50
+
+# Use --sample-fraction to scan only a fraction of the segments and 
+# extrapolate an estimated total with a 95% confidence interval. Most
+# useful when paired with a --filter-expression to, for example, estimate
+# how many items have an ISO timestamp from 2024 or earlier.
+# Combine with --per-segment to see the skew that drives the error margin.
+# This command divides the table into 10,000 segments, samples 1% (100) of them,
+# limits the count to older items, and prints the counts per segment and the
+# likely extrapolated overall count based on the statistical sampling.
+./bulk scancount --table t --segments 10000 --sample-fraction 0.01 --per-segment --filter-expression "#ts < :cutoff" --expression-names '{"#ts": "timestamp"}' --expression-values '{":cutoff":"2025-01-01"}'
 
 
 # Compare two tables for differences (uses segmented scans internally)
@@ -475,6 +494,9 @@ If you ever want to stop execution early, you can hit Control-C. The interrupt w
 * Performs a parallel scan to count items. Leverages DynamoDB's `Select=COUNT` parameter on the `scan` call so only a count is returned on each internal DynamoDB scan call for maximum performance and memory efficiency.
 * Accepts an optional `index` name to scan an index, suitable if there's an appropriate sparse index that would be faster to scan than the base table.
 * Accepts a `filter-expression` to filter down the items counted. This expression uses the usual DynamoDB syntax. Requires a supporting  `expression-values` parameter and sometimes `expression-names`, as with usual DynamoDB scan calls.
+* Accepts an optional `per-segment` flag to print the item count for each scan segment (sorted descending, with each segment's share of the total). It also reports a skew ratio (hottest segment count / mean) and warns when that ratio exceeds 5x, which indicates an uneven key distribution / hot partition.
+* Accepts an optional `segments` parameter to control how many parallel scan segments are used (default 200). Lower it for small tables; raise it for finer per-segment resolution when diagnosing skew.
+* Accepts an optional `sample-fraction` (`> 0` and `≤ 1.0`, default `1.0`) to scan only a fraction of the segments and extrapolate an estimated total, reported with a 95% confidence interval. Because an unfiltered item count is already available for free (and exact) from `DescribeTable`, sampling is intended to be paired with a `filter-expression`: it estimates how many items match a predicate without paying for a full scan. The margin of error is driven by how evenly matches are spread across segments, so `per-segment` shows the skew behind it (with only one segment sampled, a point estimate is printed without an interval).
 
 #### `diff`
 
@@ -634,7 +656,7 @@ The e2e harness has these suites:
 
 | Suite | Command | What it checks |
 |-------|---------|----------------|
-| Connector | `make test-e2e-connector` | `count`/`find`/`sql`/`load` against the live DynamoDB DataFrame connector |
+| Connector | `make test-e2e-connector` | `count`/`find`/`sql`/`load` against the live DynamoDB DataFrame connector, plus `scancount` (parallel segmented scan, incl. `--per-segment` skew report) |
 | Commands  | `make test-e2e-commands`  | `fill`/`update`/`delete`/`copy`/`diff` orchestration, each against its own transient table |
 | Security  | `make test-e2e-security`  | the documented bootstrap IAM policy actually bootstraps (and is minimal) |
 | Whole-system | `make test-e2e-whole-system` | true end-to-end: 60k `load` round-trip fidelity + observed write-rate enforcement from CloudWatch |
