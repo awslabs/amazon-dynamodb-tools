@@ -20,6 +20,7 @@ from .commands.core.health import health
 from .commands.core.status import status
 from .commands.core.version import version
 from .commands.discover import discover as discover_cmd
+from .commands.maintain import maintain as maintain_cmd
 from .config import get_settings
 from .logging import configure_logging, get_logger
 
@@ -76,6 +77,9 @@ main.add_command(collect_cur_cmd, name="collect-cur")
 main.add_command(analyze_capacity_cmd, name="analyze-capacity")
 main.add_command(analyze_table_class_cmd, name="analyze-table-class")
 main.add_command(analyze_utilization_cmd, name="analyze-utilization")
+
+# Add lake maintenance command
+main.add_command(maintain_cmd)
 
 
 # TODO: Implement list-recommendations command https://github.com/awslabs/amazon-dynamodb-tools/issues/120

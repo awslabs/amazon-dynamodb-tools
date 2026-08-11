@@ -1,4 +1,40 @@
+import re
 import time
+
+
+# A line beginning with the server log prefix "<asctime> <LEVEL>" starts a new
+# logical record; any line without it is a continuation (e.g. a stack-trace
+# frame). Mirrors runner._SERVER_LOG_LEVEL_RE (kept without a capture group).
+# Used to re-split an emitted event that bundled more than one record together
+# (e.g. an INFO line and a WARNING delivered in a single CloudWatch event with an
+# internal newline), so each record is handled/colored on its own -- while a
+# multi-line trace, whose continuation lines carry no prefix, stays one record.
+_NEW_RECORD_RE = re.compile(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} \w+\b')
+
+
+def _split_on_record_boundaries(event):
+    """Split one log event into per-logical-record events.
+
+    A new record begins only at a line matching _NEW_RECORD_RE; continuation
+    lines stay attached to the preceding record. Byte-preserving: concatenating
+    the returned events' messages reproduces the input message exactly. Returns
+    a single-element list when there is nothing to split.
+    """
+    message = event['message']
+    lines = message.splitlines(keepends=True)
+    records = []
+    current = []
+    for line in lines:
+        if current and _NEW_RECORD_RE.match(line):
+            records.append(''.join(current))
+            current = []
+        current.append(line)
+    if current:
+        records.append(''.join(current))
+
+    if len(records) <= 1:
+        return [event]
+    return [{**event, 'message': rec} for rec in records]
 
 
 class GlueLogReassembler:
@@ -35,7 +71,7 @@ class GlueLogReassembler:
 
 
             if msg.endswith('\n'):
-                reassembled.append(self.partial)
+                reassembled.extend(_split_on_record_boundaries(self.partial))
                 self.partial = None  # Reset buffer
 
         return reassembled
@@ -54,12 +90,12 @@ class GlueLogReassembler:
                 self.partial = {'timestamp': event['timestamp'], 'message': msg}
 
             if msg.endswith('\n'):
-                output.append(self.partial)
+                output.extend(_split_on_record_boundaries(self.partial))
                 self.partial = None
 
         # Final forced flush of any dangling partial
         if self.partial:
-            output.append(self.partial)
+            output.extend(_split_on_record_boundaries(self.partial))
             self.partial = None
 
         return output

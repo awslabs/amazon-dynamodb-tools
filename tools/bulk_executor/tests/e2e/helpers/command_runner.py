@@ -41,6 +41,18 @@ class CommandResult:
     def succeeded(self) -> bool:
         return self.exit_code == 0
 
+    @property
+    def output(self) -> str:
+        """stdout + stderr combined.
+
+        Glue's LiveTail routes ``log.info`` to stdout but ``log.warning`` to
+        stderr, so a warning-substring assertion must look at both streams or it
+        will spuriously miss a warning that genuinely fired (observed with the
+        #89 autoscaling-degradation warnings). Assert on this, not ``stdout``,
+        whenever the thing under test is a warning/error log line.
+        """
+        return self.stdout + "\n" + self.stderr
+
 
 def run_command(
     command: str,

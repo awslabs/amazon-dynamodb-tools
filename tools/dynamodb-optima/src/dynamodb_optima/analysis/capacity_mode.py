@@ -6,7 +6,7 @@ with autoscaling simulation for accurate cost projections.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from decimal import Decimal
 from functools import lru_cache
@@ -14,6 +14,7 @@ from functools import lru_cache
 from ..config import get_settings
 from ..logging import get_logger
 from ..aws.pricing_collector import PricingCollector
+from ..database import lake
 from .autoscaling_sim import AutoscalingSimulator, MetricDataPoint
 
 logger = get_logger(__name__)
@@ -245,59 +246,57 @@ class CapacityModeAnalyzer:
         table_name: str,
         days: int
     ) -> Tuple[List[MetricDataPoint], List[MetricDataPoint]]:
-        """Get CloudWatch metrics from database."""
-        cutoff_date = datetime.now() - timedelta(days=days)
-        
-        # Get read metrics from metrics table (resource_name for both tables and GSIs)
-        read_results = self.connection.execute(
-            """
-            SELECT timestamp, value
-            FROM metrics
-            WHERE account_id = ? AND region = ? AND resource_name = ?
-                AND metric_name = 'ConsumedReadCapacityUnits'
-                AND statistic = 'Sum'
-                AND timestamp >= ?
-            ORDER BY timestamp ASC
-            """,
-            (account_id, region, table_name, cutoff_date)
-        ).fetchall()
-        
-        # Get write metrics
-        write_results = self.connection.execute(
-            """
-            SELECT timestamp, value
-            FROM metrics
-            WHERE account_id = ? AND region = ? AND resource_name = ?
-                AND metric_name = 'ConsumedWriteCapacityUnits'
-                AND statistic = 'Sum'
-                AND timestamp >= ?
-            ORDER BY timestamp ASC
-            """,
-            (account_id, region, table_name, cutoff_date)
-        ).fetchall()
-        
+        """Get CloudWatch metrics from the Parquet lake (table resource, not GSIs)."""
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+        end_date = datetime.now(timezone.utc)
+
+        df = lake.read_metrics(account_id, region, table_name, cutoff_date, end_date)
+
+        if df.empty:
+            return [], []
+
+        df = df.sort_values("timestamp")
+
+        # resource_name for the table itself equals table_name (GSIs use table_name#gsi_name
+        # and are not read here, matching the old query's implicit scope via resource_name = table_name).
+        df = df[df["resource_name"] == table_name]
+
+        read_df = df[
+            (df["metric_name"] == "ConsumedReadCapacityUnits") & (df["statistic"] == "Sum")
+        ]
+        write_df = df[
+            (df["metric_name"] == "ConsumedWriteCapacityUnits") & (df["statistic"] == "Sum")
+        ]
+
+        # Sum -> per-second rate: divide by the row's ACTUAL period_seconds, not a
+        # hardcoded 60. The lake stores mixed 60s (1-min) and 300s (5-min) rows;
+        # assuming 60 makes 5-min data read 5x too high.
         read_metrics = [
             MetricDataPoint(
                 metric_name="ConsumedReadCapacityUnits",
-                timestamp=row[0],
+                timestamp=ts,
                 table_name=table_name,
-                consumed_units=float(row[1]),
-                units_per_second=float(row[1]) / 60.0
+                consumed_units=float(value),
+                units_per_second=float(value) / float(period) if period else float(value)
             )
-            for row in read_results
+            for ts, value, period in zip(
+                read_df["timestamp"], read_df["value"], read_df["period_seconds"]
+            )
         ]
-        
+
         write_metrics = [
             MetricDataPoint(
                 metric_name="ConsumedWriteCapacityUnits",
-                timestamp=row[0],
+                timestamp=ts,
                 table_name=table_name,
-                consumed_units=float(row[1]),
-                units_per_second=float(row[1]) / 60.0
+                consumed_units=float(value),
+                units_per_second=float(value) / float(period) if period else float(value)
             )
-            for row in write_results
+            for ts, value, period in zip(
+                write_df["timestamp"], write_df["value"], write_df["period_seconds"]
+            )
         ]
-        
+
         return read_metrics, write_metrics
     
     def _calculate_costs(

@@ -127,35 +127,6 @@ CREATE INDEX IF NOT EXISTS idx_pricing_operation ON pricing_data(operation);
 CREATE INDEX IF NOT EXISTS idx_pricing_collected ON pricing_data(collected_at);
 """
 
-# CloudWatch metrics schema (metrics is the actual table name used by collector)
-CLOUDWATCH_METRICS_SCHEMA = """
-CREATE TABLE IF NOT EXISTS metrics (
-    account_id VARCHAR NOT NULL,
-    table_name VARCHAR,
-    resource_name VARCHAR,
-    resource_type VARCHAR,
-    metric_name VARCHAR,
-    operation VARCHAR,
-    operation_type VARCHAR,
-    statistic VARCHAR,
-    period_seconds INTEGER,
-    timestamp TIMESTAMP,
-    value DOUBLE,
-    unit VARCHAR,
-    region VARCHAR,
-    dimensions JSON,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (account_id, resource_name, metric_name, timestamp, statistic, period_seconds)
-);
-
--- Optimized indexes for analytical queries
--- Note: Primary key (account_id, resource_name, metric_name, timestamp, statistic, period_seconds)
--- already provides efficient gap detection queries via MAX(timestamp)
-CREATE INDEX IF NOT EXISTS idx_metrics_account_table_time ON metrics(account_id, table_name, timestamp);
-CREATE INDEX IF NOT EXISTS idx_metrics_type_time ON metrics(resource_type, timestamp);
-CREATE INDEX IF NOT EXISTS idx_metrics_operation ON metrics(metric_name, operation, timestamp);
-"""
-
 # Capacity mode recommendations schema
 CAPACITY_MODE_RECOMMENDATIONS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS capacity_mode_recommendations (
@@ -396,7 +367,6 @@ ALL_SCHEMAS = [
     GSI_METADATA_SCHEMA,
     AWS_ACCOUNTS_SCHEMA,
     PRICING_DATA_SCHEMA,
-    CLOUDWATCH_METRICS_SCHEMA,
     CAPACITY_MODE_RECOMMENDATIONS_SCHEMA,
     TABLE_CLASS_RECOMMENDATIONS_SCHEMA,
     UTILIZATION_RECOMMENDATIONS_SCHEMA,
@@ -421,7 +391,6 @@ def get_table_schemas() -> dict[str, str]:
         "gsi_metadata": GSI_METADATA_SCHEMA,
         "aws_accounts": AWS_ACCOUNTS_SCHEMA,
         "pricing_data": PRICING_DATA_SCHEMA,
-        "metrics": CLOUDWATCH_METRICS_SCHEMA,
         "capacity_mode_recommendations": CAPACITY_MODE_RECOMMENDATIONS_SCHEMA,
         "table_class_recommendations": TABLE_CLASS_RECOMMENDATIONS_SCHEMA,
         "utilization_recommendations": UTILIZATION_RECOMMENDATIONS_SCHEMA,

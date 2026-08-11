@@ -720,6 +720,37 @@ class TestGetAndPrintDynamoDBTableInfo:
         assert result['write_pricing_category'] == 'std_wcu_pricing'
         assert result['read_pricing_category'] == 'std_rcu_pricing'
 
+    def test_autoscaling_describe_denied_does_not_crash_print(
+        self, boto3_mock, full_provisioned_response, caplog
+    ):
+        # Issue #89: the Auto Scaling Settings block in the info-print is a
+        # best-effort DIAGNOSTIC. If the Glue role lacks
+        # application-autoscaling:DescribeScalableTargets, the describe call
+        # raises AccessDenied — this must NOT take the whole job down at
+        # info-print time (a provisioned load previously crashed here, before
+        # any data moved). Instead: log an honest "could not read ... skipping"
+        # note naming the permission, and still return the table metadata.
+        import logging
+        boto3_mock.dynamodb_client.describe_table.return_value = full_provisioned_response
+        boto3_mock.autoscaling_client.describe_scalable_targets.side_effect = (
+            RuntimeError(
+                'AccessDeniedException: not authorized to perform: '
+                'application-autoscaling:DescribeScalableTargets'
+            )
+        )
+        with caplog.at_level(logging.DEBUG):
+            result = table_info.get_and_print_dynamodb_table_info('my-table')
+        # Did not crash; metadata came back intact.
+        assert result['billing_mode'] == 'PROVISIONED'
+        assert result['item_count'] == 1000000
+        # Honest skip note, naming the missing permission.
+        skip = [
+            m for m in caplog.messages
+            if 'Could not read autoscaling settings' in m
+            and 'DescribeScalableTargets' in m
+        ]
+        assert skip, caplog.messages
+
     def test_provisioned_table_quiet_mode(
         self, boto3_mock, full_provisioned_response, caplog
     ):
@@ -777,7 +808,7 @@ class TestGetAndPrintDynamoDBTableInfo:
         boto3_mock.dynamodb_client.describe_table.side_effect = (
             ResourceNotFoundException('not found')
         )
-        with pytest.raises(ValueError, match="does not exist"):
+        with pytest.raises(table_info.BulkExecutorError, match="does not exist"):
             table_info.get_and_print_dynamodb_table_info('ghost-table')
 
     def test_gsi_provisioned_returns_index_metadata(
@@ -1025,6 +1056,24 @@ class TestGetAndPrintTableScanCost:
         assert cost > 0
         pricing_mock.return_value.get_on_demand_capacity_pricing.assert_called_with('us-east-1')
 
+    def test_missing_price_key_returns_zero_without_crashing(
+        self, boto3_mock, monkeypatch, ondemand_table_info, caplog
+    ):
+        # #272: an empty/incomplete pricing dict (e.g. renamed family/group,
+        # region without a published price) must fail soft, not KeyError.
+        import logging
+        mock = MagicMock()
+        mock.return_value.get_on_demand_capacity_pricing.return_value = {}  # no keys
+        monkeypatch.setattr(table_info, 'PricingUtility', mock)
+
+        with caplog.at_level(logging.WARNING):
+            cost = table_info.get_and_print_table_scan_cost(
+                ondemand_table_info, region_name='us-west-2'
+            )
+        assert cost == 0
+        assert "unavailable" in caplog.text
+        assert "std_rcu_pricing" in caplog.text
+
 
 # --- get_and_print_table_write_cost ----------------------------------------
 
@@ -1111,6 +1160,21 @@ class TestGetAndPrintTableWriteCost:
             table_info_provisioned, item_count=100, size_bytes=10240
         )
         assert cost == 0
+
+    def test_missing_price_key_returns_zero_without_crashing(
+        self, boto3_mock, monkeypatch, table_info_ondemand, caplog
+    ):
+        # #272: previously float(None) -> TypeError on this path.
+        import logging
+        mock = MagicMock()
+        mock.return_value.get_on_demand_capacity_pricing.return_value = {}
+        monkeypatch.setattr(table_info, 'PricingUtility', mock)
+        with caplog.at_level(logging.WARNING):
+            cost = table_info.get_and_print_table_write_cost(
+                table_info_ondemand, item_count=1000, size_bytes=2048000
+            )
+        assert cost == 0
+        assert "unavailable" in caplog.text
 
 
 # --- get_and_print_table_copy_write_cost -----------------------------------
@@ -1201,6 +1265,21 @@ class TestGetAndPrintTableCopyWriteCost:
             source_info, target
         )
         assert cost == 0
+
+    def test_missing_price_key_returns_zero_without_crashing(
+        self, boto3_mock, monkeypatch, source_info, target_ondemand, caplog
+    ):
+        # #272: copy-write path also hard-indexed the pricing dict.
+        import logging
+        mock = MagicMock()
+        mock.return_value.get_on_demand_capacity_pricing.return_value = {}
+        monkeypatch.setattr(table_info, 'PricingUtility', mock)
+        with caplog.at_level(logging.WARNING):
+            cost = table_info.get_and_print_table_copy_write_cost(
+                source_info, target_ondemand
+            )
+        assert cost == 0
+        assert "unavailable" in caplog.text
 
 
 # --- get_quota_value additional branches -----------------------------------
