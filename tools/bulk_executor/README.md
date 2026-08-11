@@ -87,12 +87,14 @@ Here are some example use cases:
 ./bulk scancount --table t --per-segment --segments 50
 
 # Use --sample-fraction to scan only a fraction of the segments and 
-# extrapolate an estimated total with a 95% confidence interval 
-# (0.1 = 10% of segments). Most useful when paired with a --filter-expression 
-# to, for example, estimate how many items have an ISO timestamp from 2024 
-# or earlier.
+# extrapolate an estimated total with a 95% confidence interval. Most
+# useful when paired with a --filter-expression to, for example, estimate
+# how many items have an ISO timestamp from 2024 or earlier.
 # Combine with --per-segment to see the skew that drives the error margin.
-./bulk scancount --table t --filter-expression "#ts < :cutoff" --expression-names '{"#ts": "timestamp"}' --expression-values '{":cutoff":"2025-01-01"}' --sample-fraction 0.1
+# This command divides the table into 10,000 segments, samples 1% (100) of them,
+# limits the count to older items, and prints the counts per segment and the
+# likely extrapolated overall count based on the statistical sampling.
+./bulk scancount --table t --segments 10000 --sample-fraction 0.01 --filter-expression "#ts < :cutoff" --expression-names '{"#ts": "timestamp"}' --expression-values '{":cutoff":"2025-01-01"}'
 
 
 # Compare two tables for differences (uses segmented scans internally)
