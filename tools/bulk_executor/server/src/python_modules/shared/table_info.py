@@ -205,8 +205,6 @@ def get_and_print_dynamodb_table_info(table_name, index_name=None, quiet=False):
     }
 
 def get_and_print_table_scan_cost(table_info, region_name=None, fraction=1.0, numberOfScans=1):
-    # For cross-region scenarios, callers must pass region_name explicitly.
-    # The fallback to _default_region() is correct for single-region verbs.
     region_name = (
         region_name
         or table_info.get("region_name")
@@ -270,8 +268,6 @@ def get_and_print_table_write_cost(table_info, item_count, size_bytes):
     return 0
 
 def get_and_print_table_copy_write_cost(source_info, target_info):
-    # For cross-region, target_info should include "region_name" so pricing
-    # uses the target region. Falls back to default region for single-region usage.
     region_name = (
         target_info.get("region_name") # it's the target we price writes in
         or _default_region()

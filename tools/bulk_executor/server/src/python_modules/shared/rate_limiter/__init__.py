@@ -31,7 +31,6 @@ class RateLimiterAggregator:
     Args:
         shared_config (RateLimiterSharedConfig): The shared config between Aggregator and Worker.
         modes (none to many list of ("read", "write")): The expected execution modes of the DynamoDB actions requiring rate limiting.
-
     """
     def __init__(self, shared_config):
         log.debug(f"Initializing...Bucket:{shared_config.bucket}, Prefix:{shared_config.bucket}")
