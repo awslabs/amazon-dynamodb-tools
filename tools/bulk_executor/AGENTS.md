@@ -100,6 +100,5 @@ Tests-only PRs and source-refactor PRs must stand independently on `main`. Never
 | `server/src/python_modules/fill/multi_entity_relationship.py:390-391` | missing comma drops `"Sole Proprietorship"` from `CompanyType` pool |
 | `client/src/reassembler.py` | `process` may merge unrelated lines via dangling partial |
 | `client/src/utils/cli_animator.py` | `with_spinner_animation` outer `while` is dead code |
-| `client/src/infrastructure/bootstrap.py:64` | `_get_role_name` checks role existence before `_add_glue_job_role` creates it; custom-role bootstrap is impossible |
 | `client/src/infrastructure/teardown.py:31,160,198` | uses deprecated `log.warn`; should be `log.warning` |
 | `client/src/infrastructure/verifier.py:34` | `int(remote_bulk_dynamodb_version)` will crash on non-numeric semver strings |
