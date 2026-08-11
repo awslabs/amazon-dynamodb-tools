@@ -1,8 +1,8 @@
 # Bulk Executor for Amazon DynamoDB
 
-![tests](https://img.shields.io/badge/tests-1443%20passing-brightgreen)
-![line coverage](https://img.shields.io/badge/line%20coverage-94.9%25-brightgreen)
-![branch coverage](https://img.shields.io/badge/branch%20coverage-91.0%25-brightgreen)
+![tests](https://img.shields.io/badge/tests-1502%20passing-brightgreen)
+![line coverage](https://img.shields.io/badge/line%20coverage-95.0%25-brightgreen)
+![branch coverage](https://img.shields.io/badge/branch%20coverage-91.5%25-brightgreen)
 
 Bulk Executor for Amazon DynamoDB lets you efficiently run bulk commands against even large tables. It:
 
@@ -83,8 +83,16 @@ Here are some example use cases:
 ./bulk scancount --table t --per-segment
 
 # By default scancount uses 200 parallel scan segments. Use --segments to
-# tune that — fewer for small tables, more to increase per-segment resolution.
+# tune that: fewer for small tables, more to increase per-segment resolution.
 ./bulk scancount --table t --per-segment --segments 50
+
+# Use --sample-fraction to scan only a fraction of the segments and 
+# extrapolate an estimated total with a 95% confidence interval 
+# (0.1 = 10% of segments). Most useful when paired with a --filter-expression 
+# to, for example, estimate how many items have an ISO timestamp from 2024 
+# or earlier.
+# Combine with --per-segment to see the skew that drives the error margin.
+./bulk scancount --table t --filter-expression "#ts < :cutoff" --expression-names '{"#ts": "timestamp"}' --expression-values '{":cutoff":"2025-01-01"}' --sample-fraction 0.1
 
 
 # Compare two tables for differences (uses segmented scans internally)
@@ -475,6 +483,7 @@ If you ever want to stop execution early, you can hit Control-C. The interrupt w
 * Accepts a `filter-expression` to filter down the items counted. This expression uses the usual DynamoDB syntax. Requires a supporting  `expression-values` parameter and sometimes `expression-names`, as with usual DynamoDB scan calls.
 * Accepts an optional `per-segment` flag to print the item count for each scan segment (sorted descending, with each segment's share of the total). It also reports a skew ratio (hottest segment count / mean) and warns when that ratio exceeds 5x, which indicates an uneven key distribution / hot partition.
 * Accepts an optional `segments` parameter to control how many parallel scan segments are used (default 200). Lower it for small tables; raise it for finer per-segment resolution when diagnosing skew.
+* Accepts an optional `sample-fraction` (`> 0` and `≤ 1.0`, default `1.0`) to scan only a fraction of the segments and extrapolate an estimated total, reported with a 95% confidence interval. Because an unfiltered item count is already available for free (and exact) from `DescribeTable`, sampling is intended to be paired with a `filter-expression`: it estimates how many items match a predicate without paying for a full scan. The margin of error is driven by how evenly matches are spread across segments, so `per-segment` shows the skew behind it (with only one segment sampled, a point estimate is printed without an interval).
 
 #### `diff`
 

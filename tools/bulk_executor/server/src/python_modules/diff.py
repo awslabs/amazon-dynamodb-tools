@@ -311,7 +311,7 @@ def run(job, spark_context, glue_context, parsed_args):
         segment_indices = sorted(random.sample(segment_indices, sample_size))
         true_fraction = sample_size / splits
         print()
-        percent = f"{true_fraction * 100:.10f}".rstrip('0').rstrip('.') + '%' # no zeros in decimal
+        percent = f"{true_fraction * 100:.3f}".rstrip('0').rstrip('.') + '%' # at most 3 decimals, no trailing zeros
         print(f"Sampling {percent} of segments ({sample_size} of {splits} total): {segment_indices}")
         print()
 
