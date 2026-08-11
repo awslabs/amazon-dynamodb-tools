@@ -30,14 +30,14 @@ class RateLimiterAggregator:
 
     Args:
         shared_config (RateLimiterSharedConfig): The shared config between Aggregator and Worker.
-        region_name (str): Name of region in which session should be created.
         modes (none to many list of ("read", "write")): The expected execution modes of the DynamoDB actions requiring rate limiting.
+
     """
-    def __init__(self, shared_config, region_name=None):
+    def __init__(self, shared_config):
         log.debug(f"Initializing...Bucket:{shared_config.bucket}, Prefix:{shared_config.bucket}")
 
         self.rate_limiter_monitor_aggregator = DistributedDynamoDBMonitorAggregator(
-            session=Session(region_name=region_name),
+            session=Session(),
             bucket=shared_config.bucket,
             prefix=shared_config.prefix,
         )
@@ -56,11 +56,10 @@ class RateLimiterWorker:
 
     Args:
         shared_config (RateLimiterSharedConfig): The shared config between Aggregator and Worker.
-        region_name (str): Name of region in which session should be created.
         monitor_options: The expected monitor options (see @table_info#get_dynamodb_throughput_configs for more info)
     """
-    def __init__(self, shared_config, region_name=None, **monitor_options):
-        self.session = Session(region_name=region_name)
+    def __init__(self, shared_config, **monitor_options):
+        self.session = Session()
         log.info(f"Rate limiter, init, monitor_options {monitor_options}")
         self.rate_limiter_monitor_worker = DistributedDynamoDBMonitorWorker(
             session=self.session,
