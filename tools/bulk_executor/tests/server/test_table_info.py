@@ -1428,5 +1428,3 @@ class TestGetThroughputConfigsReadRateFalsyConnector:
         )
         assert 'dynamodb.throughput.read' not in opts
         assert opts['dynamodb.throughput.write'] == '100'
-
-
