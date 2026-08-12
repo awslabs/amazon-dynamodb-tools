@@ -250,6 +250,66 @@ def test_restrictive_inline_dynamodb_does_not_false_warn(e2e_config):
         _delete_role(iam, role_name)
 
 
+def test_quota_scoped_to_dynamodb_does_not_false_warn(e2e_config):
+    """Service Quotas granted only on arn:aws:servicequotas:*:*:dynamodb/* --
+    exactly the resource scope bootstrap itself creates -- must satisfy the
+    quota check against real IAM.
+
+    This is the regression guard for the scope mismatch: the earlier validator
+    simulated the two quota reads against Resource "*", which real IAM reports as
+    implicitDeny for a dynamodb/*-scoped grant -- so it warned that a role our
+    OWN bootstrap created lacked quota access. The check is now a presence check
+    over the role's Allow statements, which accepts the scoped grant. Every other
+    "valid quota" case in this file grants on Resource "*", so without this test
+    the scoped shape the bug was actually about goes unexercised on real IAM."""
+    iam = boto3.client("iam")
+    role_name = _unique_role_name()
+    scoped_quota_extras = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "servicequotas:GetServiceQuota",
+                    "servicequotas:GetAWSDefaultServiceQuota",
+                ],
+                # The exact scope bootstrap._add_glue_job_role puts.
+                "Resource": "arn:aws:servicequotas:*:*:dynamodb/*",
+            },
+            {
+                # pricing + autoscaling don't support resource scoping, so keep
+                # them on "*" (as bootstrap does) to isolate the quota scope as
+                # the only variable under test.
+                "Effect": "Allow",
+                "Action": [
+                    "pricing:GetProducts",
+                    "application-autoscaling:DescribeScalableTargets",
+                ],
+                "Resource": "*",
+            },
+        ],
+    }
+    try:
+        _make_role(
+            iam, role_name,
+            trust=_GLUE_TRUST,
+            managed_arns=[GLUE_BASELINE_ARN, DDB_READONLY_ARN],
+            inline={"ScopedQuotaExtras": scoped_quota_extras},
+        )
+        findings = validate_custom_role_permissions(iam, role_name)
+        assert not any("servicequotas" in w.lower() for w in _messages(findings)), (
+            "A DynamoDB-scoped Service Quotas grant (what bootstrap creates) must "
+            f"not warn, but the validator returned: {findings!r}. A warning here "
+            "means the quota check regressed to simulating against Resource '*'."
+        )
+        # Nothing else is missing either, so the role should be fully clean.
+        assert findings == [], (
+            f"scoped-quota lockdown role should yield no findings; got {findings!r}"
+        )
+    finally:
+        _delete_role(iam, role_name)
+
+
 def test_missing_pricing_and_quota_warns_against_real_iam(e2e_config):
     """A role missing the pricing + quota grants must warn -- proving the
     capability checks actually fire on a real role (not just on a mock)."""
