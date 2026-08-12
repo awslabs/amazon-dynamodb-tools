@@ -27,6 +27,18 @@ make coverage       # Full term-missing coverage report
 
 Never invoke `pytest` with `--cov=python_modules`. The two source roots are `server/src` and `client/src` — coverage flags must use those paths.
 
+## AI lint (on-demand, agent-run)
+
+`ai_lint/` holds AI-driven checks for invariants that are easy to verify by reading code but very hard to express as a deterministic unit test (e.g. "the README, the role-creation code, and the custom-role validator must all agree on the Glue job's IAM permissions"; "every command that touches DynamoDB must be rate limited").
+
+There is no runner — **you (the agent) are the engine.** When the user asks to "run the AI lint" (or names a specific rule):
+
+1. Read every `ai_lint/rules/*.md`. Each file is one rule: the invariant, where to look, and how to report.
+2. For each rule, inspect the *current* code with your normal tools — glob/grep/read. Rules that say "discover the verbs" mean it: enumerate live so newly added code is covered; never work from a stale hard-coded list.
+3. Report per-rule findings, and state what you verified even when clean (so a pass is trustworthy).
+
+This is **advisory** — never a merge gate, never part of `make test`. A false alarm is feedback, not failure: if a finding turns out fine, tighten the rule's `.md` so the next run is sharper. Add a rule by dropping a new `rules/<name>.md` (one per file keeps merges clean). See [`ai_lint/README.md`](ai_lint/README.md).
+
 ## End-to-end tests (real AWS — opt-in)
 
 `make test` is offline (awsglue/pyspark mocked). The **e2e suites are separate**, hit real Glue + DynamoDB, and never run under `make test`:
