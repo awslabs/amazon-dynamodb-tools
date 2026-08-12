@@ -8,8 +8,8 @@ returns a list of Finding(severity, message):
   2. trust policy allows glue.amazonaws.com        -- FATAL
   3. AWSGlueServiceRole managed policy attached    -- WARNING
   4. pricing:GetProducts                           -- WARNING (via SimulatePrincipalPolicy)
-  5. servicequotas Get{Service,AWSDefaultService}Quota -- WARNING (via SimulatePrincipalPolicy)
-  6. application-autoscaling:DescribeScalableTargets   -- WARNING, soft (via SimulatePrincipalPolicy)
+  5. application-autoscaling:DescribeScalableTargets   -- WARNING, soft (via SimulatePrincipalPolicy)
+  6. servicequotas Get{Service,AWSDefaultService}Quota -- WARNING (presence check over Allow statements)
   7. some DynamoDB access                          -- WARNING (presence check over Allow statements)
 
 Two severities, two consequences (see role_validator docstring):
@@ -23,22 +23,23 @@ Two severities, two consequences (see role_validator docstring):
 
 How effective permissions are determined (and what these tests pin down):
 
-* pricing / quota / autoscaling are ``Resource:"*"`` actions, so they are
-  evaluated with ``iam:SimulatePrincipalPolicy`` -- IAM's own evaluator, which
-  honors Deny / NotAction / conditions. ``_FakeIam.simulate_principal_policy``
-  models that faithfully: it collects Allow and Deny patterns from the role's
-  managed + inline documents and lets Deny win, so
-  ``TestSimulateHonorsDeny`` proves an explicit Deny suppresses a capability the
-  old Allow-only collector would have wrongly counted as granted.
-* DynamoDB is resource-scoped (the target table isn't known at bootstrap time),
-  so it stays a *presence* check over the role's Allow statements -- a per-table
-  lockdown policy must satisfy it without false-warning. That is what
-  ``TestDynamoDbCapability`` and the ``TestPolicyDocumentShapes`` collector
-  tests cover.
+* pricing / autoscaling are ``Resource:"*"`` actions (neither supports resource
+  scoping), so they are evaluated with ``iam:SimulatePrincipalPolicy`` -- IAM's
+  own evaluator, which honors Deny / NotAction / conditions.
+  ``_FakeIam.simulate_principal_policy`` models that faithfully: it collects
+  Allow and Deny patterns from the role's managed + inline documents and lets
+  Deny win, so ``TestSimulateHonorsDeny`` proves an explicit Deny suppresses a
+  capability the old Allow-only collector would have wrongly counted as granted.
+* Service Quotas and DynamoDB are resource-scoped (bootstrap grants the quota
+  reads on ``arn:aws:servicequotas:*:*:dynamodb/*`` and DynamoDB on the target
+  tables, unknown at bootstrap time), so both are *presence* checks over the
+  role's Allow statements. Simulating either against ``*`` would false-deny the
+  scoped grant our own bootstrap creates. ``TestQuotaCapability`` (incl. the
+  scoped-ARN regression) and ``TestDynamoDbCapability`` cover this.
 
 Every IAM read is best-effort: simulate failing skips only the star
-capabilities; a policy-document read failing skips only the DynamoDB check
-(``TestGracefulDegradation``).
+capabilities (pricing/autoscaling); a policy-document read failing skips both
+presence checks (quotas + DynamoDB) (``TestGracefulDegradation``).
 """
 
 from unittest.mock import MagicMock, patch
@@ -362,6 +363,68 @@ class TestQuotaCapability:
         findings = validate_custom_role_permissions(iam, GOOD_ROLE_NAME)
         assert any("servicequotas" in m.lower() for m in _msgs(findings))
 
+    def test_quota_scoped_to_dynamodb_resource_does_not_warn(self):
+        """Regression: bootstrap grants the two quota reads scoped to
+        arn:aws:servicequotas:*:*:dynamodb/* (NOT Resource "*"). The old
+        SimulatePrincipalPolicy-on-"*" check false-denied that -- warning that a
+        role our own bootstrap created lacked quota access. The presence check
+        must accept the scoped grant."""
+        scoped_quota_stmt = {
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Action": [
+                    "servicequotas:GetServiceQuota",
+                    "servicequotas:GetAWSDefaultServiceQuota",
+                ],
+                "Resource": "arn:aws:servicequotas:*:*:dynamodb/*",
+            }],
+        }
+        iam = _FakeIam(
+            trust=_trust("glue.amazonaws.com"),
+            attached_arns=[GLUE_BASELINE_ARN, DDB_FULL_ARN],
+            inline={
+                "star": _managed_doc(
+                    "pricing:GetProducts",
+                    "application-autoscaling:DescribeScalableTargets",
+                ),
+                "scopedquota": scoped_quota_stmt,
+            },
+        )
+        findings = validate_custom_role_permissions(iam, GOOD_ROLE_NAME)
+        assert not any("servicequotas" in m.lower() for m in _msgs(findings)), (
+            "a DynamoDB-scoped quota grant (what bootstrap creates) must not warn"
+        )
+
+    def test_quota_via_servicequotas_service_wildcard_satisfies(self):
+        """A servicequotas:* wildcard grant covers both required reads."""
+        iam = _FakeIam(
+            trust=_trust("glue.amazonaws.com"),
+            attached_arns=[GLUE_BASELINE_ARN, DDB_FULL_ARN],
+            inline={"x": _managed_doc(
+                "pricing:GetProducts",
+                "servicequotas:*",
+                "application-autoscaling:DescribeScalableTargets",
+            )},
+        )
+        findings = validate_custom_role_permissions(iam, GOOD_ROLE_NAME)
+        assert not any("servicequotas" in m.lower() for m in _msgs(findings))
+
+    def test_quota_via_get_prefix_wildcard_satisfies(self):
+        """A servicequotas:Get* prefix glob (as ServiceQuotasReadOnlyAccess-style
+        grants use) covers both GetServiceQuota and GetAWSDefaultServiceQuota."""
+        iam = _FakeIam(
+            trust=_trust("glue.amazonaws.com"),
+            attached_arns=[GLUE_BASELINE_ARN, DDB_FULL_ARN],
+            inline={"x": _managed_doc(
+                "pricing:GetProducts",
+                "servicequotas:Get*",
+                "application-autoscaling:DescribeScalableTargets",
+            )},
+        )
+        findings = validate_custom_role_permissions(iam, GOOD_ROLE_NAME)
+        assert not any("servicequotas" in m.lower() for m in _msgs(findings))
+
 
 class TestAutoscalingCapability:
     def test_warns_when_no_autoscaling_but_marks_soft(self):
@@ -573,8 +636,9 @@ class TestGracefulDegradation:
         assert not any("pricing" in m for m in _msgs(findings))
 
     def test_simulate_failure_skips_only_star_capabilities(self):
-        # simulate fails → pricing/quota/autoscaling skipped; DynamoDB (doc
-        # presence) still checked and satisfied here, so NO findings at all.
+        # simulate fails → pricing/autoscaling (the star caps) skipped; quotas
+        # and DynamoDB are doc-presence checks, independent of simulate, and
+        # satisfied here, so NO findings at all.
         iam = _fully_valid_iam()
         iam._fail_on = {"simulate_principal_policy"}
         findings = validate_custom_role_permissions(iam, GOOD_ROLE_NAME)
@@ -583,10 +647,24 @@ class TestGracefulDegradation:
         assert not any("application-autoscaling" in m for m in _msgs(findings))
         assert not any("no DynamoDB permissions" in m for m in _msgs(findings))
 
-    def test_missing_role_arn_skips_star_capabilities(self):
+    def test_simulate_failure_does_not_skip_quota_presence_check(self):
+        # Regression for the mechanism change: quotas is now a presence check,
+        # so a simulate failure must NOT suppress it. A role missing quota
+        # access still warns even when SimulatePrincipalPolicy is unavailable.
+        iam = _FakeIam(
+            trust=_trust("glue.amazonaws.com"),
+            attached_arns=[GLUE_BASELINE_ARN, DDB_FULL_ARN],  # no quota access
+            fail_on={"simulate_principal_policy"},
+        )
+        findings = validate_custom_role_permissions(iam, GOOD_ROLE_NAME)
+        assert any("servicequotas" in m.lower() for m in _msgs(findings)), (
+            "quotas is a presence check; simulate being down must not hide it"
+        )
+
+    def test_missing_role_arn_skips_only_star_capabilities(self):
         # Defensive: if get_role returns a role with no Arn, we can't simulate,
-        # so the star capabilities are skipped (not false-warned). DynamoDB
-        # (doc presence) is unaffected and still satisfied here.
+        # so the star caps (pricing/autoscaling) are skipped (not false-warned).
+        # Quotas + DynamoDB are doc-presence checks, unaffected, satisfied here.
         iam = _fully_valid_iam()
         original = iam.get_role
         iam.get_role = lambda RoleName: {"Role": {
@@ -597,16 +675,20 @@ class TestGracefulDegradation:
         assert not any("servicequotas" in m.lower() for m in _msgs(findings))
         assert not any("no DynamoDB permissions" in m for m in _msgs(findings))
 
-    def test_policy_read_failure_skips_only_dynamodb(self):
-        # get_policy fails → DynamoDB presence check skipped; the star
-        # capabilities (via simulate) are independent and still evaluated.
-        iam = _fully_valid_iam()
-        iam._fail_on = {"get_policy"}
+    def test_policy_read_failure_skips_both_presence_checks(self):
+        # get_policy fails → the quota AND DynamoDB presence checks are skipped
+        # (both read policy docs); the star caps (via simulate) still evaluate.
+        # Use a role with NO quota/DynamoDB grant so, if the presence checks
+        # wrongly ran on empty data, they would warn — proving they're skipped.
+        iam = _FakeIam(
+            trust=_trust("glue.amazonaws.com"),
+            attached_arns=[GLUE_BASELINE_ARN, DDB_FULL_ARN, QUOTAS_RO_ARN],
+            fail_on={"get_policy"},
+        )
         findings = validate_custom_role_permissions(iam, GOOD_ROLE_NAME)
-        # DynamoDB check couldn't run → no DynamoDB finding (not a false warn).
+        # Both presence checks couldn't run → no false warnings.
         assert not any("no DynamoDB permissions" in m for m in _msgs(findings))
-        # Simulate still ran → pricing satisfied (fully-valid role) → no warning.
-        assert not any("pricing" in m for m in _msgs(findings))
+        assert not any("servicequotas" in m.lower() for m in _msgs(findings))
 
 
 class TestIntegrationWithBootstrap:

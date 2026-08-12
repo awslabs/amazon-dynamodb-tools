@@ -17,22 +17,23 @@ list of :class:`Finding` objects. Each finding carries a ``severity``:
 
 How effective permissions are determined, and why:
 
-* The ``*``-resource capabilities -- ``pricing:GetProducts``, the two
-  ``servicequotas`` reads, and ``application-autoscaling:DescribeScalableTargets``
-  -- are evaluated with ``iam:SimulatePrincipalPolicy``. That is IAM's own
-  policy evaluator, so it correctly accounts for ``Deny`` statements,
-  ``NotAction``, condition keys, and permission boundaries -- none of which a
-  hand-rolled "read the Allow statements" pass gets right. These actions are
-  granted on ``Resource: "*"`` in every documented setup, so simulating against
+* ``pricing:GetProducts`` and ``application-autoscaling:DescribeScalableTargets``
+  are evaluated with ``iam:SimulatePrincipalPolicy``. That is IAM's own policy
+  evaluator, so it correctly accounts for ``Deny`` statements, ``NotAction``,
+  condition keys, and permission boundaries -- none of which a hand-rolled "read
+  the Allow statements" pass gets right. Neither action supports resource-level
+  scoping, so bootstrap grants both on ``Resource: "*"`` and simulating against
   ``*`` is authoritative.
-* DynamoDB access is a *presence* check over the role's Allow statements
-  (managed-policy documents + inline policies), NOT a simulation. DynamoDB is
-  resource-scoped and the target table isn't known at bootstrap time, so
-  simulating ``dynamodb:Scan`` against ``*`` would report a denial for a
-  perfectly valid table-scoped lockdown policy -- re-introducing the false
-  warning this validator is meant to avoid. A presence check ("does the role
-  allow any ``dynamodb:`` action anywhere?") correctly accepts per-table
-  policies. Its one blind spot -- an Allow later cancelled by a Deny -- is
+* Service Quotas and DynamoDB access are *presence* checks over the role's Allow
+  statements (managed-policy documents + inline policies), NOT simulations. Both
+  are resource-scoped in the documented setup -- bootstrap grants the two
+  ``servicequotas`` reads on ``arn:aws:servicequotas:*:*:dynamodb/*`` and
+  DynamoDB on the target tables -- so simulating either against ``*`` would
+  report a denial for a perfectly valid scoped grant, re-introducing the false
+  warning this validator is meant to avoid (a role our *own* bootstrap creates
+  would fail the quotas simulation). A presence check accepts the scoped grant
+  (and the ``ServiceQuotasReadOnlyAccess`` / ``AmazonDynamoDB*Access`` managed
+  policies). Its one blind spot -- an Allow later cancelled by a Deny -- is
   documented and accepted, because it can only ever *suppress* a warning, never
   block a bootstrap.
 
@@ -69,15 +70,18 @@ ROLE_NAME_PREFIX = "AWSGlueServiceRole"
 # (S3, CloudWatch, etc.) with no documented alternative, so we match it by ARN.
 GLUE_BASELINE_POLICY_ARN = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
 
-# Documented ``*``-resource capabilities, evaluated via SimulatePrincipalPolicy.
+# ``*``-resource capabilities, evaluated via SimulatePrincipalPolicy (neither
+# supports resource scoping, so bootstrap grants both on Resource "*").
 PRICING_ACTIONS = ("pricing:GetProducts",)
-QUOTA_ACTIONS = (
-    "servicequotas:GetServiceQuota",
-    "servicequotas:GetAWSDefaultServiceQuota",
-)
 AUTOSCALING_ACTION = "application-autoscaling:DescribeScalableTargets"
 
-# DynamoDB is resource-scoped -> presence check, not simulation (see docstring).
+# Resource-scoped capabilities -> presence check, not simulation (see docstring).
+# Bootstrap scopes the quota reads to arn:aws:servicequotas:*:*:dynamodb/*, so
+# simulating them against "*" would false-deny our own created role.
+QUOTA_ACTIONS = (
+    "servicequotas:getservicequota",
+    "servicequotas:getawsdefaultservicequota",
+)
 DYNAMODB_SERVICE = "dynamodb"
 
 # Simulate decisions that mean "the principal can perform this action".
@@ -125,11 +129,23 @@ def validate_custom_role_permissions(iam_client, role_name: str) -> list[Finding
     # custom grant is conceivable, so we advise rather than block. ---
     findings.extend(_check_glue_baseline(attached_arns))
 
-    # --- 4-6. pricing / quota / autoscaling via SimulatePrincipalPolicy ---
+    # --- 4-5. pricing / autoscaling via SimulatePrincipalPolicy. Both are
+    # granted on Resource "*" (neither supports scoping), so simulating on "*"
+    # is authoritative. ---
     findings.extend(_check_star_capabilities(iam_client, role_arn))
 
-    # --- 7. DynamoDB presence via Allow-statement collection ---
-    findings.extend(_check_dynamodb(iam_client, role_name, attached_arns))
+    # --- 6-7. Service Quotas and DynamoDB, both resource-scoped, so presence
+    # checks over the role's Allow statements (see module docstring). Read the
+    # managed + inline policy documents once and feed both checks. ---
+    allowed = _collect_allowed_actions(iam_client, role_name, attached_arns)
+    if allowed is None:
+        log.debug(
+            f"Could not read policy documents for '{role_name}' — "
+            f"skipping the Service Quotas and DynamoDB access checks"
+        )
+    else:
+        findings.extend(_check_quotas(allowed))
+        findings.extend(_check_dynamodb(allowed))
 
     return findings
 
@@ -176,22 +192,24 @@ def _check_glue_baseline(attached_arns: list[str]) -> list[Finding]:
 
 
 def _check_star_capabilities(iam_client, role_arn: str | None) -> list[Finding]:
-    """pricing / quota / autoscaling, evaluated with SimulatePrincipalPolicy.
+    """pricing / autoscaling, evaluated with SimulatePrincipalPolicy.
 
-    All three are granted on ``Resource: "*"`` in the documented setups, so
-    simulating against ``*`` is authoritative and honors Deny/NotAction/
-    conditions. Best-effort: if the role ARN is unknown or the caller lacks
-    ``iam:SimulatePrincipalPolicy``, all three checks are skipped (not warned).
+    Both are granted on ``Resource: "*"`` (neither action supports resource-level
+    scoping), so simulating against ``*`` is authoritative and honors Deny/
+    NotAction/conditions. Best-effort: if the role ARN is unknown or the caller
+    lacks ``iam:SimulatePrincipalPolicy``, both checks are skipped (not warned).
+    Service Quotas is NOT here -- it is resource-scoped, so it is a presence check
+    (see :func:`_check_quotas` and the module docstring).
     """
     if not role_arn:
         return []
 
-    actions = list(PRICING_ACTIONS) + list(QUOTA_ACTIONS) + [AUTOSCALING_ACTION]
+    actions = list(PRICING_ACTIONS) + [AUTOSCALING_ACTION]
     allowed = _simulate_allowed(iam_client, role_arn, actions)
     if allowed is None:
         log.debug(
             "Could not simulate role permissions (missing "
-            "iam:SimulatePrincipalPolicy?) — skipping pricing/quota/autoscaling checks"
+            "iam:SimulatePrincipalPolicy?) — skipping pricing/autoscaling checks"
         )
         return []
 
@@ -202,15 +220,6 @@ def _check_star_capabilities(iam_client, role_arn: str | None) -> list[Finding]:
             "Role cannot call pricing:GetProducts. The job uses it to estimate "
             "DynamoDB operation costs. Attach AWSPriceListServiceFullAccess, or "
             "for maximum lockdown allow the pricing:GetProducts action inline."
-        ))
-
-    if not all(a in allowed for a in QUOTA_ACTIONS):
-        findings.append(Finding(WARNING,
-            "Role cannot read Service Quotas (servicequotas:GetServiceQuota, "
-            "servicequotas:GetAWSDefaultServiceQuota). The job uses these to "
-            "detect account-level read/write limits. Attach "
-            "ServiceQuotasReadOnlyAccess, or for maximum lockdown allow those "
-            "servicequotas actions inline."
         ))
 
     if AUTOSCALING_ACTION not in allowed:
@@ -247,22 +256,38 @@ def _simulate_allowed(iam_client, role_arn: str, actions: list[str]) -> set[str]
         return None
 
 
-def _check_dynamodb(iam_client, role_name: str, attached_arns: list[str]) -> list[Finding]:
-    """DynamoDB presence check over the role's Allow statements.
+def _check_quotas(allowed: set[str]) -> list[Finding]:
+    """Service Quotas presence check over the role's Allow statements.
 
-    Best-effort: if the policy documents can't be read (e.g. the caller lacks
-    iam:GetPolicy / GetPolicyVersion / GetRolePolicy), the check is skipped
-    rather than warned. See the module docstring for why this is a presence
-    check and not a SimulatePrincipalPolicy call.
+    Bootstrap scopes the two quota reads to
+    ``arn:aws:servicequotas:*:*:dynamodb/*``, so a SimulatePrincipalPolicy call
+    against ``*`` would false-deny our own created role. Instead we check that the
+    role allows both quota actions somewhere (accepting the scoped inline grant
+    and the ``ServiceQuotasReadOnlyAccess`` managed policy's ``servicequotas:Get*``
+    / ``servicequotas:*`` wildcards). ``allowed`` is the pre-collected set of
+    Allow'd actions (lower-cased); the caller skips this check when the policy
+    documents couldn't be read.
     """
-    allowed = _collect_allowed_actions(iam_client, role_name, attached_arns)
-    if allowed is None:
-        log.debug(
-            f"Could not read policy documents for '{role_name}' — "
-            f"skipping the DynamoDB access check"
-        )
+    if all(_action_allowed(allowed, action) for action in QUOTA_ACTIONS):
         return []
 
+    return [Finding(WARNING,
+        "Role cannot read Service Quotas (servicequotas:GetServiceQuota, "
+        "servicequotas:GetAWSDefaultServiceQuota). The job uses these to detect "
+        "account-level read/write limits. Attach ServiceQuotasReadOnlyAccess, or "
+        "for maximum lockdown allow those servicequotas actions (they can be "
+        "scoped to arn:aws:servicequotas:*:*:dynamodb/*)."
+    )]
+
+
+def _check_dynamodb(allowed: set[str]) -> list[Finding]:
+    """DynamoDB presence check over the role's Allow statements.
+
+    ``allowed`` is the pre-collected set of Allow'd actions (lower-cased); the
+    caller skips this check when the policy documents couldn't be read. See the
+    module docstring for why this is a presence check and not a
+    SimulatePrincipalPolicy call.
+    """
     if _has_action_in_service(allowed, DYNAMODB_SERVICE):
         return []
 
@@ -278,9 +303,10 @@ def _collect_allowed_actions(
 ) -> set[str] | None:
     """Gather every action Allow'd by the role's managed + inline policies.
 
-    Returns a set of action strings (e.g. {'dynamodb:*', 'pricing:getproducts'})
+    Returns a set of action strings (e.g. {'dynamodb:*', 'servicequotas:get*'})
     or None if the policy documents could not be read (caller then skips the
-    check rather than false-warning). Only used for the DynamoDB presence check.
+    checks rather than false-warning). Feeds the Service Quotas and DynamoDB
+    presence checks.
     """
     actions: set[str] = set()
 
@@ -339,5 +365,24 @@ def _has_action_in_service(allowed: set[str], service: str) -> bool:
     prefix = f"{service.lower()}:"
     for pattern in allowed:
         if pattern == "*" or pattern.startswith(prefix):
+            return True
+    return False
+
+
+def _action_allowed(allowed: set[str], action: str) -> bool:
+    """Is a SPECIFIC action (e.g. 'servicequotas:getservicequota') allowed?
+
+    Honors the wildcard forms an Allow statement can take: ``*`` (all actions),
+    ``service:*`` (all actions in the service), and a prefix glob like
+    ``servicequotas:get*``. Unlike :func:`_has_action_in_service`, this matches
+    the named action rather than any action in the service, since the quota check
+    needs both specific reads to be permitted. ``action`` and the ``allowed``
+    patterns are lower-cased (see :func:`_accumulate_actions`).
+    """
+    service = action.split(":", 1)[0]
+    for pattern in allowed:
+        if pattern == "*" or pattern == f"{service}:*" or pattern == action:
+            return True
+        if pattern.endswith("*") and action.startswith(pattern[:-1]):
             return True
     return False
