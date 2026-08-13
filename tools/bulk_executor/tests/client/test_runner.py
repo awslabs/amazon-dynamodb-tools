@@ -18,8 +18,8 @@ Covers `client/src/runner.py`:
 - _watch_log_group: sessionStart pass-through, sessionUpdate happy path,
   unhealthy-event termination, terminal-state termination, succeeded
   shutdown counter, RuntimeError on unknown event, reconnect on
-  ConnectionError/HTTPClientError/EventStreamError, generic-exception
-  handler
+  ConnectionError/HTTPClientError/EventStreamError and on raw urllib3
+  ReadTimeoutError/ProtocolError, generic-exception handler
 - _watch_glue_job: spawns one daemon thread per log group ARN
 - _get_job_run_state / _get_job_run_error_message: get_job_run wiring,
   exception → exit() error paths
@@ -52,6 +52,7 @@ from botocore.exceptions import (
     EventStreamError,
     HTTPClientError,
 )
+from urllib3.exceptions import ProtocolError, ReadTimeoutError
 
 # Ensure client/src is on sys.path for runner imports (pytest.ini already
 # adds it, but be explicit here in case this file is collected differently).
@@ -703,6 +704,91 @@ class TestWatchLogGroup:
         bulk_runner._get_job_run_state = MagicMock(return_value=runner_module.FAILED_STATE)
 
         bulk_runner.logs_client.start_live_tail.side_effect = HTTPClientError(error='boom')
+        bulk_runner._watch_log_group('jr-1', self._arn(), unhealthy)
+        assert bulk_runner.logs_client.start_live_tail.call_count == 1
+
+    def _raising_stream(self, exc):
+        """An event stream whose iteration raises `exc` mid-tail.
+
+        This mirrors the real failure: the timeout/drop happens while reading
+        from the live-tail stream (inside `for event in event_stream`), not at
+        start_live_tail time, so the raw urllib3 error escapes botocore's
+        request layer.
+        """
+        def _gen():
+            raise exc
+            yield  # pragma: no cover - makes this a generator
+        stream = MagicMock()
+        stream.__iter__ = MagicMock(return_value=_gen())
+        return stream
+
+    def test_read_timeout_mid_stream_reconnects_when_job_running(self, bulk_runner, monkeypatch):
+        """Regression: a raw urllib3 ReadTimeoutError during tail must reconnect,
+        not fall into the generic handler that kills the watcher thread and
+        silently drops the rest of the job's output (PR #243 / issue #131)."""
+        import threading
+        unhealthy = threading.Event()
+        bulk_runner._wait_for_log_groups_to_exist = MagicMock()
+        # RUNNING at raise time → reconnect; SUCCEEDED on the retry → clean exit.
+        bulk_runner._get_job_run_state = MagicMock(side_effect=[
+            runner_module.RUNNING_STATE,
+            runner_module.SUCCEEDED_STATE,
+        ])
+        monkeypatch.setattr(runner_module.time, 'sleep', lambda s: None)
+
+        read_timeout = ReadTimeoutError(
+            MagicMock(), 'https://stream-logs.eu-south-2.amazonaws.com', 'Read timed out.'
+        )
+        bulk_runner.logs_client.start_live_tail.side_effect = [
+            {'responseStream': self._raising_stream(read_timeout)},
+            {'responseStream': MagicMock(__iter__=MagicMock(return_value=iter([])))},
+        ]
+        with patch.object(runner_module, 'GlueLogReassembler') as reasm_cls:
+            reasm = MagicMock()
+            reasm.process.return_value = []
+            reasm.flush.return_value = []
+            reasm_cls.return_value = reasm
+
+            bulk_runner._watch_log_group('jr-1', self._arn(), unhealthy)
+
+        # Reconnected rather than dying on the first timeout.
+        assert bulk_runner.logs_client.start_live_tail.call_count == 2
+
+    def test_protocol_error_mid_stream_reconnects_when_job_running(self, bulk_runner, monkeypatch):
+        """A dropped connection (urllib3 ProtocolError) mid-tail also reconnects."""
+        import threading
+        unhealthy = threading.Event()
+        bulk_runner._wait_for_log_groups_to_exist = MagicMock()
+        bulk_runner._get_job_run_state = MagicMock(side_effect=[
+            runner_module.RUNNING_STATE,
+            runner_module.SUCCEEDED_STATE,
+        ])
+        monkeypatch.setattr(runner_module.time, 'sleep', lambda s: None)
+
+        bulk_runner.logs_client.start_live_tail.side_effect = [
+            {'responseStream': self._raising_stream(ProtocolError('Connection broken'))},
+            {'responseStream': MagicMock(__iter__=MagicMock(return_value=iter([])))},
+        ]
+        with patch.object(runner_module, 'GlueLogReassembler') as reasm_cls:
+            reasm = MagicMock()
+            reasm.process.return_value = []
+            reasm.flush.return_value = []
+            reasm_cls.return_value = reasm
+
+            bulk_runner._watch_log_group('jr-1', self._arn(), unhealthy)
+
+        assert bulk_runner.logs_client.start_live_tail.call_count == 2
+
+    def test_read_timeout_returns_when_terminal(self, bulk_runner, monkeypatch):
+        """A read timeout after the job already reached a terminal state returns
+        without reconnecting."""
+        import threading
+        unhealthy = threading.Event()
+        bulk_runner._wait_for_log_groups_to_exist = MagicMock()
+        bulk_runner._get_job_run_state = MagicMock(return_value=runner_module.FAILED_STATE)
+
+        read_timeout = ReadTimeoutError(MagicMock(), 'https://x', 'Read timed out.')
+        bulk_runner.logs_client.start_live_tail.side_effect = read_timeout
         bulk_runner._watch_log_group('jr-1', self._arn(), unhealthy)
         assert bulk_runner.logs_client.start_live_tail.call_count == 1
 
