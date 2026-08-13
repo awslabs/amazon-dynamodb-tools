@@ -12,6 +12,12 @@ from botocore.exceptions import (
     EventStreamError,
     HTTPClientError
 )
+# Reads from a live-tail event stream happen outside botocore's request layer, so
+# a mid-stream read timeout or dropped connection surfaces as the raw urllib3
+# exception rather than a botocore ConnectionError/HTTPClientError. We add these to
+# the transient-error bucket so the watcher reconnects instead of silently dying
+# (see _watch_log_group). urllib3 is a hard dependency of botocore.
+from urllib3.exceptions import ProtocolError, ReadTimeoutError
 # project files
 from clients import Clients
 from infrastructure import GLUE_JOB_NAME, GlueJobDefaults
@@ -278,7 +284,7 @@ class BulkDynamoDbRunner:
 
                 return  # Clean exit
 
-            except (ConnectionError, HTTPClientError, EventStreamError) as e:
+            except (ConnectionError, HTTPClientError, EventStreamError, ReadTimeoutError, ProtocolError) as e:
                 job_run_state = self._get_job_run_state(job_run_id)
                 if job_run_state in TERMINAL_JOB_STATES or job_run_state == SUCCEEDED_STATE or job_unhealthy_event.is_set():
                     return  # Job is done, no need to reconnect
