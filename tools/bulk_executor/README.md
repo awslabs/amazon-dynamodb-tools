@@ -494,7 +494,7 @@ If doing cross-account, you need a resource-based policy to enable access. The f
           "dynamodb:DescribeTable",
           "dynamodb:Scan"
       ],
-      "Resource": "arn:aws:dynamodb:us-west-1:599882009758:table/table2"
+      "Resource": "arn:aws:dynamodb:us-west-1:987654321098:table/table2"
     }
   ]
 }
@@ -555,7 +555,7 @@ If doing cross-account, you need a resource-based policy to enable access. The f
         ]
       },
       "Action": "dynamodb:*",
-      "Resource": "arn:aws:dynamodb:us-west-1:599882009758:table/target"
+      "Resource": "arn:aws:dynamodb:us-west-1:987654321098:table/target"
     }
   ]
 }
