@@ -21,7 +21,12 @@ from python_modules.shared.rate_limiter import (
     RateLimiterWorker
 )
 
-PRINT_LIMIT = 100
+# Console preview cap. Output reaches the client through CloudWatch Live Tail,
+# which tops out around 500 messages/sec at ~1KB each (~500KB/s) and samples/drops
+# beyond that. Printing many full items -- especially large ones -- can exceed that
+# ceiling and silently lose output, so we print only a small preview here and write
+# the complete diff to S3. See issue #86 / #280.
+CONSOLE_PREVIEW_LIMIT = 10
 
 class BinaryAwareEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles bytes objects by converting them to base64-encoded strings."""
@@ -154,7 +159,7 @@ def log_diff(symbol, stream, concise_format):
         return f"{symbol} {json.dumps(ordered, separators=(',', ': '), cls=BinaryAwareEncoder)}"
 
 
-def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_options_b, segment, total_segments, consistent_read, concise_format, job_id, use_s3, bucket, schema_broadcast, rate_limiter_shared_config):
+def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_options_b, segment, total_segments, consistent_read, concise_format, job_id, bucket, schema_broadcast, rate_limiter_shared_config):
     rate_limiter_worker_a = RateLimiterWorker(
         shared_config=rate_limiter_shared_config,
         **monitor_options_a
@@ -281,12 +286,13 @@ def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_option
         rate_limiter_worker_a.shutdown()
         rate_limiter_worker_b.shutdown()
 
-    if use_s3:
-        if diff:
-            boto3.client('s3').put_object(Body="\n".join(diff), Bucket=bucket, Key=f"{job_id}/{segment}.txt")
-        return len(diff)
+    # Always persist the full segment output to S3 (skip empty segments so we
+    # don't litter the bucket with zero-byte files -- see #183). The console only
+    # ever shows a bounded preview, so S3 is the complete, reliable copy (#86/#280).
+    if diff and bucket:
+        boto3.client('s3').put_object(Body="\n".join(diff), Bucket=bucket, Key=f"output/{job_id}/{segment}.txt")
 
-    return diff[0:PRINT_LIMIT]
+    return len(diff), diff[:CONSOLE_PREVIEW_LIMIT]
 
 def print_dynamodb_table_info(table_name, fraction=1.0):
     region_name = boto3.Session().region_name
@@ -300,7 +306,6 @@ def run(job, spark_context, glue_context, parsed_args):
     table1 = parsed_args.get('table')
     table2 = parsed_args.get('table2')
     diff_type = parsed_args.get('format', 'keys') # keys or full
-    use_s3 = parsed_args.get('s3')
     job_id = parsed_args.get("JOB_RUN_ID")
     bucket = parsed_args.get('s3-bucket-name')
 
@@ -356,30 +361,29 @@ def run(job, spark_context, glue_context, parsed_args):
     monitor_options_2 = get_dynamodb_throughput_configs(parsed_args, table2, modes=("read"), format="monitor")
 
     try:
-        rdd2 = rdd.map(lambda worker_id: diff_segment(table1, table2, monitor_options_1, monitor_options_2, worker_id, splits, False, diff_type == 'keys', job_id, use_s3, bucket, broadcast_schema, rate_limiter_shared_config)).collect()
+        # Each segment returns (count, preview) -- the full count plus at most
+        # CONSOLE_PREVIEW_LIMIT lines -- so the driver never collects the entire
+        # diff into memory. The complete output lives in S3.
+        rdd2 = rdd.map(lambda worker_id: diff_segment(table1, table2, monitor_options_1, monitor_options_2, worker_id, splits, False, diff_type == 'keys', job_id, bucket, broadcast_schema, rate_limiter_shared_config)).collect()
     except Exception as e:
         raise Exception(f"Error in parallel execution: {get_error_message(e)}") from None
     finally:
         rate_limiter_aggregator.shutdown()
 
-    if use_s3:
-        total = sum(rdd2)
-        if total == 0:
-            print("No differences found")
-        else:
-            print(f"There are {total} differences. These can be found in files at s3://{bucket}/{job_id}/")
-    else:
-        count = 0
-        for e in rdd2:
-            for r in e:
-                if count < PRINT_LIMIT:
-                    print(r)
-                count = count + 1
+    total = sum(count for count, _ in rdd2)
 
-        if count == 0:
-            print("No differences found")
-        elif count <= PRINT_LIMIT:
-            print(f"There are {count} differences.")
+    if total == 0:
+        print("No differences found")
+    else:
+        preview = [line for _, segment_preview in rdd2 for line in segment_preview][:CONSOLE_PREVIEW_LIMIT]
+        if total <= CONSOLE_PREVIEW_LIMIT:
+            print(f"{total} differences:")
         else:
-            print(f"(output truncated). There are {count} differences, printed first {PRINT_LIMIT}. Use the --s3 flag to store them all in S3.")
+            print(f"First {CONSOLE_PREVIEW_LIMIT} of {total} differences:")
+        for line in preview:
+            print(line)
+        if total > CONSOLE_PREVIEW_LIMIT:
+            print(f"...and {total - CONSOLE_PREVIEW_LIMIT} more not printed")
+        print()
+        print(f"Wrote {total:,} differences to s3://{bucket}/output/{job_id}/")
     print()

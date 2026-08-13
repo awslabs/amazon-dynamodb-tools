@@ -102,8 +102,8 @@ Here are some example use cases:
 
 # The default diff format is "keys" to show primary keys having changes with +/-/* for adds/removes/changes
 # Specifying the format "full" outputs the total items with +/- for before/after
-# Output can be directed to to S3
-./bulk diff --table t --table2 t2 --format full --s3
+# The full diff is always written to S3; the first few differences are printed to the console
+./bulk diff --table t --table2 t2 --format full
 
 # For speed and cost reasons, you can diff a sample of both tables, here 10%
 ./bulk diff --table t --table2 t2 --sample-fraction 0.1
@@ -504,7 +504,7 @@ If you ever want to stop execution early, you can hit Control-C. The interrupt w
 * Requires `table` and `table2` parameters.
 * Accepts an optional `format` which can be `compact` (prints primary keys of all changed items with `+`, `-`, `*` for adds, removes, changes) or `full` (prints the full values of all changed items with `+` and `-` for before and after). Default is `compact`.
 * Accepts an optional `sample-fraction` to indicate a fraction of the two tables to compare, between 0.0 and 1.0. Can help with sanity checking that runs faster and at lower cost.
-* Accepts an optional `s3` parameter to output the result to S3.
+* Always writes the full diff to S3 (under `s3://<bucket>/output/<job-run-id>/`) and prints the first 10 differences to the console with a pointer to the S3 location, like `find` and `sql`. The console preview is capped because console delivery via CloudWatch Live Tail is bandwidth-limited; the complete diff is always in S3.
 
 #### `load`
 
