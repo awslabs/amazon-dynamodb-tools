@@ -6,7 +6,7 @@ Covers `python_modules/diff.py`:
 - item_matches: JSON-based item comparison
 - format_item_with_keys_first: key ordering for display
 - log_diff: concise vs full format output
-- diff_segment: core segment diffing logic (same pk, different pk, alignment, s3 output)
+- diff_segment: core segment diffing logic (same pk, different pk, alignment, unconditional S3 write, bounded preview)
 - run(): argument wiring, sampling, schema broadcast, result printing
 """
 
@@ -387,10 +387,10 @@ class TestDiffSegment:
 
         mock_stream_cls.side_effect = [stream_a, stream_b]
 
-        result = diff_module.diff_segment(
+        _, result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', None,
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
         assert result == []
@@ -436,10 +436,10 @@ class TestDiffSegment:
 
         mock_stream_cls.side_effect = [stream_a, stream_b]
 
-        result = diff_module.diff_segment(
+        _, result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', None,
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
         assert len(result) == 1
@@ -481,10 +481,10 @@ class TestDiffSegment:
 
         mock_stream_cls.side_effect = [stream_a, stream_b]
 
-        result = diff_module.diff_segment(
+        _, result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', None,
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
         assert len(result) == 1
@@ -531,10 +531,10 @@ class TestDiffSegment:
 
         mock_stream_cls.side_effect = [stream_a, stream_b]
 
-        result = diff_module.diff_segment(
+        _, result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', None,
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
         assert len(result) == 1
@@ -581,10 +581,10 @@ class TestDiffSegment:
 
         mock_stream_cls.side_effect = [stream_a, stream_b]
 
-        result = diff_module.diff_segment(
+        _, result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, False, 'job1', False, None,
+            0, 1, False, False, 'job1', None,
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
         assert len(result) == 2
@@ -637,10 +637,10 @@ class TestDiffSegment:
 
         mock_stream_cls.side_effect = [stream_a, stream_b]
 
-        result = diff_module.diff_segment(
+        _, result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', None,
             self._make_schema_broadcast(pk1='pk', sk1='sk', pk2='pk', sk2='sk'),
             self._make_rate_limiter_config()
         )
@@ -692,10 +692,10 @@ class TestDiffSegment:
 
         mock_stream_cls.side_effect = [stream_a, stream_b]
 
-        result = diff_module.diff_segment(
+        _, result = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', None,
             self._make_schema_broadcast(pk1='pk', sk1='sk', pk2='pk', sk2='sk'),
             self._make_rate_limiter_config()
         )
@@ -706,7 +706,8 @@ class TestDiffSegment:
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
     def test_s3_output_puts_object(self, mock_stream_cls, mock_rl, mock_boto3):
-        """When use_s3=True, diff is written to S3 and count returned."""
+        """The full diff is always written to S3 (under output/<job>/) and the
+        (count, preview) pair is returned."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
         mock_rl.return_value = mock_rl_instance
@@ -742,22 +743,24 @@ class TestDiffSegment:
         s3_client = MagicMock()
         mock_boto3.client.return_value = s3_client
 
-        result = diff_module.diff_segment(
+        count, preview = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            5, 10, False, True, 'job123', True, 'my-bucket',
+            5, 10, False, True, 'job123', 'my-bucket',
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
-        assert result == 1
+        assert count == 1
+        assert len(preview) == 1
         s3_client.put_object.assert_called_once()
         put_kwargs = s3_client.put_object.call_args.kwargs
         assert put_kwargs['Bucket'] == 'my-bucket'
-        assert put_kwargs['Key'] == 'job123/5.txt'
+        assert put_kwargs['Key'] == 'output/job123/5.txt'
 
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_output_truncated_to_print_limit(self, mock_stream_cls, mock_rl):
-        """Without S3, result is truncated to PRINT_LIMIT."""
+    def test_preview_capped_but_count_is_full(self, mock_stream_cls, mock_rl):
+        """The returned preview is capped at CONSOLE_PREVIEW_LIMIT while the count
+        reflects the full number of differences in the segment."""
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
         mock_rl.return_value = mock_rl_instance
@@ -789,13 +792,14 @@ class TestDiffSegment:
 
         mock_stream_cls.side_effect = [stream_a, stream_b]
 
-        result = diff_module.diff_segment(
+        count, preview = diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', None,
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
-        assert len(result) == diff_module.PRINT_LIMIT
+        assert count == num_items
+        assert len(preview) == diff_module.CONSOLE_PREVIEW_LIMIT
 
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
@@ -821,7 +825,7 @@ class TestDiffSegment:
         diff_module.diff_segment(
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', None,
             self._make_schema_broadcast(), self._make_rate_limiter_config()
         )
         assert mock_rl_instance.shutdown.call_count == 2
@@ -840,7 +844,7 @@ class TestDiffSegment:
             diff_module.diff_segment(
                 'table1', 'table2',
                 self._make_monitor_options(), self._make_monitor_options(),
-                0, 1, False, True, 'job1', False, None,
+                0, 1, False, True, 'job1', None,
                 self._make_schema_broadcast(), self._make_rate_limiter_config()
             )
         assert mock_rl_instance.shutdown.call_count == 2
@@ -884,7 +888,6 @@ class TestRun:
             'table': 'table1',
             'table2': 'table2',
             'format': 'keys',
-            's3': None,
             'JOB_RUN_ID': 'job-1',
             's3-bucket-name': 'bucket',
         }
@@ -914,70 +917,75 @@ class TestRun:
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [[], [], [], []]
+        # Each segment reports (count, preview).
+        rdd.map.return_value.collect.return_value = [(0, []), (0, []), (0, []), (0, [])]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
         out = capsys.readouterr().out
         assert 'No differences found' in out
+        # No S3 pointer when there's nothing written.
+        assert 'Wrote' not in out
 
-    def test_diffs_printed_up_to_limit(self, monkeypatch, capsys):
+    def test_small_diff_prints_all_and_pointer(self, monkeypatch, capsys):
         self._setup_run_mocks(monkeypatch)
         args = self._base_args()
 
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        diffs = [f'- item{i}' for i in range(50)]
-        rdd.map.return_value.collect.return_value = [diffs]
+        diffs = ['- a', '- b', '- c']
+        rdd.map.return_value.collect.return_value = [(3, diffs)]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
         out = capsys.readouterr().out
-        assert '50 differences' in out
+        assert '3 differences:' in out
+        for line in diffs:
+            assert line in out
+        assert '...and' not in out  # nothing truncated
+        assert 'Wrote 3 differences to s3://bucket/output/job-1/' in out
 
-    def test_diffs_over_limit_shows_truncation(self, monkeypatch, capsys):
+    def test_large_diff_prints_bounded_preview_and_pointer(self, monkeypatch, capsys):
         self._setup_run_mocks(monkeypatch)
         args = self._base_args()
 
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        diffs = [f'- item{i}' for i in range(150)]
-        rdd.map.return_value.collect.return_value = [diffs]
+        # One segment with 150 diffs; it already trims its own preview to the cap.
+        preview = [f'- item{i}' for i in range(diff_module.CONSOLE_PREVIEW_LIMIT)]
+        rdd.map.return_value.collect.return_value = [(150, preview)]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
         out = capsys.readouterr().out
-        assert 'output truncated' in out
-        assert '150 differences' in out
-        assert f'first {diff_module.PRINT_LIMIT}' in out
+        assert f'First {diff_module.CONSOLE_PREVIEW_LIMIT} of 150 differences:' in out
+        assert f'...and {150 - diff_module.CONSOLE_PREVIEW_LIMIT} more not printed' in out
+        assert 'Wrote 150 differences to s3://bucket/output/job-1/' in out
 
-    def test_s3_mode_prints_s3_path(self, monkeypatch, capsys):
+    def test_preview_assembled_across_segments_and_capped(self, monkeypatch, capsys):
+        """Counts sum across segments and the console preview is capped at
+        CONSOLE_PREVIEW_LIMIT even when assembled from several segments."""
         self._setup_run_mocks(monkeypatch)
         args = self._base_args()
-        args['s3'] = True
 
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [5, 3, 0, 2]
+        rdd.map.return_value.collect.return_value = [
+            (5, [f'- s0-{i}' for i in range(5)]),
+            (3, [f'- s1-{i}' for i in range(3)]),
+            (0, []),
+            (4, [f'- s3-{i}' for i in range(4)]),
+        ]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
         out = capsys.readouterr().out
-        assert '10 differences' in out
-        assert 's3://bucket/job-1/' in out
-
-    def test_s3_mode_no_diffs(self, monkeypatch, capsys):
-        self._setup_run_mocks(monkeypatch)
-        args = self._base_args()
-        args['s3'] = True
-
-        spark_context = MagicMock()
-        rdd = MagicMock()
-        spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [0, 0, 0, 0]
-
-        diff_module.run(MagicMock(), spark_context, MagicMock(), args)
-        out = capsys.readouterr().out
-        assert 'No differences found' in out
+        # 5 + 3 + 0 + 4 = 12 total
+        assert f'First {diff_module.CONSOLE_PREVIEW_LIMIT} of 12 differences:' in out
+        assert f'...and {12 - diff_module.CONSOLE_PREVIEW_LIMIT} more not printed' in out
+        # Exactly CONSOLE_PREVIEW_LIMIT preview lines printed (the "- " diff lines).
+        printed_diff_lines = [l for l in out.splitlines() if l.startswith('- s')]
+        assert len(printed_diff_lines) == diff_module.CONSOLE_PREVIEW_LIMIT
+        assert 'Wrote 12 differences to s3://bucket/output/job-1/' in out
 
     def test_sample_fraction_reduces_segments(self, monkeypatch, capsys):
         self._setup_run_mocks(monkeypatch)
@@ -988,7 +996,7 @@ class TestRun:
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [[] for _ in range(10)]
+        rdd.map.return_value.collect.return_value = [(0, []) for _ in range(10)]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
 
@@ -1031,7 +1039,7 @@ class TestRun:
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [[]]
+        rdd.map.return_value.collect.return_value = [(0, [])]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
         agg.shutdown.assert_called_once()
@@ -1068,7 +1076,7 @@ class TestRun:
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [[]]
+        rdd.map.return_value.collect.return_value = [(0, [])]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
 
@@ -1095,7 +1103,7 @@ class TestRun:
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [[]]
+        rdd.map.return_value.collect.return_value = [(0, [])]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
         out = capsys.readouterr().out
@@ -1109,7 +1117,7 @@ class TestRun:
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [[]]
+        rdd.map.return_value.collect.return_value = [(0, [])]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
 
@@ -1121,7 +1129,7 @@ class TestRun:
         spark_context = MagicMock()
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
-        rdd.map.return_value.collect.return_value = [[] for _ in range(400)]
+        rdd.map.return_value.collect.return_value = [(0, []) for _ in range(400)]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
 
@@ -1196,10 +1204,10 @@ class TestDiffSegmentAlignment:
 
         mock_stream_cls.side_effect = [stream_a, stream_b]
 
-        result = diff_module.diff_segment(
+        _, result = diff_module.diff_segment(
             'table1', 'table2',
             {}, {},
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', None,
             self._make_schema_broadcast(), MagicMock()
         )
         minus_lines = [r for r in result if r.startswith('-')]
@@ -1264,9 +1272,9 @@ class TestDiffSegmentSortKeyEdges:
 
         mock_stream_cls.side_effect = [stream_a, stream_b]
 
-        result = diff_module.diff_segment(
+        _, result = diff_module.diff_segment(
             'table1', 'table2', {}, {},
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', None,
             self._make_schema_broadcast(), MagicMock()
         )
         assert len(result) == 1
@@ -1313,9 +1321,9 @@ class TestDiffSegmentSortKeyEdges:
 
         mock_stream_cls.side_effect = [stream_a, stream_b]
 
-        result = diff_module.diff_segment(
+        _, result = diff_module.diff_segment(
             'table1', 'table2', {}, {},
-            0, 1, False, False, 'job1', False, None,
+            0, 1, False, False, 'job1', None,
             self._make_schema_broadcast(), MagicMock()
         )
         assert len(result) == 2
@@ -1368,9 +1376,9 @@ class TestDiffSegmentSortKeyEdges:
 
         mock_stream_cls.side_effect = [stream_a, stream_b]
 
-        result = diff_module.diff_segment(
+        _, result = diff_module.diff_segment(
             'table1', 'table2', {}, {},
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', None,
             self._make_schema_broadcast(), MagicMock()
         )
         minus_lines = [r for r in result if r.startswith('-')]
@@ -1423,9 +1431,9 @@ class TestDiffSegmentSortKeyEdges:
 
         mock_stream_cls.side_effect = [stream_a, stream_b]
 
-        result = diff_module.diff_segment(
+        _, result = diff_module.diff_segment(
             'table1', 'table2', {}, {},
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', None,
             self._make_schema_broadcast(), MagicMock()
         )
         plus_lines = [r for r in result if r.startswith('+')]
@@ -1476,9 +1484,9 @@ class TestDiffSegmentSortKeyEdges:
 
         mock_stream_cls.side_effect = [stream_a, stream_b]
 
-        result = diff_module.diff_segment(
+        _, result = diff_module.diff_segment(
             'table1', 'table2', {}, {},
-            0, 1, False, True, 'job1', False, None,
+            0, 1, False, True, 'job1', None,
             self._make_schema_broadcast(), MagicMock()
         )
         minus_lines = [r for r in result if r.startswith('-')]
