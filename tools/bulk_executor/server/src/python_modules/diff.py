@@ -12,7 +12,9 @@ from python_modules.shared.errors import get_error_message
 from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info,
     get_and_print_table_scan_cost,
-    get_dynamodb_throughput_configs
+    get_dynamodb_throughput_configs,
+    _region_from_table_ref,
+    _default_region
 )
 
 from python_modules.shared.rate_limiter import (
@@ -36,7 +38,7 @@ class BinaryAwareEncoder(json.JSONEncoder):
         return super().default(obj)
 
 class SegmentStream:
-    def __init__(self, session, table_name, segment, total_segments, consistent_read, pk, sk):
+    def __init__(self, session, table_name, segment, total_segments, consistent_read, pk, sk, region_name=None):
         self.segment = segment
         self.total_segments = total_segments
         self.consistent_read = consistent_read
@@ -46,15 +48,23 @@ class SegmentStream:
         self.table_name = table_name
 
         # use the low level Client API so that Items can be compared easily later
-        # as they are built entirely of strings
-        self.dynamodb = session.client('dynamodb', config=Config(
-            connect_timeout=4.0,
-            read_timeout=4.0,
-            retries={
-                'mode': 'standard',
-                'total_max_attempts': 50
-            }
-        ))
+        # as they are built entirely of strings. The client (not the rate
+        # limiter's session) carries the region, so a cross-region ARN table is
+        # scanned in its own region while the rate limiter's S3 coordination
+        # stays in the bootstrap region.
+        client_kwargs = {
+            'config': Config(
+                connect_timeout=4.0,
+                read_timeout=4.0,
+                retries={
+                    'mode': 'standard',
+                    'total_max_attempts': 50
+                }
+            )
+        }
+        if region_name:
+            client_kwargs['region_name'] = region_name
+        self.dynamodb = session.client('dynamodb', **client_kwargs)
 
         self.pk = pk
         self.sk = sk
@@ -172,9 +182,16 @@ def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_option
 
     schema = schema_broadcast.value
 
+    # Talk to the right region if a table is given as an ARN pointing elsewhere;
+    # otherwise fall back to the session's (bootstrap) region.
+    session_a = rate_limiter_worker_a.get_session()
+    session_b = rate_limiter_worker_b.get_session()
+    table1_region = _region_from_table_ref(stream_a_name) or session_a.region_name
+    table2_region = _region_from_table_ref(stream_b_name) or session_b.region_name
+
     try:
-        stream_a = SegmentStream(rate_limiter_worker_a.get_session(), stream_a_name, segment, total_segments, consistent_read, pk=schema['table1']['pk'], sk=schema['table1']['sk'])
-        stream_b = SegmentStream(rate_limiter_worker_b.get_session(), stream_b_name, segment, total_segments, consistent_read, pk=schema['table2']['pk'], sk=schema['table2']['sk'])
+        stream_a = SegmentStream(session_a, stream_a_name, segment, total_segments, consistent_read, pk=schema['table1']['pk'], sk=schema['table1']['sk'], region_name=table1_region)
+        stream_b = SegmentStream(session_b, stream_b_name, segment, total_segments, consistent_read, pk=schema['table2']['pk'], sk=schema['table2']['sk'], region_name=table2_region)
 
         diff = []
 
@@ -295,7 +312,7 @@ def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_option
     return len(diff), diff[:CONSOLE_PREVIEW_LIMIT]
 
 def print_dynamodb_table_info(table_name, fraction=1.0):
-    region_name = boto3.Session().region_name
+    region_name = _region_from_table_ref(table_name) or _default_region()
     table_info = get_and_print_dynamodb_table_info(table_name)
     return get_and_print_table_scan_cost(table_info, region_name, fraction=fraction)
 
@@ -328,8 +345,10 @@ def run(job, spark_context, glue_context, parsed_args):
     print(f"TOTAL DynamoDB cost for scanning both tables (approx): ${total_cost:,.2f}")
     print()
 
-    schema1 = boto3.client("dynamodb").describe_table(TableName=table1)['Table']['KeySchema']
-    schema2 = boto3.client("dynamodb").describe_table(TableName=table2)['Table']['KeySchema']
+    table1_region = _region_from_table_ref(table1) or _default_region()
+    table2_region = _region_from_table_ref(table2) or _default_region()
+    schema1 = boto3.client("dynamodb", region_name=table1_region).describe_table(TableName=table1)['Table']['KeySchema']
+    schema2 = boto3.client("dynamodb", region_name=table2_region).describe_table(TableName=table2)['Table']['KeySchema']
 
     def extract_keys(schema):
         pk = next(e['AttributeName'] for e in schema if e['KeyType'] == 'HASH')
@@ -355,6 +374,8 @@ def run(job, spark_context, glue_context, parsed_args):
         job_run_id=job_id
     )
 
+    # The aggregator only does S3 coordination, which lives in the bootstrap
+    # region -- never regionalize it, even when the tables are cross-region.
     rate_limiter_aggregator = RateLimiterAggregator(shared_config=rate_limiter_shared_config)
 
     monitor_options_1 = get_dynamodb_throughput_configs(parsed_args, table1, modes=("read"), format="monitor")

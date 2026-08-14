@@ -98,7 +98,10 @@ Here are some example use cases:
 
 
 # Compare two tables for differences (uses segmented scans internally)
+# You can specify a name or a full ARN. Using an ARN lets you diff cross-region and cross-account!
+# If going cross-account, you need a resource-based policy on the table to allow access.
 ./bulk diff --table t --table2 t2
+./bulk diff --table arn:aws:dynamodb:us-east-1:123456789012:table/t --table2 arn:aws:dynamodb:us-west-2:987654321098:table/t2
 
 # The default diff format is "keys" to show primary keys having changes with +/-/* for adds/removes/changes
 # Specifying the format "full" outputs the total items with +/- for before/after
@@ -501,10 +504,35 @@ If you ever want to stop execution early, you can hit Control-C. The interrupt w
 #### `diff`
 
 * Performs parallel scans to two tables to compare for differences.
-* Requires `table` and `table2` parameters.
+* Requires `table` and `table2` parameters. Each can be a table name or a table ARN; using ARNs allows cross-account / cross-region access.
 * Accepts an optional `format` which can be `compact` (prints primary keys of all changed items with `+`, `-`, `*` for adds, removes, changes) or `full` (prints the full values of all changed items with `+` and `-` for before and after). Default is `compact`.
 * Accepts an optional `sample-fraction` to indicate a fraction of the two tables to compare, between 0.0 and 1.0. Can help with sanity checking that runs faster and at lower cost.
 * Always writes the full diff to S3 (under `s3://<bucket>/output/<job-run-id>/`) and prints the first 10 differences to the console with a pointer to the S3 location, like `find` and `sql`. The console preview is capped because console delivery via CloudWatch Live Tail is bandwidth-limited; the complete diff is always in S3.
+
+If diffing cross-account, the table in the other account needs a resource-based policy that allows access. `diff` only reads, so the policy needs just `DescribeTable` and `Scan`. The following example allows two roles in the `123456789012` account: `role/ClientSide` is whatever role runs the command-line program (so the client can describe the table and estimate costs), and `role/AWSGlueServiceRoleBulkDynamoDB-DdbReadOnly-us-east-1` is the read-only role attached to the Glue job (so the scan can be performed).
+
+```
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CrossAccountIdentityBasedPolicy",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "arn:aws:iam::123456789012:role/ClientSide",
+          "arn:aws:iam::123456789012:role/AWSGlueServiceRoleBulkDynamoDB-DdbReadOnly-us-east-1"
+        ]
+      },
+      "Action": [
+        "dynamodb:DescribeTable",
+        "dynamodb:Scan"
+      ],
+      "Resource": "arn:aws:dynamodb:us-west-2:987654321098:table/t2"
+    }
+  ]
+}
+```
 
 #### `load`
 
