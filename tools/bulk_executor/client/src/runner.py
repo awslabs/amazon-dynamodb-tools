@@ -221,13 +221,24 @@ class BulkDynamoDbRunner:
         """
         log_group_name = log_group_arn.split(':')[-1]
         log.debug(f"Starting live tail for log group: {log_group_name}")
-        
+
         # Wait for this specific log group to exist
         self._wait_for_log_groups_to_exist([log_group_arn])
-        
+
         succeeded_counter = 0
         reassembler = GlueLogReassembler()  # Each thread gets its own reassembler
-        
+
+        # Subscribe by stream-name prefix -- matches the driver stream
+        # ("<job_run_id>") and the per-executor streams ("<job_run_id>_g-*").
+        # Prefix (not exact name) is deliberate: the driver stream is created only
+        # once the job starts writing, and an exact-name subscription made before
+        # then fails with ResourceNotFoundException. Each batch is split by stream
+        # in the sessionUpdate handler below: the driver stream is the user-facing
+        # output (find/diff/sql results, counts) and is reassembled + printed;
+        # executor streams are framework/task noise that we never print and never
+        # feed to the reassembler (so their bytes can't be concatenated onto a
+        # dangling driver line and mislabeled -- issue #284), but every event is
+        # still scanned for fatal signals.
         while True:
             try:
                 # Start (or restart) live tail for this specific log group, https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/CloudWatchLogs_LiveTail.html
@@ -252,11 +263,21 @@ class BulkDynamoDbRunner:
                     elif 'sessionUpdate' in event:
                         log_events = event['sessionUpdate']['sessionResults']
 
-                        # Add to reassembler and process ready events
-                        reassembled_events = reassembler.process(log_events)
+                        # Split by stream. The driver stream (no "_g-") is the
+                        # user-facing output: reassemble it and print. Executor
+                        # streams ("_g-") stay out of the reassembler entirely (so
+                        # they can't be merged onto a dangling driver line) and are
+                        # never printed -- but they still go through the health check.
+                        driver_events = [e for e in log_events if "_g-" not in e.get('logStreamName', '')]
+                        executor_events = [e for e in log_events if "_g-" in e.get('logStreamName', '')]
 
-                        for log_event in reassembled_events:
+                        printed_events = reassembler.process(driver_events)
+                        for log_event in printed_events:
                             self._pretty_print_log_event(log_event)
+
+                        # Shortcut detector: driver records (reassembled) + raw
+                        # executor events -- i.e. everything, printed or not.
+                        for log_event in [*printed_events, *executor_events]:
                             if self._is_job_state_unhealthy(log_event):
                                 log.error(f"Logs from {log_group_name} indicate the Glue Job is unhealthy! Shutting down...")
                                 job_unhealthy_event.set()

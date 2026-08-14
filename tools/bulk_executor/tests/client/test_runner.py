@@ -581,6 +581,68 @@ class TestWatchLogGroup:
     def _arn(self):
         return 'arn:aws:logs:us-east-1:123456789012:log-group:/aws-glue/jobs/output'
 
+    def _error_arn(self):
+        return 'arn:aws:logs:us-east-1:123456789012:log-group:/aws-glue/jobs/error'
+
+    def test_both_groups_subscribe_by_prefix(self, bulk_runner):
+        """Both groups subscribe by stream-name prefix (not exact name): an exact
+        subscription would fail with ResourceNotFoundException because the driver
+        stream doesn't exist yet when the tail starts."""
+        import threading
+        for arn in (self._arn(), self._error_arn()):
+            bulk_runner.logs_client.start_live_tail.reset_mock()
+            unhealthy = threading.Event()
+            bulk_runner._wait_for_log_groups_to_exist = MagicMock()
+            event_stream = MagicMock()
+            event_stream.__iter__ = MagicMock(return_value=iter([]))
+            bulk_runner.logs_client.start_live_tail.return_value = {'responseStream': event_stream}
+
+            bulk_runner._watch_log_group('jr-xyz', arn, unhealthy)
+
+            kwargs = bulk_runner.logs_client.start_live_tail.call_args.kwargs
+            assert kwargs['logStreamNamePrefixes'] == ['jr-xyz']
+            assert 'logStreamNames' not in kwargs
+
+    def test_executor_events_bypass_reassembler_but_are_health_checked(self, bulk_runner, monkeypatch):
+        """The routing: driver events go to the reassembler and are printed;
+        executor ("_g-") events skip the reassembler entirely (so they can't be
+        merged onto a driver line -- issue #284) and are never printed, but they
+        still pass through the health check and can trigger shutdown."""
+        import threading
+        unhealthy = threading.Event()
+        bulk_runner._wait_for_log_groups_to_exist = MagicMock()
+        bulk_runner._get_job_run_state = MagicMock(return_value=runner_module.RUNNING_STATE)
+        bulk_runner._stop_glue_job = MagicMock()
+        printed = []
+        bulk_runner._pretty_print_log_event = MagicMock(side_effect=printed.append)
+        monkeypatch.setattr(runner_module.utils, 'UNHEALTHY_STATE_LOG_MESSAGE_KEYS', ['OutOfMemoryError'])
+
+        driver_ev = {'logStreamName': 'jr-xyz', 'message': 'diff line\n', 'timestamp': 1}
+        exec_ev = {'logStreamName': 'jr-xyz_g-abc123', 'message': 'OutOfMemoryError\n', 'timestamp': 2}
+
+        with patch.object(runner_module, 'GlueLogReassembler') as reasm_cls:
+            reasm = MagicMock()
+            reasm.process.side_effect = lambda events: list(events)  # echo what it's fed
+            reasm.flush.return_value = []
+            reasm_cls.return_value = reasm
+            event_stream = MagicMock()
+            event_stream.__iter__ = MagicMock(return_value=iter([
+                {'sessionUpdate': {'sessionResults': [driver_ev, exec_ev]}},
+            ]))
+            bulk_runner.logs_client.start_live_tail.return_value = {'responseStream': event_stream}
+
+            bulk_runner._watch_log_group('jr-xyz', self._arn(), unhealthy)
+
+        # Reassembler saw ONLY the driver event; the executor event bypassed it.
+        fed = reasm.process.call_args_list[0].args[0]
+        assert driver_ev in fed
+        assert exec_ev not in fed
+        # Only the driver event was printed.
+        assert printed == [driver_ev]
+        # The executor fatal signal still triggered shutdown.
+        assert unhealthy.is_set()
+        bulk_runner._stop_glue_job.assert_called_once_with('jr-xyz')
+
     def test_terminal_state_exits_event_loop(self, bulk_runner, monkeypatch):
         """Job in TERMINAL_JOB_STATES → close stream and return."""
         import threading
