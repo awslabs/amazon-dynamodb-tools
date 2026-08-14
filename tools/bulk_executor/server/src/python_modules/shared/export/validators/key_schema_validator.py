@@ -3,6 +3,7 @@ import gzip
 import json
 from typing import Dict, List, Optional
 
+from ...bulk_executor_error import BulkExecutorError
 from ...logger import log
 
 
@@ -90,7 +91,7 @@ class KeySchemaValidator:
 
             for f in failed_rows:
                 log.error(f"  - Row {f['row']}: {f['error']}")
-            raise ValueError(f"{error_summary}. See CloudWatch logs for details.")
+            raise BulkExecutorError(f"{error_summary}. See CloudWatch logs for details.")
 
         avg_item_size = total_item_size // validated_count if validated_count > 0 else 0
         log.debug(f"Key validation completed: {validated_count}/{len(rows_to_check)} sampled rows verified (avg item size: {avg_item_size:,} bytes)")

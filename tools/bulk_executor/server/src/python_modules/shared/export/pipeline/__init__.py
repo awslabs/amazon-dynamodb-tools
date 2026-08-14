@@ -117,15 +117,20 @@ def run_export_pipeline(spark_context, parsed_args, transform_package, post_vali
     debug_accumulator = spark_context.accumulator([], ListAccumulator()) if debug_enabled else None
 
     start_time = time.time()
-    path_resolver = ExportPathResolver(s3_path)
-
-    log.debug(f"S3 Source Bucket: {path_resolver.get_bucket()}")
-    log.debug(f"S3 Source Bucket Prefix: {path_resolver.get_prefix()}")
-    log.debug(f"S3 Source Bucket Export ID: {path_resolver.get_export_id()}")
-    log.debug(f"Export Path: {path_resolver.get_data_base_path()}")
 
     current_phase = "initialization"
     try:
+        # Parse the S3 path inside the try so a malformed --s3-path is handled by
+        # the validation-failure handler below (clean exit) rather than escaping
+        # as a raw ValueError → Glue stack trace.
+        current_phase = "path parsing"
+        path_resolver = ExportPathResolver(s3_path)
+
+        log.debug(f"S3 Source Bucket: {path_resolver.get_bucket()}")
+        log.debug(f"S3 Source Bucket Prefix: {path_resolver.get_prefix()}")
+        log.debug(f"S3 Source Bucket Export ID: {path_resolver.get_export_id()}")
+        log.debug(f"Export Path: {path_resolver.get_data_base_path()}")
+
         log.debug("=" * 80)
         log.info(f"Destination Table: {table_name}")
         log.debug("=" * 80)
@@ -176,7 +181,15 @@ def run_export_pipeline(spark_context, parsed_args, transform_package, post_vali
         log.error(f"  - Execution time: {execution_time:.1f} seconds")
         log.error("=" * 80)
         log.error("Job terminated due to validation failure")
-        raise
+        # The validators now raise BulkExecutorError directly at the point of the
+        # bad-input check (clean one-line message via root.py, no Glue stack trace).
+        # This handler stays as a defense-in-depth net: any validation-phase
+        # ValueError we haven't converted still gets surfaced cleanly rather than
+        # escaping as a raw trace. A BulkExecutorError is re-raised as-is (no
+        # double-wrap); its cause chain is preserved.
+        if isinstance(e, BulkExecutorError):
+            raise
+        raise BulkExecutorError(str(e)) from e
 
     except Exception as e:
         execution_time = time.time() - start_time

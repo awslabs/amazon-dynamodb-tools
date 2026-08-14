@@ -1,6 +1,7 @@
 """Data file MD5 checksum validation for DynamoDB export files."""
 from typing import Dict, List
 
+from ...bulk_executor_error import BulkExecutorError
 from ...logger import log
 from .md5_validator import MD5Validator
 
@@ -55,7 +56,9 @@ class DataFileValidator:
                 MD5Validator.validate_file_checksum(data_file_content, expected_md5)
                 validated_count += 1
                 verified_files.append(file_entry)
-            except ValueError as e:
+            except (ValueError, BulkExecutorError) as e:
+                # A single file's checksum mismatch is collected, not fatal —
+                # aggregated into the summary raise below.
                 failed_files.append({'file': data_file_key, 'error': str(e)})
             except Exception as e:
                 failed_files.append({'file': data_file_key, 'error': str(e)})
@@ -65,7 +68,7 @@ class DataFileValidator:
             log.error(error_summary)
             for failure in failed_files:
                 log.error(f"  - {failure['file']}: {failure['error']}")
-            raise ValueError(f"{error_summary}. See CloudWatch logs for details.")
+            raise BulkExecutorError(f"{error_summary}. See CloudWatch logs for details.")
 
         log.debug(f"Data file MD5 validation completed: {validated_count}/{len(files_to_validate)} files ({validation_mode} mode)")
         return {'validated_count': validated_count, 'total_count': total_count, 'validation_mode': validation_mode, 'failed_files': [], 'verified_files': verified_files}
