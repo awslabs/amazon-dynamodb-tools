@@ -58,3 +58,40 @@ class TestCopySmoke:
                 dpu_seconds=perf.dpu_seconds if perf else None,
                 items=tgt_count,
             ))
+
+    def test_copy_with_transform_filters_items(self, e2e_config, cmd_perf_collector):
+        # The `default` fill generator's items have no `status` attribute, so
+        # copy_transform/attribute_filter.py's transform_item (which only
+        # keeps items with status == "active") filters every item out. A
+        # target count equal to the source count here would mean the
+        # --transform hook was silently ignored — exactly the regression
+        # this test exists to catch.
+        with transient_table(e2e_config.aws_region, label="copy-xf-src") as src, \
+             transient_table(e2e_config.aws_region, label="copy-xf-tgt") as tgt:
+            seed = run_command(
+                "fill",
+                table=src,
+                extra_args=["--numitems", "30", "--generator", "default"],
+            )
+            assert_glue_succeeded("copy transform setup (fill source)", seed, e2e_config.aws_region)
+            src_count = assert_table_has_items(e2e_config.aws_region, src)
+
+            result = run_command_raw(
+                "copy",
+                args=["--source", src, "--target", tgt, "--transform", "attribute_filter"],
+            )
+            perf = assert_glue_succeeded("copy --transform attribute_filter", result, e2e_config.aws_region)
+
+            tgt_count = table_item_count(e2e_config.aws_region, tgt)
+            assert tgt_count == 0, (
+                f"copy_transform/attribute_filter.py should have filtered out all "
+                f"{src_count} source items (none have status == 'active'), but "
+                f"{tgt_count} landed in the target — the --transform hook did not run."
+            )
+
+            cmd_perf_collector.add(PerfRow(
+                command="copy --transform",
+                wall_seconds=result.wall_seconds,
+                dpu_seconds=perf.dpu_seconds if perf else None,
+                items=tgt_count,
+            ))

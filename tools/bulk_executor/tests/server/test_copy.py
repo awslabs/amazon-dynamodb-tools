@@ -729,3 +729,189 @@ class TestCopyDataReturn:
                                          MagicMock(), MagicMock(), MagicMock(), MagicMock())
         # local_count never incremented because scan blew up before any items
         assert result == 0, "no items copied means local_count stays 0 even on error"
+
+
+# --- transform (--transform / transform_item) ----------------------------
+
+class TestRunTransformWiring:
+    """copy.run() reads an optional 'transform' key from parsed_args and
+    threads it through to every worker as a keyword argument."""
+
+    def test_transform_name_passed_to_copy_data(self, monkeypatch, shared_table_info_mocks,
+                                                 rate_limiter_mocks, spark_context, base_args):
+        captured = {}
+
+        def fake_copy_data(*args, **kwargs):
+            captured['kwargs'] = kwargs
+
+        monkeypatch.setattr(copy_module, '_copy_data', fake_copy_data)
+
+        def fake_foreach(fn):
+            fn(0)
+        spark_context.parallelize.return_value.foreach = fake_foreach
+
+        args = dict(base_args, transform='pii_redact')
+        copy_module.run(MagicMock(), spark_context, MagicMock(), args)
+
+        assert captured['kwargs'].get('transform_name') == 'pii_redact'
+
+    def test_no_transform_key_passes_none(self, monkeypatch, shared_table_info_mocks,
+                                           rate_limiter_mocks, spark_context, base_args):
+        captured = {}
+
+        def fake_copy_data(*args, **kwargs):
+            captured['kwargs'] = kwargs
+
+        monkeypatch.setattr(copy_module, '_copy_data', fake_copy_data)
+
+        def fake_foreach(fn):
+            fn(0)
+        spark_context.parallelize.return_value.foreach = fake_foreach
+
+        copy_module.run(MagicMock(), spark_context, MagicMock(), base_args)
+
+        assert captured['kwargs'].get('transform_name') is None
+
+
+class TestCopyDataTransform:
+    """When transform_name is provided, _copy_data loads the module from
+    TRANSFORM_PACKAGE and applies transform_item to every scanned item,
+    supporting modify / filter (None or []) / fan-out (list) results."""
+
+    def _make_rl_and_table(self, monkeypatch, items):
+        rl_instance = MagicMock()
+        session = MagicMock(region_name='us-east-1')
+        rl_instance.get_session.return_value = session
+        monkeypatch.setattr(copy_module, 'RateLimiterWorker', MagicMock(return_value=rl_instance))
+        monkeypatch.setattr(copy_module, '_region_from_table_ref', lambda ref: None)
+
+        table = MagicMock()
+        table.scan = MagicMock(return_value={'Items': items, 'LastEvaluatedKey': None})
+        bw = MagicMock()
+        bw.__enter__ = MagicMock(return_value=bw)
+        bw.__exit__ = MagicMock(return_value=False)
+        table.batch_writer.return_value = bw
+        session.resource.return_value.Table.return_value = table
+        return table, bw
+
+    def test_loads_module_from_transform_package(self, monkeypatch):
+        self._make_rl_and_table(monkeypatch, [{'a': 1}])
+        loader = MagicMock(return_value=MagicMock(transform_item=lambda item: item))
+        monkeypatch.setattr(copy_module, 'load_transform_module', loader)
+
+        copy_module._copy_data('s', 't', {}, {}, 0, 1,
+                                MagicMock(), MagicMock(), MagicMock(), MagicMock(),
+                                transform_name='my_transform')
+
+        loader.assert_called_once_with('my_transform', copy_module.TRANSFORM_PACKAGE)
+
+    def test_no_transform_name_skips_loading(self, monkeypatch):
+        self._make_rl_and_table(monkeypatch, [{'a': 1}])
+        loader = MagicMock()
+        monkeypatch.setattr(copy_module, 'load_transform_module', loader)
+
+        copy_module._copy_data('s', 't', {}, {}, 0, 1,
+                                MagicMock(), MagicMock(), MagicMock(), MagicMock())
+
+        loader.assert_not_called()
+
+    def test_modified_item_is_written(self, monkeypatch):
+        _, bw = self._make_rl_and_table(monkeypatch, [{'a': 1}])
+        module = MagicMock(transform_item=lambda item: {**item, 'b': 2})
+        monkeypatch.setattr(copy_module, 'load_transform_module', MagicMock(return_value=module))
+
+        total_acc = MagicMock()
+        copy_module._copy_data('s', 't', {}, {}, 0, 1,
+                                total_acc, MagicMock(), MagicMock(), MagicMock(),
+                                transform_name='my_transform')
+
+        put_calls = bw.put_item.call_args_list
+        assert len(put_calls) == 1
+        assert put_calls[0].kwargs['Item'] == {'a': 1, 'b': 2}
+        total_acc.add.assert_called_once_with(1)
+
+    def test_none_result_filters_item(self, monkeypatch):
+        _, bw = self._make_rl_and_table(monkeypatch, [{'a': 1}, {'a': 2}])
+        module = MagicMock(transform_item=lambda item: None if item['a'] == 1 else item)
+        monkeypatch.setattr(copy_module, 'load_transform_module', MagicMock(return_value=module))
+
+        total_acc = MagicMock()
+        copy_module._copy_data('s', 't', {}, {}, 0, 1,
+                                total_acc, MagicMock(), MagicMock(), MagicMock(),
+                                transform_name='my_transform')
+
+        put_calls = bw.put_item.call_args_list
+        assert len(put_calls) == 1
+        assert put_calls[0].kwargs['Item'] == {'a': 2}
+        total_acc.add.assert_called_once_with(1), "filtered item does not count toward total"
+
+    def test_empty_list_result_filters_item(self, monkeypatch):
+        _, bw = self._make_rl_and_table(monkeypatch, [{'a': 1}])
+        module = MagicMock(transform_item=lambda item: [])
+        monkeypatch.setattr(copy_module, 'load_transform_module', MagicMock(return_value=module))
+
+        total_acc = MagicMock()
+        copy_module._copy_data('s', 't', {}, {}, 0, 1,
+                                total_acc, MagicMock(), MagicMock(), MagicMock(),
+                                transform_name='my_transform')
+
+        bw.put_item.assert_not_called()
+        total_acc.add.assert_called_once_with(0)
+
+    def test_list_result_fans_out_multiple_writes(self, monkeypatch):
+        _, bw = self._make_rl_and_table(monkeypatch, [{'a': 1}])
+        module = MagicMock(transform_item=lambda item: [{'a': 1, 'n': 1}, {'a': 1, 'n': 2}])
+        monkeypatch.setattr(copy_module, 'load_transform_module', MagicMock(return_value=module))
+
+        total_acc = MagicMock()
+        copy_module._copy_data('s', 't', {}, {}, 0, 1,
+                                total_acc, MagicMock(), MagicMock(), MagicMock(),
+                                transform_name='my_transform')
+
+        put_calls = bw.put_item.call_args_list
+        assert len(put_calls) == 2
+        items_written = [c.kwargs['Item'] for c in put_calls]
+        assert {'a': 1, 'n': 1} in items_written
+        assert {'a': 1, 'n': 2} in items_written
+        total_acc.add.assert_called_once_with(2), "fan-out counts both written items"
+
+    def test_transform_exception_is_accumulated_and_item_skipped(self, monkeypatch):
+        _, bw = self._make_rl_and_table(monkeypatch, [{'a': 1}, {'a': 2}])
+
+        def boom(item):
+            if item['a'] == 1:
+                raise RuntimeError('bad item')
+            return item
+
+        module = MagicMock(transform_item=boom)
+        monkeypatch.setattr(copy_module, 'load_transform_module', MagicMock(return_value=module))
+        monkeypatch.setattr(copy_module, 'get_error_message', lambda e: str(e))
+
+        error_acc = MagicMock()
+        total_acc = MagicMock()
+        copy_module._copy_data('s', 't', {}, {}, 3, 10,
+                                total_acc, error_acc, MagicMock(), MagicMock(),
+                                transform_name='my_transform')
+
+        put_calls = bw.put_item.call_args_list
+        assert len(put_calls) == 1
+        assert put_calls[0].kwargs['Item'] == {'a': 2}
+
+        error_acc.add.assert_called_once()
+        appended = error_acc.add.call_args.args[0]
+        assert 'my_transform' in appended[0]
+        assert 'worker 3' in appended[0]
+        assert 'bad item' in appended[0]
+
+    def test_without_transform_name_items_pass_through_unchanged(self, monkeypatch):
+        _, bw = self._make_rl_and_table(monkeypatch, [{'a': 1}, {'b': 2}])
+
+        total_acc = MagicMock()
+        copy_module._copy_data('s', 't', {}, {}, 0, 1,
+                                total_acc, MagicMock(), MagicMock(), MagicMock())
+
+        put_calls = bw.put_item.call_args_list
+        items_written = [c.kwargs['Item'] for c in put_calls]
+        assert {'a': 1} in items_written
+        assert {'b': 2} in items_written
+        total_acc.add.assert_called_once_with(2)

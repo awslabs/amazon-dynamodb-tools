@@ -136,6 +136,9 @@ Here are some example use cases:
 ./bulk copy --source source --target target
 ./bulk copy --source arn:aws:dynamodb:us-east-1:123456789012:table/source --target arn:aws:dynamodb:us-west-2:987654321098:table/target
 
+# Copy while transforming items in flight (filter, reshape, redact, fan-out)
+./bulk copy --source source --target target --transform pii_redact
+
 # Load a DynamoDB export into an existing DynamoDB table
 ./bulk load-export --table target --s3-path "s3://<bucket-name>/prefix/AWSDynamoDB/01716790307109-5f9d6aaa" [--transform example]
 
@@ -572,6 +575,11 @@ If diffing cross-account, the table in the other account needs a resource-based 
 * Performs a copy from one table to another using a parallel tight scan/write loops (doesn't bring full table into memory).
 * Requires `source` and `target` parameters
 * Parameters can be table names or table ARNs. Using ARNs allows cross-account / cross-region access.
+* Accepts an optional `--transform` parameter to specify a Python module (from `server/src/python_modules/copy_transform/`) containing a `transform_item(item)` function. It receives each deserialized item and can:
+  * Return the item unchanged or modified — the copy proceeds as a PUT of the returned item.
+  * Return `None` or `[]` — the item is skipped (not written to the target table).
+  * Return a list of items — fan-out: each item in the list is written to the target table.
+  * See `pii_redact.py` and `attribute_filter.py` in `copy_transform/` for examples (redacting PII attributes, filtering by attribute value).
 
 If doing cross-account, you need a resource-based policy to enable access. The following example RBP allows access from two specific roles the 123456789012 account. The `role/ClientSide` is whatever role you have for the command-line Python program (so the client-side can describe the table and estimate costs). The `role/AWSGlueServiceRoleBulkDynamoDB-DdbReadWrite-us-east-1` is whatever role you have attached to the Glue job (so the `copy` can be performed).
 

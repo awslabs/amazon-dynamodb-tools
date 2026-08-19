@@ -16,10 +16,14 @@ from python_modules.shared.table_info import (
 )
 
 from python_modules.shared.rate_limiter import (
-    RateLimiterAggregator,  
+    RateLimiterAggregator,
     RateLimiterSharedConfig,
     RateLimiterWorker
 )
+
+from python_modules.shared.export.pipeline.transform_loader import load_transform_module
+
+TRANSFORM_PACKAGE = 'python_modules.copy_transform'
 
 class ListAccumulator(AccumulatorParam):
     def zero(self, initialValue):
@@ -43,6 +47,7 @@ def print_dynamodb_table_info(source_table, target_table):
 def run(job, spark_context, glue_context, parsed_args):
     source_table = parsed_args.get('source')
     target_table = parsed_args.get('target')
+    transform_name = parsed_args.get('transform')
 
     # Rate limiter configuration
     bucket_name = parsed_args.get('s3-bucket-name')
@@ -76,7 +81,7 @@ def run(job, spark_context, glue_context, parsed_args):
     try:
         parallelize_count = 400
         rdd = spark_context.parallelize(range(parallelize_count), parallelize_count)
-        rdd.foreach(lambda worker_id: _copy_data(source_table, target_table, source_monitor_options, target_monitor_options, worker_id, parallelize_count, total_matched_accumulator, error_accumulator, source_rate_limiter_shared_config, target_rate_limiter_shared_config))
+        rdd.foreach(lambda worker_id: _copy_data(source_table, target_table, source_monitor_options, target_monitor_options, worker_id, parallelize_count, total_matched_accumulator, error_accumulator, source_rate_limiter_shared_config, target_rate_limiter_shared_config, transform_name=transform_name))
         #rdd.count()
     except Exception as e:
         raise Exception(f"Error in parallel execution: {get_error_message(e)}") from None
@@ -89,7 +94,12 @@ def run(job, spark_context, glue_context, parsed_args):
 
     print(f"Total records copied: {total_matched_accumulator.value:,}")
 
-def _copy_data(source_table, target_table, source_monitor_options, target_monitor_options, segment, total_segments, total_matched_accumulator, error_accumulator, source_rate_limiter_shared_config, target_rate_limiter_shared_config):
+def _copy_data(source_table, target_table, source_monitor_options, target_monitor_options, segment, total_segments, total_matched_accumulator, error_accumulator, source_rate_limiter_shared_config, target_rate_limiter_shared_config, transform_name=None):
+
+    transform_fn = None
+    if transform_name:
+        transform_module = load_transform_module(transform_name, TRANSFORM_PACKAGE)
+        transform_fn = transform_module.transform_item
 
     # Let's hit the gas harder for this verb, at least for now XXX
     source_rl = RateLimiterWorker(
@@ -132,9 +142,22 @@ def _copy_data(source_table, target_table, source_monitor_options, target_monito
 
                 items = resp.get("Items", [])
                 for item in items:
-                    # optionally transform item here
-                    batch.put_item(Item=item)
-                local_count += len(items)
+                    if transform_fn:
+                        try:
+                            transformed = transform_fn(item)
+                        except Exception as e:
+                            error_accumulator.add([f"Transform '{transform_name}' raised an exception in worker {segment}: {get_error_message(e)}"])
+                            continue
+                        if transformed is None:
+                            transformed = []
+                        elif not isinstance(transformed, list):
+                            transformed = [transformed]
+                    else:
+                        transformed = [item]
+
+                    for out_item in transformed:
+                        batch.put_item(Item=out_item)
+                    local_count += len(transformed)
 
                 lek = resp.get("LastEvaluatedKey")
                 if not lek:
