@@ -1,6 +1,5 @@
 # Table Capacity Mode Optimization Tool (DEPRECATED)
 
-> https://github.com/awslabs/amazon-dynamodb-tools/tree/main/tools/dynamodb-optima
 > **⚠️ DEPRECATED (January 2026)**: This tool has been replaced by dynamodb-optima
 > 
 > The new unified platform at [`/dynamodb-optima`](../../tools/dynamodb-optima)includes all capacity mode analysis features plus:
