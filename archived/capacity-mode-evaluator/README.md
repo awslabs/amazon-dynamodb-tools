@@ -1,8 +1,9 @@
 # Table Capacity Mode Optimization Tool (DEPRECATED)
 
-> **⚠️ DEPRECATED (January 2026)**: This tool has been replaced by metrics-collector-v2.
+> https://github.com/awslabs/amazon-dynamodb-tools/tree/main/tools/dynamodb-optima
+> **⚠️ DEPRECATED (January 2026)**: This tool has been replaced by dynamodb-optima
 > 
-> The new unified platform at [`/metrics-collector-v2/`](../metrics-collector-v2/) includes all capacity mode analysis features plus:
+> The new unified platform at [`/dynamodb-optima`](../../tools/dynamodb-optima)includes all capacity mode analysis features plus:
 > - ✅ Autoscaling simulation (same logic, improved implementation)
 > - ✅ Multi-account AWS Organizations support
 > - ✅ Table class optimization
