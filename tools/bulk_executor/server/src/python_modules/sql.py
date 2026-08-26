@@ -1,5 +1,4 @@
 import sys
-import warnings
 import boto3
 from pyspark.sql import SparkSession
 
@@ -22,8 +21,8 @@ def run(job, spark_context, glue_context, parsed_args):
     table_info = get_and_print_dynamodb_table_info(DYNAMO_DB_TABLE_NAME)
     _ = get_and_print_table_scan_cost(table_info, region_name)
 
-    # Suppress dataframe.py warning
-    warnings.filterwarnings("ignore", message="DataFrame constructor is internal. Do not directly use it.")
+    # The "DataFrame constructor is internal" warning is suppressed once in
+    # server/src/root.py for every verb.
 
     # Read directly into a DataFrame and register as temp table
     records = read_dynamodb_dataframe(

@@ -2,7 +2,6 @@ import json
 import math
 import re
 import sys
-import warnings
 
 import boto3
 from awsglue.transforms import *
@@ -106,8 +105,8 @@ def run(job, spark_context, glue_context, parsed_args):
 
     # OK, we're gonna convert the DynamicFrame to a DataFrame for processing
     else:
-        # Suppress dataframe.py warning that might confuse users
-        warnings.filterwarnings("ignore", message="DataFrame constructor is internal. Do not directly use it.")
+        # The "DataFrame constructor is internal" warning is suppressed once in
+        # server/src/root.py for every verb.
         records = read_dynamodb_dataframe(
             glue_context, DYNAMO_DB_TABLE_NAME, parsed_args,
             splits=DYNAMO_DB_NUMBER_OF_SPLITS)

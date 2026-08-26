@@ -5,6 +5,10 @@ Covers `server/src/root.py`:
   (no exit, single-line exit, message after marker, multi-line traceback).
 - `_get_parsed_glue_job_args`: argv parsing for `--key value` pairs, optional
   flag-without-value handling, and the XDebug print-on-true branch.
+- Module-level warnings suppression: the "DataFrame constructor is internal"
+  UserWarning that awsglue's DynamicFrame.toDF() triggers is filtered once for
+  every verb, is registered before dispatch, and does not swallow unrelated
+  UserWarnings.
 - Module-level dispatcher logic: SparkContext/GlueContext/Job initialization,
   sys.path append, XAction → module name mapping (default + dash-to-underscore
   rewrite), logger init wiring, importlib import_module dispatch, the success
@@ -26,10 +30,28 @@ entries per-test so the side effects are observable.
 import importlib.util
 import sys
 import types
+import warnings
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+INTERNAL_DATAFRAME_WARNING = "DataFrame constructor is internal. Do not directly use it."
+
+
+def _filter_matches_internal_dataframe_warning():
+    """True when an active 'ignore' filter covers INTERNAL_DATAFRAME_WARNING.
+
+    Inspects warnings.filters rather than emitting the warning, because
+    warnings.catch_warnings(record=True) resets the filter list to
+    simplefilter("always") on entry and would mask the very filter under test.
+    """
+    for action, message, _category, _module, _lineno in warnings.filters:
+        if action == "ignore" and message is not None \
+                and message.match(INTERNAL_DATAFRAME_WARNING):
+            return True
+    return False
 
 
 # --- Constants & helpers ----------------------------------------------------
@@ -335,6 +357,80 @@ class TestRootInitialization:
                    ["root.py", "--XAction", "copy"],
                    verb_module=verb, verb_name="copy")
         assert "python_modules" in sys.path
+
+
+class TestRootDataFrameWarningSuppression:
+    """The "DataFrame constructor is internal" filter (issue #290).
+
+    awsglue's DynamicFrame.toDF() calls pyspark's internal DataFrame
+    constructor, which emits a UserWarning that leaked into `load` output
+    because only find.py and sql.py declared their own filter. root.py now
+    registers it once for every verb.
+
+    Each test loads root.py inside `warnings.catch_warnings()` so the filter
+    root.py installs is torn down afterwards and cannot leak into other tests.
+    """
+
+    def test_filter_registered_for_internal_dataframe_warning(self, monkeypatch):
+        """root.py registers an 'ignore' filter matching the pyspark message."""
+        verb = _make_verb_module("copy")
+        with warnings.catch_warnings():
+            _load_root(monkeypatch,
+                       ["root.py", "--XAction", "copy"],
+                       verb_module=verb, verb_name="copy")
+            assert _filter_matches_internal_dataframe_warning()
+
+    def test_filter_registered_before_verb_run_is_called(self, monkeypatch):
+        """The filter must be active *by the time the verb runs*.
+
+        This is the invariant that broke for `load`: its
+        dynamicFrame.toDF() fires the warning inside run(), so a filter
+        registered any later than dispatch is useless.
+        """
+        observed = {}
+
+        def fake_run(job, sc, gc, parsed_args):
+            observed["active"] = _filter_matches_internal_dataframe_warning()
+
+        verb = _make_verb_module("load", run_callable=fake_run)
+        with warnings.catch_warnings():
+            _load_root(monkeypatch,
+                       ["root.py", "--XAction", "load"],
+                       verb_module=verb, verb_name="load")
+        assert observed["active"] is True, \
+            "filter must be registered before the verb's run() is dispatched"
+
+    def test_internal_dataframe_warning_is_actually_swallowed(self, monkeypatch):
+        """Behavioral: emitting the real message produces no output.
+
+        showwarning is patched rather than using catch_warnings(record=True),
+        which would reset the filters and mask what we're testing.
+        """
+        verb = _make_verb_module("copy")
+        with warnings.catch_warnings():
+            _load_root(monkeypatch,
+                       ["root.py", "--XAction", "copy"],
+                       verb_module=verb, verb_name="copy")
+            shown = []
+            with patch.object(warnings, "showwarning",
+                              lambda *args, **kwargs: shown.append(args)):
+                warnings.warn(INTERNAL_DATAFRAME_WARNING, UserWarning)
+            assert shown == []
+
+    def test_unrelated_user_warning_still_surfaces(self, monkeypatch):
+        """The filter is pinned to one message — it is not a blanket
+        UserWarning ignore, so genuine warnings still reach the user."""
+        verb = _make_verb_module("copy")
+        with warnings.catch_warnings():
+            warnings.simplefilter("always")
+            _load_root(monkeypatch,
+                       ["root.py", "--XAction", "copy"],
+                       verb_module=verb, verb_name="copy")
+            shown = []
+            with patch.object(warnings, "showwarning",
+                              lambda *args, **kwargs: shown.append(args)):
+                warnings.warn("a genuinely useful warning", UserWarning)
+            assert len(shown) == 1
 
 
 class TestRootLoggerInit:
