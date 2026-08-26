@@ -1163,11 +1163,15 @@ class TestDeletePartition:
         assert cfg.retries['total_max_attempts'] == 50
 
 
-# --- run(): warnings suppression and defaults ---------------------------------
+# --- run(): defaults ----------------------------------------------------------
 
 @pytest.mark.skip(reason="Asserts against legacy DynamicFrame code path; verb now goes through python_modules.shared.glue_connector wrapper. Followup: rewrite to assert against the wrapper boundary.")
 class TestRunMiscBehavior:
-    """Miscellaneous behavior: default splits, warnings suppression."""
+    """Miscellaneous behavior: default splits.
+
+    The warnings-suppression test was removed with issue #290: the filter moved
+    to server/src/root.py and is covered by tests/server/test_root.py.
+    """
 
     def test_default_splits_is_200(
         self, monkeypatch, table_info_mocks, boto3_session_mock, glue_context
@@ -1182,22 +1186,6 @@ class TestRunMiscBehavior:
         from_options_call = glue_context.create_dynamic_frame.from_options.call_args
         conn_opts = from_options_call.kwargs['connection_options']
         assert conn_opts['dynamodb.splits'] == '200'
-
-    def test_warnings_suppressed_in_dataframe_path(
-        self, monkeypatch, table_info_mocks, boto3_session_mock, glue_context
-    ):
-        """Line 124: warnings.filterwarnings called for DataFrame constructor."""
-        with patch.object(find_module.warnings, 'filterwarnings') as mock_fw:
-            args = {
-                'splits': '200', 'table': 't',
-                'where': 'x = 1', 'orderby': None, 'limit': None,
-                'XAction': 'count',
-            }
-            find_module.run(MagicMock(), MagicMock(), glue_context, args)
-            mock_fw.assert_called_once_with(
-                "ignore",
-                message="DataFrame constructor is internal. Do not directly use it."
-            )
 
     def test_count_with_orderby_uses_dataframe(
         self, monkeypatch, table_info_mocks, boto3_session_mock, glue_context, capsys

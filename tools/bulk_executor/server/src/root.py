@@ -1,6 +1,7 @@
 import importlib
 import sys
 import traceback
+import warnings
 
 from awsglue.context import GlueContext
 from awsglue.job import Job
@@ -55,6 +56,15 @@ def _get_parsed_glue_job_args(argv):
 spark_context = SparkContext.getOrCreate()
 glue_context = GlueContext(spark_context)
 job = Job(glue_context)
+
+# awsglue's own DynamicFrame.toDF() calls pyspark's internal DataFrame
+# constructor, which emits a UserWarning users can't act on. Suppress it once
+# here, after the contexts are built (so nothing in Spark/Glue startup resets
+# the filter) and before any verb is imported, so every verb inherits it
+# instead of each one re-declaring the same filter. Pinned to this exact
+# message on purpose — a blanket UserWarning ignore would hide real warnings.
+warnings.filterwarnings(
+    "ignore", message="DataFrame constructor is internal. Do not directly use it.")
 
 # Import the module
 module_path = 'python_modules'

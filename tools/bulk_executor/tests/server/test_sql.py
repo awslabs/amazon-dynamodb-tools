@@ -3,7 +3,7 @@
 Covers `python_modules/sql.py`:
 - run(): argument parsing (splits default, table, query, limit),
   boto3 session region, table info helpers, connection_options dict,
-  dynamic frame creation, warnings suppression, DataFrame temp view
+  dynamic frame creation, DataFrame temp view
   with table name aliasing, SparkSession creation,
   query validation (SELECT only), spark.sql execution,
   limit handling (valid int, zero/negative, non-integer, generic exception),
@@ -67,14 +67,6 @@ def mock_get_error_message(monkeypatch):
 
 
 @pytest.fixture
-def mock_warnings(monkeypatch):
-    """Mock warnings.filterwarnings."""
-    w = MagicMock()
-    monkeypatch.setattr(sql_module, 'warnings', w)
-    return w
-
-
-@pytest.fixture
 def mock_spark_session(monkeypatch):
     """Mock SparkSession so spark.sql / spark.stop are controllable."""
     spark_instance = MagicMock()
@@ -134,7 +126,7 @@ class TestRunArgumentParsing:
         return read_mock
 
     def test_splits_defaults_to_200_when_absent(self, monkeypatch, mock_boto3_session,
-                                                  mock_table_info, mock_warnings,
+                                                  mock_table_info,
                                                   mock_spark_session, mock_get_error_message,
                                                   glue_context, base_args):
         """Line 14: splits defaults to '200' when not provided, passed to wrapper."""
@@ -147,7 +139,7 @@ class TestRunArgumentParsing:
         assert read_mock.call_args.kwargs['splits'] == '200', "default splits is '200'"
 
     def test_splits_uses_provided_value(self, monkeypatch, mock_boto3_session,
-                                          mock_table_info, mock_warnings,
+                                          mock_table_info,
                                           mock_spark_session, mock_get_error_message,
                                           glue_context, base_args):
         """Line 14: splits uses parsed_args value when present, passed to wrapper."""
@@ -161,7 +153,7 @@ class TestRunArgumentParsing:
         assert read_mock.call_args.kwargs['splits'] == '50'
 
     def test_limit_defaults_to_none(self, monkeypatch, mock_boto3_session,
-                                      mock_table_info, mock_warnings,
+                                      mock_table_info,
                                       mock_spark_session, mock_get_error_message,
                                       glue_context, base_args):
         """Line 17: limit is None when not provided — no user-limit call on result.
@@ -204,7 +196,7 @@ class TestRunTableInfoAndConnection:
         return read_mock
 
     def test_boto3_session_region_used(self, monkeypatch, mock_boto3_session,
-                                         mock_table_info, mock_warnings,
+                                         mock_table_info,
                                          mock_spark_session, mock_get_error_message,
                                          glue_context, base_args):
         """Line 20-22: region_name comes from boto3.Session().region_name and is
@@ -220,7 +212,7 @@ class TestRunTableInfoAndConnection:
         assert call_args.args[1] == 'us-east-1' or call_args[0][1] == 'us-east-1'
 
     def test_get_and_print_dynamodb_table_info_called_with_table_name(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args):
         """Line 21: table info called with the table name."""
         result = _make_result_mock(count=1)
@@ -232,7 +224,7 @@ class TestRunTableInfoAndConnection:
         mock_table_info.get_and_print_dynamodb_table_info.assert_called_once_with('my-test.table')
 
     def test_scan_cost_called_without_numberOfScans(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args):
         """DataFrame connector reads once; no double-scan pricing multiplier."""
         result = _make_result_mock(count=1)
@@ -245,7 +237,7 @@ class TestRunTableInfoAndConnection:
         assert 'numberOfScans' not in call_kwargs
 
     def test_read_wrapper_called_with_table_name(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args):
         """Lines 28-30: sql.py delegates the read to read_dynamodb_dataframe,
         passing the glue_context, the table name, and parsed_args. This preserves
@@ -277,8 +269,9 @@ class TestRunDataFrameSetup:
     dynamic-frame -> toDF() conversion no longer happens in sql.py and there is
     no separate `df` from `create_dynamic_frame.from_options(...).toDF()`. The
     temp view is registered on the wrapper's return value (`records`). The
-    warnings-suppression, table-aliasing, and SparkSession-creation behaviors all
-    still live in sql.py and are preserved here.
+    table-aliasing and SparkSession-creation behaviors still live in sql.py and
+    are preserved here. Warnings suppression moved to server/src/root.py
+    (issue #290) and is covered by tests/server/test_root.py.
     """
 
     def _patch_read(self, monkeypatch, result_df):
@@ -286,23 +279,8 @@ class TestRunDataFrameSetup:
         monkeypatch.setattr(sql_module, 'read_dynamodb_dataframe', read_mock)
         return read_mock
 
-    def test_warnings_filter_suppresses_dataframe_constructor_warning(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
-            mock_spark_session, mock_get_error_message, glue_context, base_args):
-        """Line 25: warnings.filterwarnings called with 'ignore' and the specific message."""
-        result = _make_result_mock(count=1)
-        mock_spark_session.sql.return_value = result
-        self._patch_read(monkeypatch, MagicMock())
-
-        sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
-
-        mock_warnings.filterwarnings.assert_called_once()
-        args = mock_warnings.filterwarnings.call_args
-        assert args[0][0] == 'ignore'
-        assert 'DataFrame constructor' in args.kwargs.get('message', args[0][1] if len(args[0]) > 1 else '')
-
     def test_table_alias_replaces_hyphens_and_dots(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args):
         """Lines 31-32: table alias replaces '-' and '.' with '_', and the temp
         view is registered on the DataFrame returned by the wrapper."""
@@ -316,7 +294,7 @@ class TestRunDataFrameSetup:
         records.createOrReplaceTempView.assert_called_once_with('my_test_table')
 
     def test_spark_session_created_from_spark_context(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args):
         """Line 35: SparkSession(spark_context) is called."""
         result = _make_result_mock(count=1)
@@ -335,7 +313,7 @@ class TestRunQueryValidation:
     """run() rejects non-SELECT queries."""
 
     def test_non_select_query_raises(self, monkeypatch, mock_boto3_session,
-                                       mock_table_info, mock_warnings,
+                                       mock_table_info,
                                        mock_spark_session, mock_get_error_message,
                                        glue_context, base_args):
         """A non-SELECT query is a user-parameter error: clean BulkExecutorError,
@@ -348,7 +326,7 @@ class TestRunQueryValidation:
             sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
     def test_select_with_leading_whitespace_passes(self, monkeypatch, mock_boto3_session,
-                                                     mock_table_info, mock_warnings,
+                                                     mock_table_info,
                                                      mock_spark_session, mock_get_error_message,
                                                      glue_context, base_args):
         """Line 49: .strip() allows leading whitespace before SELECT."""
@@ -363,7 +341,7 @@ class TestRunQueryValidation:
         mock_spark_session.sql.assert_called_once_with('   SELECT id FROM my_test_table')
 
     def test_select_case_insensitive(self, monkeypatch, mock_boto3_session,
-                                       mock_table_info, mock_warnings,
+                                       mock_table_info,
                                        mock_spark_session, mock_get_error_message,
                                        glue_context, base_args):
         """Line 49: .upper() makes check case-insensitive."""
@@ -384,7 +362,7 @@ class TestRunLimitHandling:
     """run() applies LIMIT when provided and validates it."""
 
     def test_valid_limit_applies_to_result(self, monkeypatch, mock_boto3_session,
-                                             mock_table_info, mock_warnings,
+                                             mock_table_info,
                                              mock_spark_session, mock_get_error_message,
                                              glue_context, base_args):
         """Lines 57-60: valid integer limit calls result.limit()."""
@@ -401,7 +379,7 @@ class TestRunLimitHandling:
         result.limit.assert_called_once_with(25)
 
     def test_zero_limit_raises_value_error(self, monkeypatch, mock_boto3_session,
-                                             mock_table_info, mock_warnings,
+                                             mock_table_info,
                                              mock_spark_session, mock_get_error_message,
                                              glue_context, base_args):
         """limit <= 0 raises a clean BulkExecutorError (not wrapped as 'SQL query error')."""
@@ -415,7 +393,7 @@ class TestRunLimitHandling:
             sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
     def test_negative_limit_raises_value_error(self, monkeypatch, mock_boto3_session,
-                                                 mock_table_info, mock_warnings,
+                                                 mock_table_info,
                                                  mock_spark_session, mock_get_error_message,
                                                  glue_context, base_args):
         """negative limit raises a clean BulkExecutorError."""
@@ -429,7 +407,7 @@ class TestRunLimitHandling:
             sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
     def test_non_integer_limit_raises_via_get_error_message(self, monkeypatch, mock_boto3_session,
-                                                              mock_table_info, mock_warnings,
+                                                              mock_table_info,
                                                               mock_spark_session, mock_get_error_message,
                                                               glue_context, base_args):
         """non-int string raises a clean BulkExecutorError."""
@@ -443,7 +421,7 @@ class TestRunLimitHandling:
             sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
     def test_valid_limit_runtime_failure_wraps_as_sql_query_error(self, monkeypatch, mock_boto3_session,
-                                                                     mock_table_info, mock_warnings,
+                                                                     mock_table_info,
                                                                      mock_spark_session, mock_get_error_message,
                                                                      glue_context, base_args):
         """A valid integer limit that then fails in Spark is a runtime error, not a
@@ -469,7 +447,7 @@ class TestRunOutputPrinting:
     """run() prints results differently based on count vs TOP_N threshold."""
 
     def _run_with_count(self, count, monkeypatch, mock_boto3_session, mock_table_info,
-                        mock_warnings, mock_spark_session, mock_get_error_message,
+                        mock_spark_session, mock_get_error_message,
                         glue_context, base_args):
         """Helper: set up result with given count and run."""
         result = MagicMock()
@@ -487,61 +465,61 @@ class TestRunOutputPrinting:
         return result
 
     def test_count_less_than_top_n_prints_count_result_rows(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args, capsys):
         """Line 79-80: when count <= 10, prints '{count} result rows:'."""
         self._run_with_count(5, monkeypatch, mock_boto3_session, mock_table_info,
-                             mock_warnings, mock_spark_session, mock_get_error_message,
+                             mock_spark_session, mock_get_error_message,
                              glue_context, base_args)
         out = capsys.readouterr().out
         assert '5 result rows:' in out
 
     def test_count_equal_to_top_n_prints_count_result_rows(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args, capsys):
         """Line 79: boundary — count == 10 uses <= path."""
         self._run_with_count(10, monkeypatch, mock_boto3_session, mock_table_info,
-                             mock_warnings, mock_spark_session, mock_get_error_message,
+                             mock_spark_session, mock_get_error_message,
                              glue_context, base_args)
         out = capsys.readouterr().out
         assert '10 result rows:' in out
 
     def test_count_greater_than_top_n_prints_first_n(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args, capsys):
         """Line 82: when count > 10, prints 'First 10 result rows:'."""
         self._run_with_count(25, monkeypatch, mock_boto3_session, mock_table_info,
-                             mock_warnings, mock_spark_session, mock_get_error_message,
+                             mock_spark_session, mock_get_error_message,
                              glue_context, base_args)
         out = capsys.readouterr().out
         assert 'First 10 result rows:' in out
 
     def test_count_greater_than_top_n_prints_more_rows_message(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args, capsys):
         """Line 89-90: prints '...and N more rows not printed'."""
         self._run_with_count(25, monkeypatch, mock_boto3_session, mock_table_info,
-                             mock_warnings, mock_spark_session, mock_get_error_message,
+                             mock_spark_session, mock_get_error_message,
                              glue_context, base_args)
         out = capsys.readouterr().out
         assert '...and 15 more rows not printed' in out
 
     def test_zero_count_does_not_print_records(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args, capsys):
         """Line 84: count == 0 skips record printing entirely."""
         self._run_with_count(0, monkeypatch, mock_boto3_session, mock_table_info,
-                             mock_warnings, mock_spark_session, mock_get_error_message,
+                             mock_spark_session, mock_get_error_message,
                              glue_context, base_args)
         out = capsys.readouterr().out
         assert '{"id"' not in out
 
     def test_records_are_printed_individually(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args, capsys):
         """Lines 85-87: each record from toJSON().collect() is printed."""
         self._run_with_count(3, monkeypatch, mock_boto3_session, mock_table_info,
-                             mock_warnings, mock_spark_session, mock_get_error_message,
+                             mock_spark_session, mock_get_error_message,
                              glue_context, base_args)
         out = capsys.readouterr().out
         assert '{"id": 0}' in out
@@ -549,11 +527,11 @@ class TestRunOutputPrinting:
         assert '{"id": 2}' in out
 
     def test_result_limit_called_with_top_n_for_display(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args):
         """Line 85: result.limit(TOP_N=10) used for display."""
         result = self._run_with_count(15, monkeypatch, mock_boto3_session, mock_table_info,
-                                      mock_warnings, mock_spark_session, mock_get_error_message,
+                                      mock_spark_session, mock_get_error_message,
                                       glue_context, base_args)
         limit_calls = [c for c in result.limit.call_args_list if c.args[0] == 10]
         assert len(limit_calls) >= 1, "result.limit(10) called for top-N display"
@@ -565,7 +543,7 @@ class TestRunS3WriteAndCleanup:
     """run() writes results to S3 and calls unpersist."""
 
     def test_s3_output_location_format(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args, capsys):
         """Lines 73-75: s3 location is s3://{bucket}/output/{job_run_id}."""
         result = _make_result_mock(count=1)
@@ -579,7 +557,7 @@ class TestRunS3WriteAndCleanup:
         assert 's3://output-bucket/output/run-001/' in out
 
     def test_write_mode_overwrite_json(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args):
         """Line 93: result.write.mode('overwrite').json(location)."""
         result = _make_result_mock(count=1)
@@ -595,7 +573,7 @@ class TestRunS3WriteAndCleanup:
         )
 
     def test_result_unpersist_called(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args):
         """Line 100: result.unpersist() called for cleanup."""
         result = _make_result_mock(count=1)
@@ -608,7 +586,7 @@ class TestRunS3WriteAndCleanup:
         result.unpersist.assert_called_once()
 
     def test_result_cache_called(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args):
         """Line 69: result.cache() called before count."""
         result = _make_result_mock(count=1)
@@ -621,7 +599,7 @@ class TestRunS3WriteAndCleanup:
         result.cache.assert_called_once()
 
     def test_count_printed_with_comma_formatting(
-            self, monkeypatch, mock_boto3_session, mock_table_info, mock_warnings,
+            self, monkeypatch, mock_boto3_session, mock_table_info,
             mock_spark_session, mock_get_error_message, glue_context, base_args, capsys):
         """Line 96: count formatted with commas."""
         result = MagicMock()
@@ -647,7 +625,7 @@ class TestRunErrorHandling:
     """run() wraps exceptions with get_error_message and always stops spark."""
 
     def test_spark_sql_error_wrapped(self, monkeypatch, mock_boto3_session,
-                                       mock_table_info, mock_warnings,
+                                       mock_table_info,
                                        mock_spark_session, mock_get_error_message,
                                        glue_context, base_args):
         """Lines 102-103: exception from spark.sql wrapped with 'SQL query error:'."""
@@ -659,7 +637,7 @@ class TestRunErrorHandling:
             sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
     def test_spark_stop_called_on_success(self, monkeypatch, mock_boto3_session,
-                                            mock_table_info, mock_warnings,
+                                            mock_table_info,
                                             mock_spark_session, mock_get_error_message,
                                             glue_context, base_args):
         """Line 107: spark.stop() called in finally on success."""
@@ -673,7 +651,7 @@ class TestRunErrorHandling:
         mock_spark_session.stop.assert_called_once()
 
     def test_spark_stop_called_on_error(self, monkeypatch, mock_boto3_session,
-                                          mock_table_info, mock_warnings,
+                                          mock_table_info,
                                           mock_spark_session, mock_get_error_message,
                                           glue_context, base_args):
         """Line 107: spark.stop() called in finally even on exception."""
@@ -687,7 +665,7 @@ class TestRunErrorHandling:
         mock_spark_session.stop.assert_called_once()
 
     def test_spark_stop_exception_swallowed(self, monkeypatch, mock_boto3_session,
-                                              mock_table_info, mock_warnings,
+                                              mock_table_info,
                                               mock_spark_session, mock_get_error_message,
                                               glue_context, base_args):
         """Lines 108-109: bare except swallows errors from spark.stop()."""
@@ -701,7 +679,7 @@ class TestRunErrorHandling:
         sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
 
     def test_non_select_error_still_calls_spark_stop(self, monkeypatch, mock_boto3_session,
-                                                       mock_table_info, mock_warnings,
+                                                       mock_table_info,
                                                        mock_spark_session, mock_get_error_message,
                                                        glue_context, base_args):
         """A non-SELECT (BulkExecutorError) still triggers the finally: spark.stop."""
