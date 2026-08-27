@@ -56,6 +56,13 @@ class BootstrapInfrastructure:
         # twice and every WARNING is logged twice. See _get_role_name.
         self._validated_custom_roles = set()
 
+        # Resources this run created, so a failed bootstrap can name what it
+        # left behind (issue #307). teardown locates resources through the Glue
+        # job, so if bootstrap dies before creating the job these are
+        # unreachable by the supported path -- saying so beats a silent leak.
+        self._role_created_this_run = None
+        self._bucket_created_this_run = None
+
     def _get_role_name(self, args):
         """
         Determine the appropriate role name based on the provided arguments.
@@ -185,6 +192,7 @@ class BootstrapInfrastructure:
 
             log.info(f"Bulk Executor Glue Job Role created: {role_name}")
             log.debug(f'Role ARN: {response["Role"]["Arn"]}')
+            self._role_created_this_run = role_name
         except self.iam_client.exceptions.EntityAlreadyExistsException as e:
             log.info(f"Found Bulk Executor Glue Job Role: {role_name}")
             if not self._needs_role_refresh():
@@ -401,6 +409,7 @@ class BootstrapInfrastructure:
                     **bucket_config
                 )
                 log.info(f"Bucket '{glue_job_bucket}' created successfully!")
+                self._bucket_created_this_run = glue_job_bucket
             except Exception as e:
                 log.error(f"Error creating bucket '{glue_job_bucket}': {e}")
                 exit(1)
@@ -654,13 +663,50 @@ class BootstrapInfrastructure:
                 )
 
     def bootstrap(self, args):
-        self._add_glue_job_role(args)
-        self._create_glue_log_groups()
-        self._ensure_dynamodb_glue_connection()
-        self._create_or_update_glue_job(args)
-        self._upload_job_root_to_s3()
-        self.update_python_modules_in_s3()
-        self._upload_property_files_to_s3()
+        try:
+            self._add_glue_job_role(args)
+            self._create_glue_log_groups()
+            self._ensure_dynamodb_glue_connection()
+            self._create_or_update_glue_job(args)
+            self._upload_job_root_to_s3()
+            self.update_python_modules_in_s3()
+            self._upload_property_files_to_s3()
+        except SystemExit:
+            # Any step may exit(1). Report here rather than at each call site so
+            # a new step can't forget to (issue #307).
+            self._report_resources_left_behind()
+            raise
+
+    def _report_resources_left_behind(self):
+        """Name anything this run created before bootstrap failed (issue #307).
+
+        Only resources THIS run created are reported -- a role that already
+        existed was not ours to leak. teardown resolves resources through the
+        Glue job, so when bootstrap dies before creating the job it bails with
+        "Unable to determine glue job bucket name" and never reaches them; the
+        operator needs to know they exist and that teardown won't help.
+        """
+        leftovers = []
+        if self._role_created_this_run:
+            leftovers.append(f"IAM role '{self._role_created_this_run}'")
+        if self._bucket_created_this_run:
+            leftovers.append(f"S3 bucket '{self._bucket_created_this_run}'")
+        if not leftovers:
+            return
+
+        # Agree in number: the common case is a single leftover (the role), and
+        # "IAM role 'x', which have been left in place" reads like a bug in a
+        # message whose whole job is to be trusted.
+        has_have = "has" if len(leftovers) == 1 else "have"
+        it_them = "it" if len(leftovers) == 1 else "them"
+        log.error(
+            f"Bootstrap did not complete. It had already created "
+            f"{' and '.join(leftovers)}, which {has_have} been left in place. "
+            f"Fix the error above and re-run bootstrap to reuse {it_them}. To "
+            f"remove {it_them} instead, delete {it_them} manually -- 'bulk "
+            f"teardown' finds resources through the Glue job, so it cannot clean "
+            f"up when the job was never created."
+        )
 
     def _ensure_dynamodb_glue_connection(self):
         """Create a Glue connection of type DYNAMODB if missing.

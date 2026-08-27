@@ -1105,6 +1105,92 @@ class TestPromptForRole:
 
 # -- bootstrap() top-level orchestrator ---------------------------------
 
+class TestReportsResourcesLeftBehind:
+    """Issue #307: a bootstrap that dies mid-way must name what it created.
+
+    teardown resolves resources through the Glue job, so when bootstrap fails
+    before creating the job, teardown bails with "Unable to determine glue job
+    bucket name" and never reaches the role. The operator is left with a
+    high-privilege role and, without this, no indication it exists.
+    """
+
+    def _stub_steps(self, bootstrap, failing_step):
+        """Stub every bootstrap step; make `failing_step` exit(1)."""
+        for name in ('_add_glue_job_role', '_create_glue_log_groups',
+                     '_ensure_dynamodb_glue_connection', '_create_or_update_glue_job',
+                     '_upload_job_root_to_s3', 'update_python_modules_in_s3',
+                     '_upload_property_files_to_s3'):
+            setattr(bootstrap, name, MagicMock())
+        getattr(bootstrap, failing_step).side_effect = SystemExit(1)
+
+    def test_names_the_role_when_this_run_created_it(self, bootstrap, caplog):
+        import logging
+        self._stub_steps(bootstrap, '_create_glue_log_groups')
+        bootstrap._role_created_this_run = 'AWSGlueServiceRoleBulkDynamoDB-DdbReadOnly-eu-central-1'
+
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(SystemExit):
+                bootstrap.bootstrap({})
+
+        errors = [r.message for r in caplog.records if r.levelno == logging.ERROR]
+        assert errors, "a failed bootstrap that created a role must say so"
+        assert 'AWSGlueServiceRoleBulkDynamoDB-DdbReadOnly-eu-central-1' in errors[-1]
+        assert 'left in place' in errors[-1]
+        assert 'teardown' in errors[-1], (
+            "must warn that teardown cannot clean this up -- that's the trap"
+        )
+        # One leftover -> singular. A message whose job is to be trusted
+        # shouldn't read like it has a bug in it.
+        assert 'which has been left in place' in errors[-1]
+        assert 'reuse it' in errors[-1]
+
+    def test_silent_when_the_role_already_existed(self, bootstrap, caplog):
+        """A pre-existing role was not ours to leak, so don't claim it."""
+        import logging
+        self._stub_steps(bootstrap, '_create_glue_log_groups')
+        # _role_created_this_run stays None -- bootstrap only found the role.
+
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(SystemExit):
+                bootstrap.bootstrap({})
+
+        assert not [
+            r for r in caplog.records
+            if r.levelno == logging.ERROR and 'left in place' in r.message
+        ], "must not report resources this run didn't create"
+
+    def test_names_both_role_and_bucket(self, bootstrap, caplog):
+        import logging
+        self._stub_steps(bootstrap, 'update_python_modules_in_s3')
+        bootstrap._role_created_this_run = 'AWSGlueServiceRole-x'
+        bootstrap._bucket_created_this_run = 'aws-glue-bulk-dynamodb-eu-central-1-1-abc'
+
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(SystemExit):
+                bootstrap.bootstrap({})
+
+        msg = [r.message for r in caplog.records if r.levelno == logging.ERROR][-1]
+        assert 'AWSGlueServiceRole-x' in msg
+        assert 'aws-glue-bulk-dynamodb-eu-central-1-1-abc' in msg
+        # Two leftovers -> plural.
+        assert 'which have been left in place' in msg
+        assert 'reuse them' in msg
+
+    def test_silent_on_success(self, bootstrap, caplog):
+        import logging
+        for name in ('_add_glue_job_role', '_create_glue_log_groups',
+                     '_ensure_dynamodb_glue_connection', '_create_or_update_glue_job',
+                     '_upload_job_root_to_s3', 'update_python_modules_in_s3',
+                     '_upload_property_files_to_s3'):
+            setattr(bootstrap, name, MagicMock())
+        bootstrap._role_created_this_run = 'AWSGlueServiceRole-x'
+
+        with caplog.at_level(logging.ERROR):
+            bootstrap.bootstrap({})
+
+        assert not [r for r in caplog.records if r.levelno == logging.ERROR]
+
+
 class TestBootstrapOrchestrator:
     def test_bootstrap_calls_each_step_in_order(self, bootstrap):
         bootstrap._add_glue_job_role = MagicMock()
