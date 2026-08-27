@@ -17,7 +17,7 @@ list of :class:`Finding` objects. Each finding carries a ``severity``:
 
 How effective permissions are determined, and why:
 
-* ``pricing:GetProducts`` and ``application-autoscaling:DescribeScalableTargets``
+* ``pricing:GetProducts`` and the two ``application-autoscaling:Describe*`` reads
   are evaluated with ``iam:SimulatePrincipalPolicy``. That is IAM's own policy
   evaluator, so it correctly accounts for ``Deny`` statements, ``NotAction``,
   condition keys, and permission boundaries -- none of which a hand-rolled "read
@@ -73,7 +73,13 @@ GLUE_BASELINE_POLICY_ARN = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceR
 # ``*``-resource capabilities, evaluated via SimulatePrincipalPolicy (neither
 # supports resource scoping, so bootstrap grants both on Resource "*").
 PRICING_ACTIONS = ("pricing:GetProducts",)
-AUTOSCALING_ACTION = "application-autoscaling:DescribeScalableTargets"
+# Both autoscaling reads are needed for the full diagnostic: ScalableTargets
+# gives the min/max the capacity warning keys off, ScalingPolicies gives the
+# target-utilization value (issue #297). Bootstrap grants both.
+AUTOSCALING_ACTIONS = (
+    "application-autoscaling:DescribeScalableTargets",
+    "application-autoscaling:DescribeScalingPolicies",
+)
 
 # Resource-scoped capabilities -> presence check, not simulation (see docstring).
 # Bootstrap scopes the quota reads to arn:aws:servicequotas:*:*:dynamodb/*, so
@@ -204,7 +210,7 @@ def _check_star_capabilities(iam_client, role_arn: str | None) -> list[Finding]:
     if not role_arn:
         return []
 
-    actions = list(PRICING_ACTIONS) + [AUTOSCALING_ACTION]
+    actions = list(PRICING_ACTIONS) + list(AUTOSCALING_ACTIONS)
     allowed = _simulate_allowed(iam_client, role_arn, actions)
     if allowed is None:
         log.debug(
@@ -222,13 +228,16 @@ def _check_star_capabilities(iam_client, role_arn: str | None) -> list[Finding]:
             "for maximum lockdown allow the pricing:GetProducts action inline."
         ))
 
-    if AUTOSCALING_ACTION not in allowed:
-        # Soft: the job still runs without this, it just skips the
-        # autoscaling-aware capacity warning (README).
+    missing_autoscaling = [a for a in AUTOSCALING_ACTIONS if a not in allowed]
+    if missing_autoscaling:
+        # Soft: the job still runs without these, it just skips the
+        # autoscaling-aware capacity warning / diagnostic (README). Name the
+        # actions that are actually missing -- telling an operator to grant a
+        # permission they already hold sends them down a dead end (issue #297).
         findings.append(Finding(WARNING,
-            "Role cannot call application-autoscaling:DescribeScalableTargets. "
+            f"Role cannot call {', '.join(missing_autoscaling)}. "
             "The job still runs, but it will skip the autoscaling-aware capacity "
-            "warning. To enable it, allow that action on Resource \"*\"."
+            "warning. To enable it, allow those actions on Resource \"*\"."
         ))
 
     return findings
