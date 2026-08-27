@@ -23,14 +23,25 @@ positives:
    `passrole`, `s3`, `glue`, `glueConnection`, `logs`. A fatal call whose action is
    missing here is a finding.
 
-2. **Documented optional extras** — the paragraph *"Optional permissions for the
-   caller running `bootstrap` (not the Glue role)"* at the end of §"How the custom
-   role is validated at bootstrap". It grants `iam:SimulatePrincipalPolicy`,
-   `iam:GetPolicy`, `iam:GetPolicyVersion`, `iam:ListRolePolicies`,
-   `iam:GetRolePolicy` for the custom-role validator's best-effort checks, and says
-   explicitly that a caller lacking them has the affected check silently skipped.
-   These are **deliberately not** in the minimum. An action listed there is
-   documented — **not** a finding, and must not be "fixed" into the minimum policy.
+2. **Known optional extras, intentionally undocumented.** The custom-role
+   validator (`client/src/utils/role_validator.py`) makes five IAM reads that are
+   *deliberately* outside the minimum policy and deliberately absent from the
+   README, to keep the reader-facing docs simple:
+
+   | Action | Call site | Purpose |
+   |---|---|---|
+   | `iam:SimulatePrincipalPolicy` | `:248` | pricing / quota / autoscaling checks |
+   | `iam:GetPolicy` | `:316` | resolve attached managed policies |
+   | `iam:GetPolicyVersion` | `:318` | read the default policy version |
+   | `iam:ListRolePolicies` | `:324` | enumerate inline policies |
+   | `iam:GetRolePolicy` | `:326` | read inline policy documents |
+
+   Every one is wrapped so an `AccessDenied` returns `None` and the caller skips
+   that check rather than false-warning, and all five run only on the optional
+   custom-`--XRole` path. **None is a finding, and none should be added to the
+   minimum policy or to the README** — that would be a regression, not a fix. Treat
+   this table as the accepted list and re-derive it from `role_validator.py` each
+   run (a *new* undocumented IAM read there is worth reporting).
 
 Teardown has **no** separate documented policy — it runs under this same envelope,
 so teardown's calls count against it.
@@ -69,18 +80,19 @@ it is not a finding.
 3. **Decide whether a missing action is a real finding.** For each call whose action
    is absent from the **minimum** policy, classify it — and say which class,
    explicitly. This is the distinction the rule exists for:
-   - **Documented as an optional extra → not a finding.** Check tier 2 above before
-     anything else. Adding one of those actions to the minimum policy would be a
-     regression, not a fix.
+   - **On the tier-2 accepted list → not a finding.** Check that table before
+     anything else. Adding one of those actions to the minimum policy or the README
+     would be a regression, not a fix.
    - **Fatal → finding.** The exception is uncaught, or caught and turned into
      `exit(1)` / a raise. An operator with exactly the minimum policy is hard-
      blocked.
-   - **Gracefully degraded but undocumented → weak finding.** Wrapped so an
+   - **Gracefully degraded, not on the accepted list → weak finding.** Wrapped so an
      `AccessDenied` is swallowed and the feature skips or warns (e.g.
      `except Exception: return None`). Nobody is blocked, so it is not urgent — but
-     the capability is silently unavailable to anyone on the minimum policy, and the
-     precedent in tier 2 is that such permissions get *documented as optional*
-     rather than left unmentioned. Report it as a documentation gap, not a breakage.
+     the capability is silently unavailable to anyone on the minimum policy, and
+     nothing records that. Report it so a human can decide whether it joins the
+     tier-2 accepted list or gets documented. Do not assume it belongs in the
+     minimum policy.
 
 4. **Check the reachability condition, and say it out loud.** A call on a rarely-
    taken branch is still a finding if it's fatal when taken, but *when* it fires

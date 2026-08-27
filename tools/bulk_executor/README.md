@@ -212,18 +212,10 @@ You can use `~/.aws/credentials` and `~/.aws/config` or set environment variable
 
 ### Security
 
-A word on permissions. Bulk Executor involves **three separate permission contexts**, held by three different principals. Keeping them straight matters: they have different lifecycles, and only one of them can touch your data.
+A word on permissions. We assume there exist two tiers of users:
 
-| Context | Principal | Needs permission to | Documented in |
-|---|---|---|---|
-| **Admin** | A powerful administrative user, with a robust set of permissions around Glue, S3, and IAM. | Run `bootstrap` and `teardown`: create the S3 bucket, the Glue job, the CloudWatch log groups, and the Glue execution role. | [Bootstrap](#bootstrap), below |
-| **Glue job role** | An IAM *service role*, assumed by the Glue service (`glue.amazonaws.com`) — not a person. Created by `bootstrap`, or supplied by you with `--XRole`. | Do the actual work: read and write **your DynamoDB tables**, plus a few supporting AWS reads. | [Glue job role permissions](#glue-job-role-permissions) |
-| **Client** | Any number of common users. | Run the bulk commands: invoke the Glue job, watch its CloudWatch Logs, and read output from the S3 bucket. Nothing more. | [Run the bulk actions](#run-the-bulk-actions) |
-
-Two things worth noting about that table:
-
-* **The Glue job role is the one with real blast radius.** The Admin context creates infrastructure and the Client context only starts a job; the Glue job role is what reads and writes your data. Scope it deliberately.
-* **Two of the three have a *minimum* plus documented *optional* extras.** The Admin context has [optional permissions](#how-the-custom-role-is-validated-at-bootstrap) that unlock fuller custom-role diagnostics, and the Client context needs extra permissions for the cross-account forms of `diff` and `copy`. In both cases the tool degrades gracefully without them rather than failing, so those extras are deliberately kept out of the minimum policies.
+* A powerful administrative user with a robust set of permissions around Glue, S3, and IAM. This user runs a command to bootstrap the Glue environment and create the supporting roles and resources.
+* Any number of common users that use the Glue context in order to run the bulk tasks. These users don't need special permissions beyond the ability to invoke the Glue job, look at the resulting CloudWatch Logs, and read output from the associated S3 bucket.
 
 ### Bootstrap
 
@@ -355,56 +347,7 @@ You can also exercise exact control of what permissions and policies the Glue ro
 
 #### Glue job role permissions
 
-This is the [Glue job role context](#security) — the service role the job assumes to do its work. `bootstrap --XRole READ-ONLY` / `READ-WRITE` create it for you; you only need this section if you supply your own role with `--XRole <rolename>`, or if you want to audit what the created role holds.
-
-The role has two parts, and they behave very differently.
-
-**1. DynamoDB access — deliberately up to you.** There is no single correct scope here. Read-only on one table is a perfectly good configuration if that's all you need; so is read-write across every table. Grant whatever matches the commands you intend to run:
-
-* `AmazonDynamoDBReadOnlyAccess` for read-only commands (`count`, `find`, `scancount`, `diff`, `sql`).
-* `AmazonDynamoDBFullAccess` for commands that mutate (`delete`, `fill`, `update`, `load`, `copy`).
-* Or a restrictive policy of your own targeting specific tables — this is supported and encouraged.
-
-If the role can't read or write a table a command targets, that command fails at runtime with an error naming the problem. That's expected: the tool can't know which tables you'll target when the role is created, so it doesn't try to pre-validate them.
-
-**2. Supporting permissions — fixed and knowable.** Every job needs these regardless of which tables you scope it to:
-
-```
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Sid": "pricing",
-            "Effect": "Allow",
-            "Action": [
-                "pricing:GetProducts"
-            ],
-            "Resource": "*"
-        },
-        {
-            "Sid": "quotas",
-            "Effect": "Allow",
-            "Action": [
-                "servicequotas:GetServiceQuota",
-                "servicequotas:GetAWSDefaultServiceQuota"
-            ],
-            "Resource": "arn:aws:servicequotas:*:*:dynamodb/*"
-        },
-        {
-            "Sid": "autoscaling",
-            "Effect": "Allow",
-            "Action": [
-                "application-autoscaling:DescribeScalableTargets"
-            ],
-            "Resource": "*"
-        }
-    ]
-}
-```
-
-plus the managed policy `AWSGlueServiceRole`, which covers the job's own S3 (script, `--extra-py-files`, temp/shuffle, command output) and CloudWatch Logs access.
-
-`application-autoscaling:DescribeScalableTargets` does not support resource-level scoping, so it must be granted on `"Resource": "*"` — don't try to narrow it, or the capacity check silently stops working. The pricing and quota grants above are the "maximum lockdown" form; the managed policies named in the bullets below are the easier equivalent.
+Each Glue job has a service role assigned to the job that's used during execution. `bootstrap --XRole READ-ONLY` / `READ-WRITE` create it for you; you only need this section if you supply your own role with `--XRole <rolename>`, or if you want to audit what's held by the created role.
 
 If you provide a custom IAM role for your AWS Glue job:
 
@@ -416,16 +359,8 @@ If you provide a custom IAM role for your AWS Glue job:
 * Allow the `application-autoscaling:DescribeScalableTargets` action (used to detect a provisioned table's autoscaling maximum when warning that a requested rate exceeds the table's capacity). This action does not support resource-level scoping, so it must be granted on `"Resource": "*"`. If the role lacks this permission the job still runs — it simply skips the autoscaling-aware capacity warning and logs that it is proceeding without visibility into the table's autoscaling settings.
 * Add custom IAM permissions for DynamoDB access. You may attach `AmazonDynamoDBReadOnlyAccess` or `AmazonDynamoDBFullAccess`, or define a more restrictive policy targeting specific tables.
 
-#### How the custom role is validated at bootstrap
+When you pass `--XRole`, the bootstrap process checks the role against the requirements above before creating any infrastructure.
 
-When you pass `--XRole`, bootstrap checks the role against the requirements above before creating any infrastructure, and reacts by severity:
-
-* **Fatal (bootstrap stops).** Two conditions provably prevent the job from ever running, so bootstrap aborts immediately with a clear message: a role name that does not start with `AWSGlueServiceRole` (the bootstrap `iam:PassRole` grant is scoped to that prefix, so Glue can't be handed the role), and a trust policy that doesn't allow `glue.amazonaws.com` to assume the role (Glue can't assume it at all).
-* **Advisory (warning, bootstrap continues).** Everything else — a missing baseline policy, or missing pricing / quota / autoscaling / DynamoDB permissions — is logged as a warning and does not block. A locked-down-but-valid role (for example, one scoped to specific tables) is never rejected.
-
-The pricing, quota, and autoscaling checks use `iam:SimulatePrincipalPolicy` — IAM's own policy evaluator — so they correctly account for `Deny` statements, `NotAction`, condition keys, and permission boundaries rather than naively reading `Allow` statements. The DynamoDB check is a presence check over the role's attached and inline policies (it accepts any DynamoDB grant, including a restrictive per-table policy), because the target table isn't known at bootstrap time.
-
-**Optional permissions for the caller running `bootstrap` (not the Glue role).** These validation checks are best-effort diagnostics and are deliberately *not* part of the [minimum bootstrap policy](#bootstrap) above. To let the validator run its full set of checks, the identity running `bootstrap` may additionally allow `iam:SimulatePrincipalPolicy` (for the pricing/quota/autoscaling checks) and `iam:GetPolicy`, `iam:GetPolicyVersion`, `iam:ListRolePolicies`, `iam:GetRolePolicy` (for the DynamoDB presence check) on the role being validated. If the caller lacks any of these, the affected check is silently skipped — bootstrap still proceeds and never falsely warns.
 
 ### Security: Consider adjusting S3 bucket behaviors
 

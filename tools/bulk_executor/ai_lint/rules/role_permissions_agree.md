@@ -7,9 +7,15 @@ confirm the three still mean the same thing after an edit; but a careful read ca
 
 ## The three sources that must agree
 
-1. **`README.md`** — the human spec. Section "If you provide a custom IAM role
-   for your AWS Glue job" and the nearby "How the custom role is validated at
-   bootstrap" subsection: prose + sample policy guidance, one entry per capability.
+1. **`README.md`** — the human spec. Section "Glue job role permissions" and its
+   "If you provide a custom IAM role for your AWS Glue job" bullets: one entry per
+   capability, each naming a managed policy and (where one exists) the equivalent
+   granular action for a locked-down role.
+
+   The README is deliberately reader-facing and does **not** describe the
+   validator's mechanics or severities — that detail was removed on purpose to keep
+   it simple. Read severities from `role_validator.py` itself; do not report their
+   absence from the README as drift.
 
 2. **`client/src/infrastructure/bootstrap.py`** — the *creator*. In
    `_add_glue_job_role` it builds the role: the managed policy ARNs it attaches
@@ -40,11 +46,14 @@ autoscaling, DynamoDB access, role-name prefix, trust policy), verify:
   role our own bootstrap creates could FAIL the validator. Flag any case where the
   validator's assumed scope is broader than what the creator actually grants.
 - **Severity is defensible.** The validator marks findings FATAL (aborts
-  bootstrap) or WARNING (advisory). FATAL is only for conditions that provably
-  stop the job with zero false-block risk (wrong role-name prefix; trust policy
-  that won't let Glue assume the role). Flag a FATAL that a locked-down-but-valid
-  role could satisfy differently, or a genuinely-blocking condition left as a mere
-  warning.
+  bootstrap) or WARNING (advisory); read which is which from `role_validator.py`,
+  since the README no longer spells this out. FATAL is only for conditions that
+  provably stop the job with zero false-block risk (wrong role-name prefix; trust
+  policy that won't let Glue assume the role). Flag a FATAL that a
+  locked-down-but-valid role could satisfy differently, or a genuinely-blocking
+  condition left as a mere warning. In particular, any missing *permission* should
+  be a WARNING — a role scoped to specific tables is valid and must never be
+  rejected.
 
 ## How to report
 

@@ -39,12 +39,15 @@ user lacking them is expected to be handled gracefully rather than pre-authorize
   the base envelope. Treat them as documented-elsewhere, and confirm the failure is
   a clean error rather than a traceback.
 
-- **Permissions documented in prose elsewhere.** Before flagging anything, search
-  the README for the action name. The Admin envelope has a precedent for this: a
-  paragraph in §"How the custom role is validated at bootstrap" documents several
-  `iam:*` reads as *optional* permissions outside the minimum policy block. A
-  permission documented anywhere as intentionally-optional is not a finding, and
-  must not be "fixed" into the base policy.
+- **Permissions granted in prose rather than a policy block.** Before flagging
+  anything, search the README for the action name *and* for a managed policy that
+  would cover it — the Glue-role section documents capabilities as managed policies
+  (`ServiceQuotasReadOnlyAccess`, …) rather than raw actions, so an action can be
+  granted without appearing verbatim.
+- **Permissions intentionally left undocumented.** Some are deliberately omitted to
+  keep the README simple, and are recorded in
+  [`admin_permission_envelope.md`](admin_permission_envelope.md)'s accepted list
+  instead. Check there before reporting, and never "fix" one into the base policy.
 
 The rule's target is the **base** envelope: what an ordinary same-account command
 needs on every run.

@@ -9,14 +9,20 @@ our code happens to call, is the judgment this rule encodes.
 
 ## The envelope
 
-`README.md` §Security defines three permission contexts. This rule covers the
-**Glue job execution role** (`AWSGlueServiceRoleBulkDynamoDB-*`, or a custom role
-passed via `--XRole`) — an IAM *service role* assumed by `glue.amazonaws.com`, not
-a human identity. It is the context with real blast radius: it is what actually
-touches customer data.
+This rule covers the **Glue job execution role**
+(`AWSGlueServiceRoleBulkDynamoDB-*`, or a custom role passed via `--XRole`) — an
+IAM *service role* assumed by `glue.amazonaws.com`, not a human identity. It is the
+context with real blast radius: it is what actually touches customer data.
 
 Its requirements are documented under §"Glue job role permissions" and the
-"If you provide a custom IAM role" bullets.
+"If you provide a custom IAM role" bullets — as managed policies, each paired with
+the equivalent granular action where one exists (`pricing:GetProducts`,
+`servicequotas:GetServiceQuota`, …). Match on **either** form; a bullet naming only
+a managed policy still documents the capability.
+
+Note that `README.md` §Security describes only the two *human* tiers (Admin and
+Client). This role is a service principal, not a user tier, so its absence from
+that list is expected and is not a documentation finding.
 
 Related but different rules — do not duplicate their work:
 
