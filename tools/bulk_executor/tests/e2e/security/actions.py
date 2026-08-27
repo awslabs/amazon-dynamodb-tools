@@ -22,6 +22,11 @@ def probes_for(account_id: str, region: str) -> list[ActionProbe]:
     glue_conn = f"arn:aws:glue:{region}:{account_id}:connection/bulk-dynamodb-connection"
     s3_bucket = f"arn:aws:s3:::aws-glue-bulk-dynamodb-{region}-{account_id}-test"
     log_group = f"arn:aws:logs:{region}:{account_id}:log-group:/aws-glue/jobs/bulk_dynamodb"
+    # DescribeLogGroups is not resource-scopable the way the others are; IAM
+    # evaluates it against this odd log-group::log-stream: form (that is the
+    # resource named in the AccessDenied when the grant is missing), which the
+    # README's logs statement lists alongside the /aws-glue/jobs/* ARN.
+    log_group_describe = f"arn:aws:logs:{region}:{account_id}:log-group::log-stream:"
     glue_role = f"arn:aws:iam::{account_id}:role/AWSGlueServiceRole-bulk_dynamodb"
 
     return [
@@ -29,6 +34,7 @@ def probes_for(account_id: str, region: str) -> list[ActionProbe]:
         ActionProbe("glueRoleAdmin", "iam:GetRole", glue_role),
         ActionProbe("glueRoleAdmin", "iam:CreateRole", glue_role),
         ActionProbe("glueRoleAdmin", "iam:DeleteRole", glue_role),
+        ActionProbe("glueRoleAdmin", "iam:UpdateAssumeRolePolicy", glue_role),
         ActionProbe("glueRoleAdmin", "iam:AttachRolePolicy", glue_role),
         ActionProbe("glueRoleAdmin", "iam:DetachRolePolicy", glue_role),
         ActionProbe("glueRoleAdmin", "iam:ListAttachedRolePolicies", glue_role),
@@ -56,6 +62,7 @@ def probes_for(account_id: str, region: str) -> list[ActionProbe]:
         # logs: log-group setup
         ActionProbe("logs", "logs:CreateLogGroup", log_group),
         ActionProbe("logs", "logs:PutRetentionPolicy", log_group),
+        ActionProbe("logs", "logs:DescribeLogGroups", log_group_describe),
     ]
 
 
