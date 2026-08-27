@@ -22,6 +22,15 @@ LOG_PATTERN_IGNORE_LIST = [
     # whose channel already closed. Prints red (contains ERROR) but does not affect
     # processing -- seen on tiny jobs (e.g. a diff of two small tables). Issue #247.
     r"Error sending result StreamResponse",
+    # Glue 6.0 ships an invalid escape sequence in its own job wrapper
+    # (pythonrunner/runscript.py), which Python 3.13 surfaces as a visible
+    # SyntaxWarning on every single run -- 26/26 job runs in testing. It arrives
+    # as one output-group event carrying both the warning and its echoed source
+    # line, so this single pattern drops the whole thing. Not actionable by
+    # users: it fires while Python compiles Glue's wrapper, before our code is
+    # imported, so no filter in server/src can reach it. Remove once AWS fixes
+    # the image. Issue #292.
+    r"SyntaxWarning: invalid escape sequence",
 ]
 
 # Intentional nuanced configs:
