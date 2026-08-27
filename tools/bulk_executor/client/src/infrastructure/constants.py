@@ -1,6 +1,6 @@
 from enum import Enum
 
-GLUE_VERSION = '5.1'
+GLUE_VERSION = '6.0'
 PYTHON_VERSION = '3'
 LOG4J_PROPERTIES_FILE = 'server/src/log4j2.properties'
 
