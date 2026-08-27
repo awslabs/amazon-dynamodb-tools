@@ -36,6 +36,20 @@ def bootstrap():
         clients.s3_client = MagicMock()
         clients.glue_client = MagicMock()
         clients.logs_client = MagicMock()
+
+        # botocore generates a typed exception class per client, and production
+        # code catches logs_client.exceptions.ResourceAlreadyExistsException. A
+        # MagicMock attribute can't appear in an `except` clause ("catching
+        # classes that do not inherit from BaseException"), so give that one a
+        # real class. Tests raise it via
+        # bootstrap.logs_client.exceptions.ResourceAlreadyExistsException.
+        class ResourceAlreadyExistsException(Exception):
+            pass
+
+        clients.logs_client.exceptions.ResourceAlreadyExistsException = (
+            ResourceAlreadyExistsException
+        )
+
         MockClients.return_value = clients
 
         from infrastructure.bootstrap import BootstrapInfrastructure
@@ -832,9 +846,8 @@ class TestCreateGlueLogGroups:
             GLUE_LOG_GROUP_NAMES,
             GLUE_LOG_GROUP_RETENTION_IN_DAYS,
         )
-        bootstrap.logs_client.create_log_group.side_effect = ClientError(
-            {'Error': {'Code': 'ResourceAlreadyExistsException', 'Message': 'exists'}},
-            'CreateLogGroup',
+        bootstrap.logs_client.create_log_group.side_effect = (
+            bootstrap.logs_client.exceptions.ResourceAlreadyExistsException('exists')
         )
         # Existing groups report no retention set.
         bootstrap.logs_client.describe_log_groups.side_effect = lambda logGroupNamePrefix: {
@@ -851,9 +864,8 @@ class TestCreateGlueLogGroups:
             assert c.kwargs['retentionInDays'] == GLUE_LOG_GROUP_RETENTION_IN_DAYS
 
     def test_existing_log_group_with_retention_is_left_untouched(self, bootstrap):
-        bootstrap.logs_client.create_log_group.side_effect = ClientError(
-            {'Error': {'Code': 'ResourceAlreadyExistsException', 'Message': 'exists'}},
-            'CreateLogGroup',
+        bootstrap.logs_client.create_log_group.side_effect = (
+            bootstrap.logs_client.exceptions.ResourceAlreadyExistsException('exists')
         )
         # Owner deliberately set 30 days; bootstrap must not clobber it.
         bootstrap.logs_client.describe_log_groups.side_effect = lambda logGroupNamePrefix: {
@@ -867,9 +879,8 @@ class TestCreateGlueLogGroups:
 
     def test_existing_group_retention_matches_exact_name_not_prefix(self, bootstrap):
         from infrastructure.constants import GLUE_LOG_GROUP_NAMES
-        bootstrap.logs_client.create_log_group.side_effect = ClientError(
-            {'Error': {'Code': 'ResourceAlreadyExistsException', 'Message': 'exists'}},
-            'CreateLogGroup',
+        bootstrap.logs_client.create_log_group.side_effect = (
+            bootstrap.logs_client.exceptions.ResourceAlreadyExistsException('exists')
         )
         # describe_log_groups returns a prefix sibling first that DOES have a
         # retention; only the exact-name match (no retention) should count, so we
@@ -928,9 +939,8 @@ class TestCreateGlueLogGroups:
         continue: log capture is unaffected either way.
         """
         import logging
-        bootstrap.logs_client.create_log_group.side_effect = ClientError(
-            {'Error': {'Code': 'ResourceAlreadyExistsException', 'Message': 'exists'}},
-            'CreateLogGroup',
+        bootstrap.logs_client.create_log_group.side_effect = (
+            bootstrap.logs_client.exceptions.ResourceAlreadyExistsException('exists')
         )
         bootstrap.logs_client.describe_log_groups.side_effect = ClientError(
             {'Error': {'Code': 'AccessDeniedException', 'Message': 'no describe'}},

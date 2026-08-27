@@ -609,21 +609,19 @@ class BootstrapInfrastructure:
                 # Try to create the log group - AWS will tell us if it already exists
                 self.logs_client.create_log_group(logGroupName=log_group_name)
                 log.info(f"Created log group: {log_group_name}")
+            except self.logs_client.exceptions.ResourceAlreadyExistsException:
+                log.info(f"Log group '{log_group_name}' already exists.")
+                group_existed = True
             except Exception as e:
-                code = getattr(e, 'response', {}).get('Error', {}).get('Code')
-                if code == 'ResourceAlreadyExistsException':
-                    log.info(f"Log group '{log_group_name}' already exists.")
-                    group_existed = True
-                else:
-                    log.error(
-                        f"Could not create log group '{log_group_name}': {e}. "
-                        f"The Glue job streams its output through this log group, "
-                        f"and bulk commands wait for it to exist before tailing -- "
-                        f"without it, early job output is lost and commands can "
-                        f"exit while waiting. Grant logs:CreateLogGroup and "
-                        f"re-run bootstrap."
-                    )
-                    exit(1)
+                log.error(
+                    f"Could not create log group '{log_group_name}': {e}. "
+                    f"The Glue job streams its output through this log group, "
+                    f"and bulk commands wait for it to exist before tailing -- "
+                    f"without it, early job output is lost and commands can "
+                    f"exit while waiting. Grant logs:CreateLogGroup and "
+                    f"re-run bootstrap."
+                )
+                exit(1)
 
             # --- courtesy: retention is a default, never worth failing over ---
             # Only set retention if the group has none. If an account owner
