@@ -12,6 +12,15 @@ Every AWS call has exactly one correct failure mode, decided by one question:
 
 > **If this call is denied, is the thing we're producing still usable?**
 
+Answer it **per call, not per function** — a single function routinely contains
+both kinds, and lumping them together is its own bug. `_create_glue_log_groups` is
+the example: creating the group is load-bearing, while managing its retention is a
+courtesy, so they get different handling in the same loop.
+
+Read "usable" from the **user's** side, not the job's. A command whose Glue run
+succeeds but whose first 40 seconds of output never reached the console has failed
+at something the user cares about.
+
 - **No → load-bearing → failing hard is correct.** `exit(1)` or a raise. Creating
   the Glue job, creating the role, creating the S3 bucket: without these there is
   nothing to run, so stopping with a clear message is the kindest outcome.
@@ -28,9 +37,19 @@ the mismatch runs one way: a non-essential call that kills the run.
 for one reason: to *avoid* clobbering a retention the account owner had chosen.
 Unguarded, so a denial propagated to an `exit(1)`. A read whose entire purpose was
 caution took down the whole bootstrap — and only on accounts that already had the
-log groups, so it was invisible on a fresh account. Fixed in #301: the whole
-log-group setup now warns and continues, because creating groups early is an
-optimization (Glue creates them on first run anyway) and retention is a default.
+log groups, so it was invisible on a fresh account. Fixed in #301: retention
+handling now warns and continues.
+
+**Creating the log group in that same function — fatal, correctly.** The first
+attempt at #301 downgraded this too, reasoning that Glue creates the groups on its
+first run anyway. That reasoning was wrong, and the trap is worth internalising:
+"the resource gets created eventually" is not the same as "nothing is lost". The
+client blocks on `_wait_for_log_groups_to_exist` before attaching LiveTail,
+LiveTail never replays, and the command exits if the groups don't appear inside the
+retry budget — so silently skipping creation trades a clear bootstrap error for
+lost job output and a command that dies later, further from the cause. Look for
+this shape: a call that *looks* like an optimization because something else will
+create the resource, where the timing is the whole point.
 
 **The S3 TLS bucket policy — got it right.** `put_bucket_policy` failing is still
 fatal, deliberately. The README states the bucket enforces TLS in transit; that is

@@ -591,67 +591,80 @@ class BootstrapInfrastructure:
         Create CloudWatch log groups for Glue job logging ahead of time.
         This prevents the need to wait for log groups to be created during job execution.
 
-        Nothing here is load-bearing, so nothing here is fatal (issue #301).
-        Creating the groups is an optimization -- Glue creates them itself on the
-        first run if they're absent -- and setting retention is a courtesy
-        default. So a permission failure warns, names the permission, and lets
-        bootstrap continue: the environment it produces is fully usable, just
-        without the head start or the retention default.
+        This function contains BOTH a load-bearing call and courtesy ones, so
+        they get different failure modes (issue #301).
 
-        This is what #294 got wrong. An unguarded describe_log_groups, whose only
-        purpose was to *avoid* clobbering a retention the account owner chose,
-        killed the whole bootstrap when denied -- failing closed on a read that
-        existed to be careful.
+        Creating the groups is load-bearing -> fatal. "Glue creates them on its
+        first run anyway" is true but too late: the client blocks on
+        _wait_for_log_groups_to_exist before attaching LiveTail (runner.py), and
+        LiveTail is live-only -- it never replays. So with the groups absent, a
+        command stalls for up to LIVE_TAIL_MAX_RETRIES *
+        LIVE_TAIL_RETRY_WAIT_TIME_IN_SECONDS (~40s), the job's early output is
+        missed even once the tail does attach, and if they still aren't there the
+        command exits. That runner method describes itself as "a fallback in case
+        they don't exist yet" -- bootstrap is the primary mechanism, not a
+        head start.
+
+        Retention is a courtesy -> warn and continue. Reading it exists only to
+        *avoid* clobbering a retention the account owner chose, and writing it is
+        cosmetic; neither affects whether output is captured. Failing closed on
+        that read is what #294 got wrong -- it killed the whole bootstrap over a
+        call whose entire purpose was to be careful.
         """
         log.info("Creating CloudWatch log groups for Glue job...")
         
         for log_group_name in GLUE_LOG_GROUP_NAMES:
-            # The outer try is what makes this degrade. It has to wrap the inner
-            # ClientError handler, not sit beside it: the retention read below
-            # runs *inside* that handler, and a sibling `except` never catches an
-            # exception raised from another handler. That is precisely how #294
-            # escaped as a traceback despite there being an `except Exception`
-            # right there.
+            # --- load-bearing: the group itself must exist (see docstring) ---
+            group_existed = False
             try:
-                try:
-                    # Try to create the log group - AWS will tell us if it already exists
-                    self.logs_client.create_log_group(logGroupName=log_group_name)
-                    log.info(f"Created log group: {log_group_name}")
+                # Try to create the log group - AWS will tell us if it already exists
+                self.logs_client.create_log_group(logGroupName=log_group_name)
+                log.info(f"Created log group: {log_group_name}")
+            except Exception as e:
+                code = getattr(e, 'response', {}).get('Error', {}).get('Code')
+                if code == 'ResourceAlreadyExistsException':
+                    log.info(f"Log group '{log_group_name}' already exists.")
+                    group_existed = True
+                else:
+                    log.error(
+                        f"Could not create log group '{log_group_name}': {e}. "
+                        f"The Glue job streams its output through this log group, "
+                        f"and bulk commands wait for it to exist before tailing -- "
+                        f"without it, early job output is lost and commands can "
+                        f"exit while waiting. Grant logs:CreateLogGroup and "
+                        f"re-run bootstrap."
+                    )
+                    exit(1)
 
+            # --- courtesy: retention is a default, never worth failing over ---
+            # Only set retention if the group has none. If an account owner
+            # deliberately chose a retention (e.g. 30 days for cost, or a longer
+            # window for compliance), we must not clobber it on every bootstrap.
+            # A group with no policy (e.g. auto-created by Glue, so "never
+            # expire") still gets our default. Staying silent when we leave an
+            # existing policy alone keeps the console clean.
+            try:
+                if not group_existed:
                     self.logs_client.put_retention_policy(
                         logGroupName=log_group_name,
                         retentionInDays=GLUE_LOG_GROUP_RETENTION_IN_DAYS
                     )
                     log.info(f"Set retention policy for {log_group_name} to {GLUE_LOG_GROUP_RETENTION_IN_DAYS} days")
-
-                except ClientError as e:
-                    if e.response['Error']['Code'] == 'ResourceAlreadyExistsException':
-                        log.info(f"Log group '{log_group_name}' already exists.")
-                        # Only set retention if the group has none. If an account owner
-                        # deliberately chose a retention (e.g. 30 days for cost, or a
-                        # longer window for compliance), we must not clobber it on every
-                        # bootstrap. A group with no policy (e.g. auto-created by Glue,
-                        # so "never expire") still gets our default. Staying silent when
-                        # we leave an existing policy alone keeps the console clean.
-                        if self._get_log_group_retention(log_group_name) is None:
-                            self.logs_client.put_retention_policy(
-                                logGroupName=log_group_name,
-                                retentionInDays=GLUE_LOG_GROUP_RETENTION_IN_DAYS
-                            )
-                            log.info(f"Set retention policy for existing log group {log_group_name} to {GLUE_LOG_GROUP_RETENTION_IN_DAYS} days (had none)")
-                    else:
-                        raise
+                elif self._get_log_group_retention(log_group_name) is None:
+                    self.logs_client.put_retention_policy(
+                        logGroupName=log_group_name,
+                        retentionInDays=GLUE_LOG_GROUP_RETENTION_IN_DAYS
+                    )
+                    log.info(f"Set retention policy for existing log group {log_group_name} to {GLUE_LOG_GROUP_RETENTION_IN_DAYS} days (had none)")
             except Exception as e:
-                # Warn and carry on -- see the docstring. Name the permissions so
-                # an operator can fix it deliberately rather than guess, and say
-                # what they lose, so the warning is actionable instead of noise.
+                # Name the permissions and the consequence, so the warning is
+                # actionable rather than noise (issues #294, #301).
                 log.warning(
-                    f"Could not fully set up log group '{log_group_name}' ({e}); "
-                    f"continuing. Glue will create the group on its first job run "
-                    f"if it does not exist, and any existing retention setting is "
-                    f"left untouched. To set it up at bootstrap time instead, grant "
-                    f"logs:CreateLogGroup, logs:PutRetentionPolicy and "
-                    f"logs:DescribeLogGroups."
+                    f"Could not manage the retention policy on log group "
+                    f"'{log_group_name}' ({e}); continuing. Any retention already "
+                    f"set is left untouched, and log capture is unaffected. To "
+                    f"manage retention at bootstrap time, grant "
+                    f"logs:PutRetentionPolicy and logs:DescribeLogGroups."
                 )
 
     def bootstrap(self, args):
