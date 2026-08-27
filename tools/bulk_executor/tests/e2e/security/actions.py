@@ -16,17 +16,30 @@ class ActionProbe:
     resource: str  # ARN that exemplifies the wildcard pattern in the doc
 
 
+# Documented actions the IAM policy simulator cannot evaluate, mapped to why.
+# These are NOT unprobed by oversight -- test_probes_cover_every_documented_action
+# checks this dict against the policy so an entry can't go stale, and the live
+# tier (test_iam_policy_live.py) remains the oracle for them.
+SIMULATOR_UNSUPPORTED: dict[str, str] = {
+    "logs:DescribeLogGroups": (
+        "SimulateCustomPolicy returns implicitDeny for this action from any "
+        "resource-scoped statement, and returns implicitDeny whenever ResourceArns "
+        "is supplied even against Resource:'*'. Real IAM disagrees: a live bootstrap "
+        "under the documented policy reaches _get_log_group_retention (the "
+        "ResourceAlreadyExists branch) and succeeds, so the scoped grant does work. "
+        "Rather than loosen the documented policy to Resource:'*' just to satisfy the "
+        "simulator, this action is left to the live tier -- which is where #294 was "
+        "found and where the fix is proven."
+    ),
+}
+
+
 def probes_for(account_id: str, region: str) -> list[ActionProbe]:
     """Build the (action, resource) probe list parameterized for this account/region."""
     glue_job = f"arn:aws:glue:{region}:{account_id}:job/bulk_dynamodb"
     glue_conn = f"arn:aws:glue:{region}:{account_id}:connection/bulk-dynamodb-connection"
     s3_bucket = f"arn:aws:s3:::aws-glue-bulk-dynamodb-{region}-{account_id}-test"
     log_group = f"arn:aws:logs:{region}:{account_id}:log-group:/aws-glue/jobs/bulk_dynamodb"
-    # DescribeLogGroups is not resource-scopable the way the others are; IAM
-    # evaluates it against this odd log-group::log-stream: form (that is the
-    # resource named in the AccessDenied when the grant is missing), which the
-    # README's logs statement lists alongside the /aws-glue/jobs/* ARN.
-    log_group_describe = f"arn:aws:logs:{region}:{account_id}:log-group::log-stream:"
     glue_role = f"arn:aws:iam::{account_id}:role/AWSGlueServiceRole-bulk_dynamodb"
 
     return [
@@ -62,7 +75,7 @@ def probes_for(account_id: str, region: str) -> list[ActionProbe]:
         # logs: log-group setup
         ActionProbe("logs", "logs:CreateLogGroup", log_group),
         ActionProbe("logs", "logs:PutRetentionPolicy", log_group),
-        ActionProbe("logs", "logs:DescribeLogGroups", log_group_describe),
+        # logs:DescribeLogGroups is intentionally absent -- see SIMULATOR_UNSUPPORTED.
     ]
 
 

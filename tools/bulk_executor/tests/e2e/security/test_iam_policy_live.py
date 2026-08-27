@@ -165,6 +165,13 @@ _NEGATIVE_TEST_SKIP_ACTIONS = {
     # can't fail bootstrap here. It is genuinely required on the refresh path,
     # which fires on the next bootstrap after any __version__ bump.
     "iam:UpdateAssumeRolePolicy",
+    # iam:GetRole is only called from _is_existing_role (bootstrap.py:266), and
+    # its two callers both sit behind "a custom --XRole name was provided"
+    # (bootstrap.py:74 and :542). This test bootstraps with --XRole READ-ONLY, a
+    # magic value, so that branch is never taken and GetRole is never called --
+    # removing it can't fail bootstrap. It is genuinely required for the
+    # custom-role path, where a denial is fatal (exit(1) at :274).
+    "iam:GetRole",
 }
 
 
