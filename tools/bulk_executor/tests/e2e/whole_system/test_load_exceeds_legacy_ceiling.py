@@ -5,7 +5,7 @@ on-demand table: it hard-coded a 40k on-demand assumption and expressed the
 rate as ``dynamodb.throughput.write.percent`` capped at 1.5x — so 40k x 1.5 =
 **60,000 WCU/s was the hard maximum**, no matter what the user asked for.
 
-The Glue 5.x DataFrame connector takes an absolute ``dynamodb.throughput.write``
+The DataFrame connector takes an absolute ``dynamodb.throughput.write``
 integer (see the published option reference: *"The write capacity units (WCU)
 to use"* — an absolute value, taken directly; it only falls back to
 ``dynamodb.throughput.write.ratio`` when unset). ``load`` now wires the user's

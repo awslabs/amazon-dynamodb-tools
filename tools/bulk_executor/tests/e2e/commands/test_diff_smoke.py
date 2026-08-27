@@ -6,7 +6,7 @@ segmented scans across two tables joined via primary key. We use
 
 Tables are filled with the default generator (random keys), so they will
 not match — we expect the diff to surface differences. The contract is
-"the segmented-scan + join path doesn't crash on Glue 5.0". We assert all
+"the segmented-scan + join path doesn't crash on the live Glue runtime". We assert all
 three Glue jobs reached SUCCEEDED (./bulk exits 0 even on a failed job) and
 that both seed fills actually landed items — diff over two empty tables
 trivially finds no differences, which is the false green this suite catches.

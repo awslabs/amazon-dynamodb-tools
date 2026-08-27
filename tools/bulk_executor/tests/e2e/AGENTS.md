@@ -89,9 +89,9 @@ Mirror `commands/test_fill_smoke.py`:
 
 The harness uses **command** (matching the rest of the codebase / `HELP.md`), not "verb". The runner is `command_runner.py` with `run_command` / `CommandResult` / `command=`. Don't reintroduce "verb".
 
-## Glue 5.0 connector notes (why the write path is delicate)
+## DataFrame connector notes (why the write path is delicate)
 
-The DynamoDB source is the Glue 5.0 DataFrame connector (`spark.read.format("dynamodb")` / `df.write.format("dynamodb")`), wrapped in `server/src/python_modules/shared/glue_connector.py`. Two migration hazards already bit us and have regression guards in `tests/server/test_glue_connector.py`:
+The DynamoDB source is the Glue 5.0+ DataFrame connector (`spark.read.format("dynamodb")` / `df.write.format("dynamodb")`), wrapped in `server/src/python_modules/shared/glue_connector.py`. The job currently runs Glue 6.0 (see `GLUE_VERSION` in `client/src/infrastructure/constants.py`); the connector and both hazards below behave the same on 5.0, 5.1, and 6.0. Two migration hazards already bit us and have regression guards in `tests/server/test_glue_connector.py`:
 
 - A Glue `DynamicFrame` exposes `write`+`schema` too, so detect it by `hasattr(toDF)`, not by absence of `write`.
 - The connector rejects Spark's default `ErrorIfExists` save mode — writes must use `.mode("append")`.

@@ -2,7 +2,7 @@
 
 Two-step test: fill a transient table with items, then delete them with a
 where-predicate that matches all rows. Exercises the read-filter-delete
-path on Glue 5.0.
+path on the live Glue runtime.
 
 We assert both Glue jobs reached SUCCEEDED (./bulk exits 0 even on a failed
 job), that the seed fill landed items, and that the table is empty
