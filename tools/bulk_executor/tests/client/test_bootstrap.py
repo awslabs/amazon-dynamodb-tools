@@ -887,18 +887,67 @@ class TestCreateGlueLogGroups:
             GLUE_LOG_GROUP_NAMES
         )
 
-    def test_unexpected_client_error_propagates(self, bootstrap):
+    def test_create_denied_warns_and_continues(self, bootstrap, caplog):
+        """Issue #301: log-group setup is not load-bearing, so a denial warns.
+
+        Creating the groups early is an optimization -- Glue creates them on its
+        first run regardless -- so killing bootstrap over it hands the operator a
+        dead command in exchange for nothing.
+        """
+        import logging
         bootstrap.logs_client.create_log_group.side_effect = ClientError(
             {'Error': {'Code': 'AccessDenied', 'Message': 'nope'}}, 'CreateLogGroup'
         )
-        with pytest.raises(ClientError):
-            bootstrap._create_glue_log_groups()
+        with caplog.at_level(logging.WARNING):
+            bootstrap._create_glue_log_groups()  # must not raise or exit
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert warnings, "a denied log-group setup must warn"
+        assert 'logs:CreateLogGroup' in warnings[0], (
+            "the warning must name the permissions so it's actionable"
+        )
+        assert 'first job run' in warnings[0], (
+            "the warning must say what is lost / what happens instead"
+        )
 
-    def test_unexpected_non_client_error_exits(self, bootstrap):
+    def test_retention_read_denied_warns_and_continues(self, bootstrap, caplog):
+        """Issue #294's exact path, which #301 fixes.
+
+        The retention read runs *inside* the ResourceAlreadyExists handler, so a
+        denial there is raised from within an except block -- which a sibling
+        `except Exception` cannot catch. That is how #294 escaped as a traceback
+        even though the function already had a broad handler. Guard against the
+        structure regressing, not just the behavior.
+        """
+        import logging
+        bootstrap.logs_client.create_log_group.side_effect = ClientError(
+            {'Error': {'Code': 'ResourceAlreadyExistsException', 'Message': 'exists'}},
+            'CreateLogGroup',
+        )
+        bootstrap.logs_client.describe_log_groups.side_effect = ClientError(
+            {'Error': {'Code': 'AccessDeniedException', 'Message': 'no describe'}},
+            'DescribeLogGroups',
+        )
+        with caplog.at_level(logging.WARNING):
+            bootstrap._create_glue_log_groups()  # must not raise or exit
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert warnings, "a denied retention read must warn, not kill bootstrap"
+        assert 'logs:DescribeLogGroups' in warnings[0]
+        assert 'left untouched' in warnings[0], (
+            "must state the existing retention is preserved -- not clobbering it "
+            "was the whole reason for the read"
+        )
+        # And it must NOT have tried to write a retention it couldn't read.
+        bootstrap.logs_client.put_retention_policy.assert_not_called()
+
+    def test_unexpected_non_client_error_warns_and_continues(self, bootstrap, caplog):
+        """Any non-ClientError failure degrades the same way."""
+        import logging
         bootstrap.logs_client.create_log_group.side_effect = RuntimeError('boom')
-        with pytest.raises(SystemExit) as exc:
+        with caplog.at_level(logging.WARNING):
             bootstrap._create_glue_log_groups()
-        assert exc.value.code == 1
+        assert any(
+            'boom' in r.message for r in caplog.records if r.levelno == logging.WARNING
+        ), "the underlying error must appear in the warning"
 
 
 class TestGetLogGroupRetention:
