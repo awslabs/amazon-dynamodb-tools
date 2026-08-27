@@ -59,7 +59,7 @@ Do not confuse this with:
 - The **Glue job execution role** (`AWSGlueServiceRoleBulkDynamoDB-*`) — a service
   principal, covered by [`role_permissions_agree.md`](role_permissions_agree.md).
 - The **User envelope** — covered by
-  [`user_permission_envelope.md`](user_permission_envelope.md).
+  [`permission_envelope_user.md`](permission_envelope_user.md).
 
 ## What to check
 

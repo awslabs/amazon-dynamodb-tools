@@ -21,7 +21,7 @@ by a role having this policy at minimum"** (§Run the bulk actions), with Sids
 Do not confuse this with:
 
 - The **Admin envelope** (bootstrap/teardown) — covered by
-  [`admin_permission_envelope.md`](admin_permission_envelope.md). Bootstrap-only
+  [`permission_envelope_admin.md`](permission_envelope_admin.md). Bootstrap-only
   calls do not count against this rule.
 - The **Glue job execution role** — the job's own permissions to read/write
   DynamoDB, priced separately and covered by
@@ -46,7 +46,7 @@ user lacking them is expected to be handled gracefully rather than pre-authorize
   granted without appearing verbatim.
 - **Permissions intentionally left undocumented.** Some are deliberately omitted to
   keep the README simple, and are recorded in
-  [`admin_permission_envelope.md`](admin_permission_envelope.md)'s accepted list
+  [`permission_envelope_admin.md`](permission_envelope_admin.md)'s accepted list
   instead. Check there before reporting, and never "fix" one into the base policy.
 
 The rule's target is the **base** envelope: what an ordinary same-account command

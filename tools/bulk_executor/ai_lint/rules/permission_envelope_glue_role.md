@@ -30,8 +30,8 @@ Related but different rules — do not duplicate their work:
   *descriptions* of this role (README, `_add_glue_job_role`, `role_validator.py`)
   agree with each other. **This** rule asks a different question: does the *code*
   need something none of them grant?
-- [`admin_permission_envelope.md`](admin_permission_envelope.md) and
-  [`user_permission_envelope.md`](user_permission_envelope.md) cover the two human
+- [`permission_envelope_admin.md`](permission_envelope_admin.md) and
+  [`permission_envelope_user.md`](permission_envelope_user.md) cover the two human
   contexts. A call made by the CLI on the developer's machine belongs to those; only
   what runs *inside the Glue job* counts here.
 
