@@ -293,6 +293,51 @@ class TestPrettyPrintLogEvent:
         assert captured.out == ''
         assert captured.err == ''
 
+    def test_suppresses_glue6_runscript_syntaxwarning(self, bulk_runner, capsys):
+        """Issue #292: the real (non-monkeypatched) ignore list drops the
+        SyntaxWarning Glue 6.0 emits from its own job wrapper.
+
+        Glue 6.0 runs Python 3.13, which surfaces the invalid escape sequences in
+        pythonrunner/runscript.py as a visible SyntaxWarning on every job run.
+        The message below is verbatim from CloudWatch (/aws-glue/jobs/output):
+        Python writes the warning and its echoed source line in a single write(),
+        and that survives Glue's log collection as ONE event with embedded
+        newlines -- so suppressing it needs only the one anchor substring, and
+        the echoed source line cannot leak out on its own.
+        """
+        ev = _make_event(message=(
+            "/tmp/glue-job-7400852053095722040/pythonrunner/runscript.py:34: "
+            "SyntaxWarning: invalid escape sequence '\\.'\n"
+            '  p = re.compile("Job aborted due to stage failure: Task [0-9]+ in '
+            "stage [0-9]+\\.[0-9]+ failed [0-9]+ times, most recent failure: Lost "
+            "task [0-9]+\\.[0-9]+ in stage [0-9]+\\.[0-9]+ \\(TID [0-9]+, "
+            'ip.*.ec2.internal, executor [0-9]\\):\\w*")\n'
+        ))
+        bulk_runner._pretty_print_log_event(ev)
+        captured = capsys.readouterr()
+        # Neither the warning header nor the echoed regex source leaks. The
+        # latter matters most: it reads "Job aborted due to stage failure" and
+        # would alarm users far more than the warning it belongs to.
+        assert captured.out == ''
+        assert captured.err == ''
+
+    def test_real_stage_failure_still_prints(self, bulk_runner, capsys):
+        """Guard for #292: suppressing the echoed regex must not shadow a
+        genuine Spark stage failure, which carries the same wording.
+
+        The ignore-list anchor is the SyntaxWarning text, not the stage-failure
+        text, so a real failure is unaffected. This test exists because anchoring
+        on "Job aborted due to stage failure" would have been the tempting fix
+        and would have silently hidden real errors.
+        """
+        ev = _make_event(message=(
+            "2026-08-26 18:30:37 ERROR GlueExceptionAnalysisListener:9 - "
+            "Job aborted due to stage failure: Task 3 in stage 2.0 failed 4 times"
+        ))
+        bulk_runner._pretty_print_log_event(ev)
+        captured = capsys.readouterr()
+        assert 'Job aborted due to stage failure' in (captured.out + captured.err)
+
     def test_warning_merged_with_info_still_colors_yellow(self, bulk_runner, capsys):
         """Regression: a WARNING delivered in the same event as a preceding INFO
         line (internal newline, INFO has no timestamp prefix) must still color
