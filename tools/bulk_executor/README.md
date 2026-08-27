@@ -212,10 +212,18 @@ You can use `~/.aws/credentials` and `~/.aws/config` or set environment variable
 
 ### Security
 
-A word on permissions. We assume there exist two tiers of users:
+A word on permissions. Bulk Executor involves **three separate permission contexts**, held by three different principals. Keeping them straight matters: they have different lifecycles, and only one of them can touch your data.
 
-* A powerful administrative user with a robust set of permissions around Glue, S3, and IAM. This user runs a command to bootstrap the Glue environment and create the supporting roles and resources.
-* Any number of common users that use the Glue context in order to run the bulk tasks. These users don't need special permissions beyond the ability to invoke the Glue job, look at the resulting CloudWatch Logs, and read output from the associated S3 bucket.
+| Context | Principal | Needs permission to | Documented in |
+|---|---|---|---|
+| **Admin** | A powerful administrative user, with a robust set of permissions around Glue, S3, and IAM. | Run `bootstrap` and `teardown`: create the S3 bucket, the Glue job, the CloudWatch log groups, and the Glue execution role. | [Bootstrap](#bootstrap), below |
+| **Glue job role** | An IAM *service role*, assumed by the Glue service (`glue.amazonaws.com`) — not a person. Created by `bootstrap`, or supplied by you with `--XRole`. | Do the actual work: read and write **your DynamoDB tables**, plus a few supporting AWS reads. | [Glue job role permissions](#glue-job-role-permissions) |
+| **Client** | Any number of common users. | Run the bulk commands: invoke the Glue job, watch its CloudWatch Logs, and read output from the S3 bucket. Nothing more. | [Run the bulk actions](#run-the-bulk-actions) |
+
+Two things worth noting about that table:
+
+* **The Glue job role is the one with real blast radius.** The Admin context creates infrastructure and the Client context only starts a job; the Glue job role is what reads and writes your data. Scope it deliberately.
+* **Two of the three have a *minimum* plus documented *optional* extras.** The Admin context has [optional permissions](#how-the-custom-role-is-validated-at-bootstrap) that unlock fuller custom-role diagnostics, and the Client context needs extra permissions for the cross-account forms of `diff` and `copy`. In both cases the tool degrades gracefully without them rather than failing, so those extras are deliberately kept out of the minimum policies.
 
 ### Bootstrap
 
@@ -239,6 +247,7 @@ The bootstrap must be performed by a role with this policy at minimum:
                 "iam:GetRole",
                 "iam:CreateRole",
                 "iam:DeleteRole",
+                "iam:UpdateAssumeRolePolicy",
                 "iam:AttachRolePolicy",
                 "iam:DetachRolePolicy",
                 "iam:ListAttachedRolePolicies",
@@ -309,9 +318,11 @@ The bootstrap must be performed by a role with this policy at minimum:
             "Effect": "Allow",
             "Action": [
                 "logs:CreateLogGroup",
-                "logs:PutRetentionPolicy"
+                "logs:PutRetentionPolicy",
+                "logs:DescribeLogGroups"
             ],
             "Resource": [
+                "arn:aws:logs:*:*:log-group::log-stream:",
                 "arn:aws:logs:*:*:log-group:/aws-glue/jobs/*"
             ]
         }        
@@ -341,6 +352,59 @@ You can also exercise exact control of what permissions and policies the Glue ro
 # Bootstrap and provide Glue with the specific role
 ./bulk bootstrap --XRole rolename
 ```
+
+#### Glue job role permissions
+
+This is the [Glue job role context](#security) — the service role the job assumes to do its work. `bootstrap --XRole READ-ONLY` / `READ-WRITE` create it for you; you only need this section if you supply your own role with `--XRole <rolename>`, or if you want to audit what the created role holds.
+
+The role has two parts, and they behave very differently.
+
+**1. DynamoDB access — deliberately up to you.** There is no single correct scope here. Read-only on one table is a perfectly good configuration if that's all you need; so is read-write across every table. Grant whatever matches the commands you intend to run:
+
+* `AmazonDynamoDBReadOnlyAccess` for read-only commands (`count`, `find`, `scancount`, `diff`, `sql`).
+* `AmazonDynamoDBFullAccess` for commands that mutate (`delete`, `fill`, `update`, `load`, `copy`).
+* Or a restrictive policy of your own targeting specific tables — this is supported and encouraged.
+
+If the role can't read or write a table a command targets, that command fails at runtime with an error naming the problem. That's expected: the tool can't know which tables you'll target when the role is created, so it doesn't try to pre-validate them.
+
+**2. Supporting permissions — fixed and knowable.** Every job needs these regardless of which tables you scope it to:
+
+```
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "pricing",
+            "Effect": "Allow",
+            "Action": [
+                "pricing:GetProducts"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "quotas",
+            "Effect": "Allow",
+            "Action": [
+                "servicequotas:GetServiceQuota",
+                "servicequotas:GetAWSDefaultServiceQuota"
+            ],
+            "Resource": "arn:aws:servicequotas:*:*:dynamodb/*"
+        },
+        {
+            "Sid": "autoscaling",
+            "Effect": "Allow",
+            "Action": [
+                "application-autoscaling:DescribeScalableTargets"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+```
+
+plus the managed policy `AWSGlueServiceRole`, which covers the job's own S3 (script, `--extra-py-files`, temp/shuffle, command output) and CloudWatch Logs access.
+
+`application-autoscaling:DescribeScalableTargets` does not support resource-level scoping, so it must be granted on `"Resource": "*"` — don't try to narrow it, or the capacity check silently stops working. The pricing and quota grants above are the "maximum lockdown" form; the managed policies named in the bullets below are the easier equivalent.
 
 If you provide a custom IAM role for your AWS Glue job:
 
