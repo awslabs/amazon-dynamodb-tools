@@ -1,4 +1,4 @@
-# Rule: how a permission failure is handled must match whether the call is load-bearing
+# Rule: how a permission failure is handled must match whether the call is necessary
 
 **Why this can't be a unit test:** the invariant is a judgment about *consequence*
 — "if this call is denied, is what we produce still usable?" You can see the
@@ -14,17 +14,17 @@ Every AWS call has exactly one correct failure mode, decided by one question:
 
 Answer it **per call, not per function** — a single function routinely contains
 both kinds, and lumping them together is its own bug. `_create_glue_log_groups` is
-the example: creating the group is load-bearing, while managing its retention is a
+the example: creating the group is necessary, while managing its retention is a
 courtesy, so they get different handling in the same loop.
 
 Read "usable" from the **user's** side, not the job's. A command whose Glue run
 succeeds but whose first 40 seconds of output never reached the console has failed
 at something the user cares about.
 
-- **No → load-bearing → failing hard is correct.** `exit(1)` or a raise. Creating
+- **No → the call is necessary → failing hard is correct.** `exit(1)` or a raise. Creating
   the Glue job, creating the role, creating the S3 bucket: without these there is
   nothing to run, so stopping with a clear message is the kindest outcome.
-- **Yes → not load-bearing → warn and proceed.** An optimization, a diagnostic, a
+- **Yes → the call is not necessary → warn and proceed.** An optimization, a diagnostic, a
   courtesy default, or a read that exists only to be careful. Log a warning that
   **names the missing permission** and **says what the user loses**, then carry on.
 
@@ -60,7 +60,7 @@ a security control to a warning is a regression even though the environment woul
 technically function.
 
 That contrast is the rule: usability decides, and a documented security guarantee
-counts as load-bearing.
+counts as necessary.
 
 ## What to check
 
@@ -71,20 +71,23 @@ counts as load-bearing.
 
 2. **Classify each by consequence, and say which.** For each call, state whether a
    denial leaves the result usable. Useful signals that a call is *not*
-   load-bearing: its own docstring or comment describes it as best-effort, a
+   necessary: its own docstring or comment describes it as best-effort, a
    diagnostic, a warning, an estimate, an optimization, or "so we don't
    clobber/wait/guess"; the feature it powers is documented as optional; or the
    surrounding code already handles absence (`return None`, a skip path).
 
 3. **Compare against the actual handling.** Flag:
-   - A **non-load-bearing call that fails hard** — uncaught, or caught into
+   - A **non-necessary call that fails hard** — uncaught, or caught into
      `exit(1)`/raise. This is the #294 shape and the main thing to hunt.
-   - A **load-bearing call that is swallowed**, leaving a broken environment that
+   - A **necessary call that is swallowed**, leaving a broken environment that
      looks successful. Rarer, worse when it happens.
 
 4. **Check the warning is actionable, not just present.** A degrading path must
    name the permission and the consequence. Two specific failures to look for:
-   - A **hardcoded** permission name in the message. #297: the autoscaling
+   - A **hardcoded** permission list in the message. Prefer surfacing the
+     underlying error, which already names the denied operation, over reciting
+     permissions we *think* are involved -- a recited list goes stale and can name
+     the wrong one. #297: the autoscaling
      degradation always advised granting `DescribeScalableTargets`, which the
      operator already had; the real gap was `DescribeScalingPolicies`. Telling
      someone to grant a permission they hold is worse than saying nothing, because
@@ -99,7 +102,7 @@ counts as load-bearing.
 
 ## How to report
 
-Per finding: the call site (`file:line`), whether it is load-bearing, how it is
+Per finding: the call site (`file:line`), whether it is necessary, how it is
 handled today, how it should be handled, and the consequence of the mismatch.
 Then list the calls you classified as correctly handled — including any where you
 judged hard failure right *despite* the environment being usable, and why — so a

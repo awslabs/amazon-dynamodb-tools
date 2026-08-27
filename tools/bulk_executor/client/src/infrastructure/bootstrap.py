@@ -589,32 +589,21 @@ class BootstrapInfrastructure:
     def _create_glue_log_groups(self):
         """
         Create CloudWatch log groups for Glue job logging ahead of time.
-        This prevents the need to wait for log groups to be created during job execution.
 
-        This function contains BOTH a load-bearing call and courtesy ones, so
-        they get different failure modes (issue #301).
+        We really prefer to create the log groups here proactively before the
+        first Glue job run so during the first execution we can attach LiveTail
+        immediately and not miss any early output. Creating them is therefore
+        necessary, and a failure here is fatal.
 
-        Creating the groups is load-bearing -> fatal. "Glue creates them on its
-        first run anyway" is true but too late: the client blocks on
-        _wait_for_log_groups_to_exist before attaching LiveTail (runner.py), and
-        LiveTail is live-only -- it never replays. So with the groups absent, a
-        command stalls for up to LIVE_TAIL_MAX_RETRIES *
-        LIVE_TAIL_RETRY_WAIT_TIME_IN_SECONDS (~40s), the job's early output is
-        missed even once the tail does attach, and if they still aren't there the
-        command exits. That runner method describes itself as "a fallback in case
-        they don't exist yet" -- bootstrap is the primary mechanism, not a
-        head start.
-
-        Retention is a courtesy -> warn and continue. Reading it exists only to
-        *avoid* clobbering a retention the account owner chose, and writing it is
-        cosmetic; neither affects whether output is captured. Failing closed on
-        that read is what #294 got wrong -- it killed the whole bootstrap over a
-        call whose entire purpose was to be careful.
+        We politely try to set a retention policy if we have permissions, but if
+        we can't then we'll let the default stand. An existing retention policy
+        other than the default of None we leave alone. So retention failures warn
+        and carry on (issues #294, #301).
         """
         log.info("Creating CloudWatch log groups for Glue job...")
         
         for log_group_name in GLUE_LOG_GROUP_NAMES:
-            # --- load-bearing: the group itself must exist (see docstring) ---
+            # --- necessary: the group itself must exist (see docstring) ---
             group_existed = False
             try:
                 # Try to create the log group - AWS will tell us if it already exists
@@ -657,14 +646,13 @@ class BootstrapInfrastructure:
                     )
                     log.info(f"Set retention policy for existing log group {log_group_name} to {GLUE_LOG_GROUP_RETENTION_IN_DAYS} days (had none)")
             except Exception as e:
-                # Name the permissions and the consequence, so the warning is
-                # actionable rather than noise (issues #294, #301).
+                # Surface the underlying error (it names the denied operation) and
+                # the consequence, so the warning is actionable rather than noise
+                # (issues #294, #301).
                 log.warning(
                     f"Could not manage the retention policy on log group "
                     f"'{log_group_name}' ({e}); continuing. Any retention already "
-                    f"set is left untouched, and log capture is unaffected. To "
-                    f"manage retention at bootstrap time, grant "
-                    f"logs:PutRetentionPolicy and logs:DescribeLogGroups."
+                    f"set is left untouched, and log capture is unaffected."
                 )
 
     def bootstrap(self, args):

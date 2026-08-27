@@ -888,7 +888,7 @@ class TestCreateGlueLogGroups:
         )
 
     def test_create_denied_is_fatal(self, bootstrap, caplog):
-        """Creating the group IS load-bearing, so a denial must stay fatal.
+        """Creating the group IS necessary, so a denial must stay fatal.
 
         "Glue creates them on first run" is too late: the client blocks on
         _wait_for_log_groups_to_exist before attaching LiveTail, LiveTail never
@@ -913,7 +913,7 @@ class TestCreateGlueLogGroups:
         )
 
     def test_unexpected_non_client_error_creating_group_is_fatal(self, bootstrap):
-        """A non-ClientError on creation is the same load-bearing failure."""
+        """A non-ClientError on creation is the same necessary failure."""
         bootstrap.logs_client.create_log_group.side_effect = RuntimeError('boom')
         with pytest.raises(SystemExit) as exc:
             bootstrap._create_glue_log_groups()
@@ -940,7 +940,9 @@ class TestCreateGlueLogGroups:
             bootstrap._create_glue_log_groups()  # must not raise or exit
         warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
         assert warnings, "a denied retention read must warn, not kill bootstrap"
-        assert 'logs:DescribeLogGroups' in warnings[0]
+        # The underlying error names the denied operation -- we surface it rather
+        # than reciting a permission list that could name the wrong one (#297).
+        assert 'DescribeLogGroups' in warnings[0]
         assert 'left untouched' in warnings[0], (
             "must state the existing retention is preserved -- not clobbering it "
             "was the whole reason for the read"
@@ -962,7 +964,9 @@ class TestCreateGlueLogGroups:
             bootstrap._create_glue_log_groups()  # must not raise or exit
         warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
         assert warnings, "a denied retention write must warn, not kill bootstrap"
-        assert 'logs:PutRetentionPolicy' in warnings[0]
+        assert 'PutRetentionPolicy' in warnings[0], (
+            "the underlying error, which names the denied operation, must surface"
+        )
         # The groups themselves were still created -- that part must not be skipped.
         assert bootstrap.logs_client.create_log_group.called
 
