@@ -39,6 +39,13 @@ user lacking them is expected to be handled gracefully rather than pre-authorize
   the base envelope. Treat them as documented-elsewhere, and confirm the failure is
   a clean error rather than a traceback.
 
+- **Permissions documented in prose elsewhere.** Before flagging anything, search
+  the README for the action name. The Admin envelope has a precedent for this: a
+  paragraph in §"How the custom role is validated at bootstrap" documents several
+  `iam:*` reads as *optional* permissions outside the minimum policy block. A
+  permission documented anywhere as intentionally-optional is not a finding, and
+  must not be "fixed" into the base policy.
+
 The rule's target is the **base** envelope: what an ordinary same-account command
 needs on every run.
 

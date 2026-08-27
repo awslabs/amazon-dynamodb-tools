@@ -3,21 +3,37 @@
 **Why this can't be a unit test:** deciding whether a boto3 call *needs* a
 documented permission is judgment, not a lookup. The same call can be fine or a
 bug depending on whether its failure is fatal or swallowed, whether it sits on an
-optional path, and whether the documented statement's `Resource` scope actually
-covers the resource it touches. A mechanical method→action diff produces false
-positives on every gracefully-degrading call (this codebase has four); a careful
-read separates them.
+optional path, whether the permission is documented somewhere other than the
+minimum policy block, and whether the documented statement's `Resource` scope
+actually covers the resource it touches. A mechanical method→action diff reports
+five false positives in `role_validator.py` alone, where the permissions are
+documented in prose as optional extras and every call degrades gracefully. Only a
+read separates those from an uncaught call that `exit(1)`s.
 
 ## The envelope
 
 `README.md` §Security defines two user tiers. This rule covers the **first**: the
 *"powerful administrative user"* who runs `./bulk bootstrap` and `./bulk teardown`.
 
-Its documented policy is the JSON block under **"The bootstrap must be performed
-by a role with this policy at minimum"** (§Bootstrap), with Sids `glueRoleAdmin`,
-`passrole`, `s3`, `glue`, `glueConnection`, `logs`. Teardown has **no** separate
-documented policy — it runs under this same envelope, so teardown's calls count
-against it.
+Its documented policy has **two tiers**, and conflating them produces false
+positives:
+
+1. **The minimum** — the JSON block under *"The bootstrap must be performed by a
+   role with this policy at minimum"* (§Bootstrap), Sids `glueRoleAdmin`,
+   `passrole`, `s3`, `glue`, `glueConnection`, `logs`. A fatal call whose action is
+   missing here is a finding.
+
+2. **Documented optional extras** — the paragraph *"Optional permissions for the
+   caller running `bootstrap` (not the Glue role)"* at the end of §"How the custom
+   role is validated at bootstrap". It grants `iam:SimulatePrincipalPolicy`,
+   `iam:GetPolicy`, `iam:GetPolicyVersion`, `iam:ListRolePolicies`,
+   `iam:GetRolePolicy` for the custom-role validator's best-effort checks, and says
+   explicitly that a caller lacking them has the affected check silently skipped.
+   These are **deliberately not** in the minimum. An action listed there is
+   documented — **not** a finding, and must not be "fixed" into the minimum policy.
+
+Teardown has **no** separate documented policy — it runs under this same envelope,
+so teardown's calls count against it.
 
 Do not confuse this with:
 
@@ -50,16 +66,21 @@ it is not a finding.
    - passing a role to Glue → `iam:PassRole` (no method call names it)
    - a single call may require two actions
 
-3. **Decide whether a missing action is a real finding.** For each call whose
-   action is absent from the documented policy, read its error handling:
+3. **Decide whether a missing action is a real finding.** For each call whose action
+   is absent from the **minimum** policy, classify it — and say which class,
+   explicitly. This is the distinction the rule exists for:
+   - **Documented as an optional extra → not a finding.** Check tier 2 above before
+     anything else. Adding one of those actions to the minimum policy would be a
+     regression, not a fix.
    - **Fatal → finding.** The exception is uncaught, or caught and turned into
-     `exit(1)` / a raise. An operator with exactly the documented policy is hard-
+     `exit(1)` / a raise. An operator with exactly the minimum policy is hard-
      blocked.
-   - **Gracefully degraded → not a finding.** Wrapped so an `AccessDenied` is
-     swallowed and the feature skips or warns (e.g. `except Exception: return None`
-     with a docstring saying the caller then skips the check). Note it as accepted
-     so the next run doesn't re-litigate it.
-   - Say which it is explicitly. This is the distinction the rule exists for.
+   - **Gracefully degraded but undocumented → weak finding.** Wrapped so an
+     `AccessDenied` is swallowed and the feature skips or warns (e.g.
+     `except Exception: return None`). Nobody is blocked, so it is not urgent — but
+     the capability is silently unavailable to anyone on the minimum policy, and the
+     precedent in tier 2 is that such permissions get *documented as optional*
+     rather than left unmentioned. Report it as a documentation gap, not a breakage.
 
 4. **Check the reachability condition, and say it out loud.** A call on a rarely-
    taken branch is still a finding if it's fatal when taken, but *when* it fires
@@ -79,8 +100,10 @@ it is not a finding.
 
 Per finding: the call site (`file:line`), the IAM action it needs, which Sid should
 carry it, whether failure is **fatal or degraded**, and the condition under which
-the call is reached. Then state the accepted (gracefully-degrading) calls you
-deliberately did not flag, so a clean run is distinguishable from a shallow one.
+the call is reached. Then state the calls you deliberately did **not** flag and why
+— separating *documented as optional extras* from *undocumented but gracefully
+degrading* — so a clean run is distinguishable from a shallow one, and so nobody
+"fixes" a deliberate optional into the minimum policy.
 
 If the code needs nothing beyond the documented policy, say so and list the
 capabilities you verified.
