@@ -26,12 +26,21 @@ confirm the three still mean the same thing after an edit; but a careful read ca
 3. **`client/src/utils/role_validator.py`** — the *checker*. Validates a
    user-supplied custom `--XRole` against the documented minimums via module
    constants (`GLUE_BASELINE_POLICY_ARN`, `PRICING_ACTIONS`, `QUOTA_ACTIONS`,
-   `AUTOSCALING_ACTION`, `DYNAMODB_SERVICE`) and per-capability checks.
+   `AUTOSCALING_ACTIONS`, `DYNAMODB_SERVICE`) and per-capability checks.
 
 ## What counts as agreement
 
 For **each capability** (baseline Glue execution, pricing, service quotas,
 autoscaling, DynamoDB access, role-name prefix, trust policy), verify:
+
+**A capability can span more than one action, and a partial grant is drift.**
+Autoscaling is the live example: the diagnostic needs
+`application-autoscaling:DescribeScalableTargets` (min/max) *and*
+`application-autoscaling:DescribeScalingPolicies` (target value). #297 happened
+because only the first was granted anywhere, so the diagnostic always half-failed
+and then advised granting the permission the operator already had. Check every
+action a capability needs, in all three sources — not just the one that gives the
+capability its name.
 
 - **Present in all three.** A capability the creator grants but the README omits,
   or the validator never checks — or one the README documents but the creator

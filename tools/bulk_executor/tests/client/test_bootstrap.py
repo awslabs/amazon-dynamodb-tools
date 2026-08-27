@@ -306,7 +306,7 @@ class TestAddGlueJobRole:
         assert 'MinimalQuotasAccess' in inline_names
         assert 'MinimalAutoScalingAccess' in inline_names
 
-    def test_autoscaling_policy_grants_describe_scalable_targets(self, bootstrap):
+    def test_autoscaling_policy_grants_both_describe_reads(self, bootstrap):
         from infrastructure.constants import ROLE_TYPE_READ_ONLY
         bootstrap._prompt_for_role = MagicMock()
         bootstrap.iam_client.create_role.return_value = {
@@ -322,8 +322,14 @@ class TestAddGlueJobRole:
         assert len(autoscaling_calls) == 1
         doc = json.loads(autoscaling_calls[0].kwargs['PolicyDocument'])
         stmt = doc['Statement'][0]
-        assert stmt['Action'] == ['application-autoscaling:DescribeScalableTargets']
-        # DescribeScalableTargets does not support resource-level scoping.
+        # Issue #297: the diagnostic needs BOTH reads -- ScalableTargets for
+        # min/max, ScalingPolicies for the target value. Granting only the first
+        # left the diagnostic permanently half-broken.
+        assert stmt['Action'] == [
+            'application-autoscaling:DescribeScalableTargets',
+            'application-autoscaling:DescribeScalingPolicies',
+        ]
+        # Neither action supports resource-level scoping.
         assert stmt['Resource'] == '*'
 
     def test_creates_role_and_attaches_read_write_policies(self, bootstrap):

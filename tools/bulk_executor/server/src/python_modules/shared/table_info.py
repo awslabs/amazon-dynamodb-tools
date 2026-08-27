@@ -205,10 +205,15 @@ def get_and_print_dynamodb_table_info(table_name, index_name=None, quiet=False):
                         log.info(f"- {dimension.split(':')[-1]}:")
                         log.info(f"  Auto Scaling Enabled: No")
             except Exception as e:
+                # Name BOTH reads. The diagnostic needs DescribeScalableTargets
+                # for min/max and DescribeScalingPolicies for the target value,
+                # so naming only the first sent operators who already had it
+                # down a dead end (issue #297).
                 log.info(
                     f"- Could not read autoscaling settings ({str(e)}); skipping "
                     f"this diagnostic. Grant application-autoscaling:"
-                    f"DescribeScalableTargets to the Glue role to see them."
+                    f"DescribeScalableTargets and application-autoscaling:"
+                    f"DescribeScalingPolicies to the Glue role to see them."
                 )
 
     else:

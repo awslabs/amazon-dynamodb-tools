@@ -157,15 +157,19 @@ class BootstrapInfrastructure:
 
         # Read-only visibility into a table's autoscaling configuration so the
         # job can tell whether autoscaling would lift a provisioned table's
-        # ceiling above a user-requested rate (issue #89). DescribeScalableTargets
-        # does not support resource-level scoping, so the resource must be "*".
+        # ceiling above a user-requested rate (issue #89). DescribeScalingPolicies
+        # is what supplies the target-utilization value in the autoscaling
+        # diagnostic; without it the whole diagnostic degrades (issue #297).
+        # Neither action supports resource-level scoping, so the resource must
+        # be "*".
         autoscaling_policy = {
             "Version": "2012-10-17",
             "Statement": [
                 {
                     "Effect": "Allow",
                     "Action": [
-                        "application-autoscaling:DescribeScalableTargets"
+                        "application-autoscaling:DescribeScalableTargets",
+                        "application-autoscaling:DescribeScalingPolicies"
                     ],
                     "Resource": "*"
                 }

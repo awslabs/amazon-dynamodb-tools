@@ -62,9 +62,12 @@ and it must be reported under its own heading so nobody mistakes it for one.
 ## What to check
 
 Everything **except** the DynamoDB grant. Those parts are fixed and knowable, which
-is exactly why drift there is a real bug (#89 was one: the autoscaling capacity
-check needed `application-autoscaling:DescribeScalableTargets`, which nothing
-granted).
+is exactly why drift there is a real bug. Two have already happened here: #89 (the
+capacity check needed `application-autoscaling:DescribeScalableTargets`, which
+nothing granted) and #297 (the same diagnostic also calls
+`DescribeScalingPolicies`, which nothing granted either). Note the shape of #297 --
+a capability whose *second* action was missed because the first one was present.
+Enumerate every call a capability makes, not just the one it is named after.
 
 1. **Enumerate live, from inside the job.** Find every AWS API call made by code
    that runs on a Glue worker or driver: `server/src/root.py`, every module under
@@ -86,7 +89,8 @@ granted).
    capabilities to verify are: baseline Glue execution (`AWSGlueServiceRole`),
    pricing (`pricing:GetProducts`), service quotas
    (`servicequotas:GetServiceQuota`, `GetAWSDefaultServiceQuota`), autoscaling
-   (`application-autoscaling:DescribeScalableTargets`), and any S3 or Logs action
+   (`application-autoscaling:DescribeScalableTargets` **and**
+   `DescribeScalingPolicies` -- both, see below), and any S3 or Logs action
    beyond the managed baseline.
 
 4. **Classify anything missing**, and say which:
@@ -98,8 +102,8 @@ granted).
      undocumented is a doc gap; one that is documented is fine.
 
 5. **Check `Resource` scope for the fixed capabilities only.** Note where an action
-   genuinely cannot be scoped (`application-autoscaling:DescribeScalableTargets`
-   requires `"Resource": "*"`) and confirm the README says so, since an operator
+   genuinely cannot be scoped (both `application-autoscaling:Describe*` reads
+   require `"Resource": "*"`) and confirm the README says so, since an operator
    writing a locked-down policy will otherwise scope it and silently lose the check.
 
 ## How to report

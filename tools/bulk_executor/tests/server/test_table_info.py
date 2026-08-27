@@ -750,6 +750,13 @@ class TestGetAndPrintDynamoDBTableInfo:
             and 'DescribeScalableTargets' in m
         ]
         assert skip, caplog.messages
+        # Issue #297: the diagnostic needs BOTH reads, so the note must name
+        # both. Naming only ScalableTargets told operators who already had it
+        # to grant it again -- a dead end, since the real gap was
+        # DescribeScalingPolicies (which nothing granted at all).
+        assert 'DescribeScalingPolicies' in skip[0], (
+            "the skip note must name both autoscaling reads, not just the first"
+        )
 
     def test_provisioned_table_quiet_mode(
         self, boto3_mock, full_provisioned_response, caplog

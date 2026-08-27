@@ -8,7 +8,8 @@ returns a list of Finding(severity, message):
   2. trust policy allows glue.amazonaws.com        -- FATAL
   3. AWSGlueServiceRole managed policy attached    -- WARNING
   4. pricing:GetProducts                           -- WARNING (via SimulatePrincipalPolicy)
-  5. application-autoscaling:DescribeScalableTargets   -- WARNING, soft (via SimulatePrincipalPolicy)
+  5. application-autoscaling:DescribeScalableTargets + DescribeScalingPolicies
+                                                       -- WARNING, soft (via SimulatePrincipalPolicy)
   6. servicequotas Get{Service,AWSDefaultService}Quota -- WARNING (presence check over Allow statements)
   7. some DynamoDB access                          -- WARNING (presence check over Allow statements)
 
@@ -215,6 +216,7 @@ def _fully_valid_iam():
             "servicequotas:GetServiceQuota",
             "servicequotas:GetAWSDefaultServiceQuota",
             "application-autoscaling:DescribeScalableTargets",
+            "application-autoscaling:DescribeScalingPolicies",
         )
     }
     return _FakeIam(
@@ -446,6 +448,47 @@ class TestAutoscalingCapability:
         assert any("still runs" in f.message for f in autoscaling), (
             "autoscaling finding should note the job still runs (soft requirement)"
         )
+
+    def test_warns_naming_only_the_missing_read_when_partially_granted(self):
+        """Issue #297: autoscaling is a TWO-action capability.
+
+        A role granting only DescribeScalableTargets still loses the
+        target-value diagnostic, so it must still warn -- and the message must
+        name DescribeScalingPolicies (the one actually missing) without naming
+        the one the operator already has. The original bug was exactly this:
+        the message hardcoded ScalableTargets, so an operator who had it was
+        told to grant it again.
+        """
+        iam = _FakeIam(
+            trust=_trust("glue.amazonaws.com"),
+            attached_arns=[GLUE_BASELINE_ARN, DDB_FULL_ARN],
+            inline={"x": _managed_doc(
+                "pricing:GetProducts",
+                "servicequotas:GetServiceQuota",
+                "servicequotas:GetAWSDefaultServiceQuota",
+                "application-autoscaling:DescribeScalableTargets",
+            )},
+        )
+        findings = validate_custom_role_permissions(iam, GOOD_ROLE_NAME)
+        autoscaling = [f for f in findings if "application-autoscaling" in f.message]
+        assert autoscaling, (
+            "a role with only DescribeScalableTargets still loses the "
+            "target-value diagnostic, so it must warn"
+        )
+        message = autoscaling[0].message
+        assert "DescribeScalingPolicies" in message, (
+            "the message must name the read that is actually missing"
+        )
+        assert "DescribeScalableTargets" not in message, (
+            "must NOT tell the operator to grant a permission they already hold "
+            "-- that is the dead end issue #297 fixed"
+        )
+        assert autoscaling[0].severity == WARNING
+
+    def test_no_autoscaling_finding_when_both_reads_granted(self):
+        """The complementary case: both reads present -> silence."""
+        findings = validate_custom_role_permissions(_fully_valid_iam(), GOOD_ROLE_NAME)
+        assert not [f for f in findings if "application-autoscaling" in f.message]
 
 
 class TestSimulateHonorsDeny:
