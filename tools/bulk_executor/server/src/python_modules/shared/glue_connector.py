@@ -4,7 +4,7 @@ This module is the single seam where bulk_executor talks to Glue's
 DynamoDB connector. It uses the DataFrame-based source AWS shipped in
 November 2025
 (https://aws.amazon.com/about-aws/whats-new/2025/11/glue-dynamodb-connector/),
-which requires Glue 5.x and a Glue connection of ``ConnectionType=DYNAMODB``
+which requires Glue 5.0+ and a Glue connection of ``ConnectionType=DYNAMODB``
 attached to the job. Bootstrap handles both requirements; verbs go through
 this module without caring about the underlying Spark API.
 """

@@ -7,7 +7,7 @@ to every item). Exercises read+transform+write through the wrapper.
 We assert both Glue jobs reached SUCCEEDED (./bulk exits 0 even on a failed
 job) and that the seed fill actually landed items, so update has something
 to walk over. The signal is "the generator-driven update path doesn't
-crash on Glue 5.0".
+crash on the live Glue runtime".
 """
 from __future__ import annotations
 

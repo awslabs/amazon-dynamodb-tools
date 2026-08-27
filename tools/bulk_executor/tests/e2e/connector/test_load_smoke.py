@@ -160,7 +160,7 @@ class TestLoadSmoke:
         This is the enforcement proof for #182: the connector write path now
         emits a direct-integer ``dynamodb.throughput.write`` option (replacing
         the old ``dynamodb.throughput.write.percent`` math). A unit test only
-        proves the value is passed as a kwarg — it can't prove the Glue 5.x
+        proves the value is passed as a kwarg — it can't prove the live Glue
         connector *accepts* that option. If the connector rejected it, the job
         would end FAILED (while ``./bulk`` still exits 0), so we assert the
         authoritative JobRunState and that the run's items actually landed.

@@ -1,7 +1,7 @@
 """Unit tests for shared/glue_connector.py.
 
 Exercises the DataFrame-based connector wrapper. The legacy DynamicFrame
-path was removed when we standardized on Glue 5.x + the new DynamoDB
+path was removed when we standardized on Glue 5.0+ and the new DynamoDB
 DataFrame source -- see PR #162.
 """
 
@@ -161,7 +161,7 @@ class TestWriteDataFrame:
             parsed_args={},
         )
         df.write.format.assert_called_with('dynamodb')
-        # Glue 5.x connector rejects the default ErrorIfExists save mode;
+        # The connector rejects the default ErrorIfExists save mode;
         # DynamoDB upserts require Append. Regression guard for the
         # "cannot be written with ErrorIfExists mode" failure.
         writer.mode.assert_called_with('append')
