@@ -24,24 +24,32 @@ positives:
    missing here is a finding.
 
 2. **Known optional extras, intentionally undocumented.** The custom-role
-   validator (`client/src/utils/role_validator.py`) makes five IAM reads that are
-   *deliberately* outside the minimum policy and deliberately absent from the
-   README, to keep the reader-facing docs simple:
+   validator (`client/src/utils/role_validator.py`) makes five IAM reads. **Four**
+   are *deliberately* outside the minimum policy and absent from the README, to keep
+   the reader-facing docs simple:
 
    | Action | Call site | Purpose |
    |---|---|---|
    | `iam:SimulatePrincipalPolicy` | `:248` | pricing / quota / autoscaling checks |
-   | `iam:GetPolicy` | `:316` | resolve attached managed policies |
-   | `iam:GetPolicyVersion` | `:318` | read the default policy version |
-   | `iam:ListRolePolicies` | `:324` | enumerate inline policies |
+   | `iam:GetPolicy` | `:316` | resolve each attached managed policy |
+   | `iam:GetPolicyVersion` | `:318` | read that policy's default version |
    | `iam:GetRolePolicy` | `:326` | read inline policy documents |
 
-   Every one is wrapped so an `AccessDenied` returns `None` and the caller skips
-   that check rather than false-warning, and all five run only on the optional
+   The fifth, `iam:ListRolePolicies` (`:324`), **is** already in the minimum policy's
+   `glueRoleAdmin` statement, and its `role/AWSGlueServiceRole*` scope covers the
+   role being validated (a FATAL check enforces that prefix). Don't list it as
+   optional.
+
+   Scoping note for the two managed-policy reads: `iam:GetPolicy` /
+   `iam:GetPolicyVersion` act on `policy/*` ARNs, so they could not be folded under
+   `glueRoleAdmin`'s `role/*` resource even if someone wanted to.
+
+   All four are wrapped so an `AccessDenied` returns `None` and the caller skips that
+   check rather than false-warning, and all run only on the optional
    custom-`--XRole` path. **None is a finding, and none should be added to the
-   minimum policy or to the README** — that would be a regression, not a fix. Treat
-   this table as the accepted list and re-derive it from `role_validator.py` each
-   run (a *new* undocumented IAM read there is worth reporting).
+   minimum policy or to the README** — that would be a regression, not a fix.
+   Re-derive this list from `role_validator.py` each run rather than trusting the
+   table; a *new* undocumented IAM read there is worth reporting.
 
 Teardown has **no** separate documented policy — it runs under this same envelope,
 so teardown's calls count against it.
