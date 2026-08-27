@@ -17,6 +17,20 @@ MIN_RECOMMENDED_WRITE_RATE = 100
 # used only as a fallback for the duration estimate when --XTimeout is unset.
 DEFAULT_JOB_TIMEOUT_MINUTES = 60
 
+# PROTOTYPE (#286): a wall-clock model for "time to complete", shaped like a real
+# Glue run rather than a flat units/rate:
+#   1. ~2 min  to bring Glue up to this point (driver running the cost estimate).
+#   2. ~30 s   to deploy the Spark workers.
+#   3. A data-movement ramp: the first three minutes run at 1/4, 1/2, 3/4 of the
+#      target rate (one minute each), then full rate thereafter. The ramp moves
+#      15R + 30R + 45R = 90R units in its 180 s.
+# This captures Glue's startup shape well for small/medium tables. It still treats
+# the target rate as the eventual sustained rate, so it stays optimistic on very
+# large tables (which in practice never reach the target rate).
+GLUE_STARTUP_SECONDS = 120
+WORKER_DEPLOY_SECONDS = 30
+_RATE_RAMP_FRACTIONS = (0.25, 0.50, 0.75)  # per-minute fraction of target rate before full speed
+
 # Monotonic reference captured when this module is first imported, which on a
 # Glue worker is at job startup (root.py imports the verb, which imports this).
 # The #89 check-1 timeout estimate races the next phase against the time
@@ -493,6 +507,31 @@ def _warn_if_rate_exceeds_capacity(table_name, dimension, user_rate, table_desc,
         )
 
 
+def _estimated_completion_seconds(total_units, rate):
+    """PROTOTYPE (#286): model total wall-clock to complete `total_units` at a
+    target `rate` (units/sec), shaped like a real Glue run:
+
+        startup (~2 min) + worker deploy (~30 s) + ramped data movement.
+
+    The ramp runs the first three minutes at 1/4, 1/2, 3/4 of `rate` (one minute
+    each) and full `rate` after that; it moves 90*rate units before full speed.
+    """
+    remaining = total_units
+    move_seconds = 0.0
+    for frac in _RATE_RAMP_FRACTIONS:
+        step_rate = rate * frac              # units/sec during this ramp minute
+        step_capacity = step_rate * 60       # units movable in this 60 s
+        if remaining <= step_capacity:
+            move_seconds += remaining / step_rate
+            remaining = 0
+            break
+        move_seconds += 60
+        remaining -= step_capacity
+    if remaining > 0:
+        move_seconds += remaining / rate     # full rate for the rest
+    return GLUE_STARTUP_SECONDS + WORKER_DEPLOY_SECONDS + move_seconds
+
+
 def _warn_if_job_may_timeout(table_name, dimension, rate, table_desc, remaining_minutes):
     """Warn when the effective rate is too low to finish in the time remaining.
 
@@ -538,9 +577,20 @@ def _warn_if_job_may_timeout(table_name, dimension, rate, table_desc, remaining_
         return
 
     estimated_seconds = total_units / rate
+    estimated_minutes = estimated_seconds / 60
+
+    # PROTOTYPE (#286): print a user-facing "time to complete" using the ramp model
+    # (startup + worker deploy + ramped data movement), which matches a real Glue
+    # run's shape far better than a flat units/rate. See _estimated_completion_seconds.
+    completion_minutes = _estimated_completion_seconds(total_units, rate) / 60
+    log.info(
+        f"[{table_name}] Estimated {dimension} time to complete: ~{completion_minutes:,.1f} min "
+        f"(~2 min startup + ~30s worker deploy + ramped data movement for "
+        f"~{total_units:,} {dimension} units at up to {rate:,} units/sec)."
+    )
+
     remaining_seconds = max(0.0, remaining_minutes * 60)
     if estimated_seconds > remaining_seconds:
-        estimated_minutes = estimated_seconds / 60
         log.warning(
             f"[{table_name}] Estimated {dimension} time of ~{estimated_minutes:,.0f} min "
             f"at {rate:,} units/sec for ~{total_units:,} {dimension} units exceeds the "
