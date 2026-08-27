@@ -172,6 +172,14 @@ _NEGATIVE_TEST_SKIP_ACTIONS = {
     # removing it can't fail bootstrap. It is genuinely required for the
     # custom-role path, where a denial is fatal (exit(1) at :274).
     "iam:GetRole",
+    # logs:DescribeLogGroups became deliberately non-fatal in #301: it is only
+    # used by the retention read, whose whole purpose is to avoid clobbering a
+    # retention the account owner chose, so a denial now warns and bootstrap
+    # continues. Removing it therefore cannot fail bootstrap, and this test
+    # would report it "decorative". It is still genuinely used -- without it we
+    # can't manage retention -- so it stays in the documented policy. (Before
+    # #301 it *was* fatal, which is how #294 was found.)
+    "logs:DescribeLogGroups",
 }
 
 

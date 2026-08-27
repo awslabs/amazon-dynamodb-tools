@@ -36,6 +36,20 @@ def bootstrap():
         clients.s3_client = MagicMock()
         clients.glue_client = MagicMock()
         clients.logs_client = MagicMock()
+
+        # botocore generates a typed exception class per client, and production
+        # code catches logs_client.exceptions.ResourceAlreadyExistsException. A
+        # MagicMock attribute can't appear in an `except` clause ("catching
+        # classes that do not inherit from BaseException"), so give that one a
+        # real class. Tests raise it via
+        # bootstrap.logs_client.exceptions.ResourceAlreadyExistsException.
+        class ResourceAlreadyExistsException(Exception):
+            pass
+
+        clients.logs_client.exceptions.ResourceAlreadyExistsException = (
+            ResourceAlreadyExistsException
+        )
+
         MockClients.return_value = clients
 
         from infrastructure.bootstrap import BootstrapInfrastructure
@@ -832,9 +846,8 @@ class TestCreateGlueLogGroups:
             GLUE_LOG_GROUP_NAMES,
             GLUE_LOG_GROUP_RETENTION_IN_DAYS,
         )
-        bootstrap.logs_client.create_log_group.side_effect = ClientError(
-            {'Error': {'Code': 'ResourceAlreadyExistsException', 'Message': 'exists'}},
-            'CreateLogGroup',
+        bootstrap.logs_client.create_log_group.side_effect = (
+            bootstrap.logs_client.exceptions.ResourceAlreadyExistsException('exists')
         )
         # Existing groups report no retention set.
         bootstrap.logs_client.describe_log_groups.side_effect = lambda logGroupNamePrefix: {
@@ -851,9 +864,8 @@ class TestCreateGlueLogGroups:
             assert c.kwargs['retentionInDays'] == GLUE_LOG_GROUP_RETENTION_IN_DAYS
 
     def test_existing_log_group_with_retention_is_left_untouched(self, bootstrap):
-        bootstrap.logs_client.create_log_group.side_effect = ClientError(
-            {'Error': {'Code': 'ResourceAlreadyExistsException', 'Message': 'exists'}},
-            'CreateLogGroup',
+        bootstrap.logs_client.create_log_group.side_effect = (
+            bootstrap.logs_client.exceptions.ResourceAlreadyExistsException('exists')
         )
         # Owner deliberately set 30 days; bootstrap must not clobber it.
         bootstrap.logs_client.describe_log_groups.side_effect = lambda logGroupNamePrefix: {
@@ -867,9 +879,8 @@ class TestCreateGlueLogGroups:
 
     def test_existing_group_retention_matches_exact_name_not_prefix(self, bootstrap):
         from infrastructure.constants import GLUE_LOG_GROUP_NAMES
-        bootstrap.logs_client.create_log_group.side_effect = ClientError(
-            {'Error': {'Code': 'ResourceAlreadyExistsException', 'Message': 'exists'}},
-            'CreateLogGroup',
+        bootstrap.logs_client.create_log_group.side_effect = (
+            bootstrap.logs_client.exceptions.ResourceAlreadyExistsException('exists')
         )
         # describe_log_groups returns a prefix sibling first that DOES have a
         # retention; only the exact-name match (no retention) should count, so we
@@ -887,18 +898,87 @@ class TestCreateGlueLogGroups:
             GLUE_LOG_GROUP_NAMES
         )
 
-    def test_unexpected_client_error_propagates(self, bootstrap):
+    def test_create_denied_is_fatal(self, bootstrap, caplog):
+        """Creating the group IS necessary, so a denial must stay fatal.
+
+        "Glue creates them on first run" is too late: the client blocks on
+        _wait_for_log_groups_to_exist before attaching LiveTail, LiveTail never
+        replays, and the command exits if the groups don't appear within the
+        retry budget. Silently proceeding would trade a clear bootstrap failure
+        for lost job output and a command that dies later, further from the
+        cause.
+        """
+        import logging
         bootstrap.logs_client.create_log_group.side_effect = ClientError(
             {'Error': {'Code': 'AccessDenied', 'Message': 'nope'}}, 'CreateLogGroup'
         )
-        with pytest.raises(ClientError):
-            bootstrap._create_glue_log_groups()
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(SystemExit) as exc:
+                bootstrap._create_glue_log_groups()
+        assert exc.value.code == 1
+        errors = [r.message for r in caplog.records if r.levelno == logging.ERROR]
+        assert errors, "a fatal failure must say why"
+        assert 'logs:CreateLogGroup' in errors[0], "name the permission to grant"
+        assert 'early job output is lost' in errors[0], (
+            "explain the consequence, so the operator knows this isn't cosmetic"
+        )
 
-    def test_unexpected_non_client_error_exits(self, bootstrap):
+    def test_unexpected_non_client_error_creating_group_is_fatal(self, bootstrap):
+        """A non-ClientError on creation is the same necessary failure."""
         bootstrap.logs_client.create_log_group.side_effect = RuntimeError('boom')
         with pytest.raises(SystemExit) as exc:
             bootstrap._create_glue_log_groups()
         assert exc.value.code == 1
+
+    def test_retention_read_denied_warns_and_continues(self, bootstrap, caplog):
+        """Issue #294's exact path, which #301 fixes.
+
+        The group exists, so the only thing left is the retention read -- whose
+        entire purpose is to AVOID clobbering a retention the account owner
+        chose. Failing closed there killed the whole bootstrap. It must warn and
+        continue: log capture is unaffected either way.
+        """
+        import logging
+        bootstrap.logs_client.create_log_group.side_effect = (
+            bootstrap.logs_client.exceptions.ResourceAlreadyExistsException('exists')
+        )
+        bootstrap.logs_client.describe_log_groups.side_effect = ClientError(
+            {'Error': {'Code': 'AccessDeniedException', 'Message': 'no describe'}},
+            'DescribeLogGroups',
+        )
+        with caplog.at_level(logging.WARNING):
+            bootstrap._create_glue_log_groups()  # must not raise or exit
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert warnings, "a denied retention read must warn, not kill bootstrap"
+        # The underlying error names the denied operation -- we surface it rather
+        # than reciting a permission list that could name the wrong one (#297).
+        assert 'DescribeLogGroups' in warnings[0]
+        assert 'left untouched' in warnings[0], (
+            "must state the existing retention is preserved -- not clobbering it "
+            "was the whole reason for the read"
+        )
+        assert 'log capture is unaffected' in warnings[0], (
+            "must distinguish this from a failure that would lose output"
+        )
+        # And it must NOT have tried to write a retention it couldn't read.
+        bootstrap.logs_client.put_retention_policy.assert_not_called()
+
+    def test_retention_write_denied_warns_and_continues(self, bootstrap, caplog):
+        """Writing retention is cosmetic, so a denial there also degrades."""
+        import logging
+        bootstrap.logs_client.put_retention_policy.side_effect = ClientError(
+            {'Error': {'Code': 'AccessDeniedException', 'Message': 'no put'}},
+            'PutRetentionPolicy',
+        )
+        with caplog.at_level(logging.WARNING):
+            bootstrap._create_glue_log_groups()  # must not raise or exit
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert warnings, "a denied retention write must warn, not kill bootstrap"
+        assert 'PutRetentionPolicy' in warnings[0], (
+            "the underlying error, which names the denied operation, must surface"
+        )
+        # The groups themselves were still created -- that part must not be skipped.
+        assert bootstrap.logs_client.create_log_group.called
 
 
 class TestGetLogGroupRetention:

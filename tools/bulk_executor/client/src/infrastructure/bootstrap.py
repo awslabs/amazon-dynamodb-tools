@@ -589,42 +589,69 @@ class BootstrapInfrastructure:
     def _create_glue_log_groups(self):
         """
         Create CloudWatch log groups for Glue job logging ahead of time.
-        This prevents the need to wait for log groups to be created during job execution.
+
+        We really prefer to create the log groups here proactively before the
+        first Glue job run so during the first execution we can attach LiveTail
+        immediately and not miss any early output. Creating them is therefore
+        necessary, and a failure here is fatal.
+
+        We politely try to set a retention policy if we have permissions, but if
+        we can't then we'll let the default stand. An existing retention policy
+        other than the default of None we leave alone. So retention failures warn
+        and carry on (issues #294, #301).
         """
         log.info("Creating CloudWatch log groups for Glue job...")
         
         for log_group_name in GLUE_LOG_GROUP_NAMES:
+            # --- necessary: the group itself must exist (see docstring) ---
+            group_existed = False
             try:
                 # Try to create the log group - AWS will tell us if it already exists
                 self.logs_client.create_log_group(logGroupName=log_group_name)
                 log.info(f"Created log group: {log_group_name}")
-
-                self.logs_client.put_retention_policy(
-                    logGroupName=log_group_name,
-                    retentionInDays=GLUE_LOG_GROUP_RETENTION_IN_DAYS
-                )
-                log.info(f"Set retention policy for {log_group_name} to {GLUE_LOG_GROUP_RETENTION_IN_DAYS} days")
-
-            except ClientError as e:
-                if e.response['Error']['Code'] == 'ResourceAlreadyExistsException':
-                    log.info(f"Log group '{log_group_name}' already exists.")
-                    # Only set retention if the group has none. If an account owner
-                    # deliberately chose a retention (e.g. 30 days for cost, or a
-                    # longer window for compliance), we must not clobber it on every
-                    # bootstrap. A group with no policy (e.g. auto-created by Glue,
-                    # so "never expire") still gets our default. Staying silent when
-                    # we leave an existing policy alone keeps the console clean.
-                    if self._get_log_group_retention(log_group_name) is None:
-                        self.logs_client.put_retention_policy(
-                            logGroupName=log_group_name,
-                            retentionInDays=GLUE_LOG_GROUP_RETENTION_IN_DAYS
-                        )
-                        log.info(f"Set retention policy for existing log group {log_group_name} to {GLUE_LOG_GROUP_RETENTION_IN_DAYS} days (had none)")
-                else:
-                    raise e # Handle failure case for all other errors at the higher level catch
+            except self.logs_client.exceptions.ResourceAlreadyExistsException:
+                log.info(f"Log group '{log_group_name}' already exists.")
+                group_existed = True
             except Exception as e:
-                log.error(f"Unexpected error creating log group '{log_group_name}': {e}")
+                log.error(
+                    f"Could not create log group '{log_group_name}': {e}. "
+                    f"The Glue job streams its output through this log group, "
+                    f"and bulk commands wait for it to exist before tailing -- "
+                    f"without it, early job output is lost and commands can "
+                    f"exit while waiting. Grant logs:CreateLogGroup and "
+                    f"re-run bootstrap."
+                )
                 exit(1)
+
+            # --- courtesy: retention is a default, never worth failing over ---
+            # Only set retention if the group has none. If an account owner
+            # deliberately chose a retention (e.g. 30 days for cost, or a longer
+            # window for compliance), we must not clobber it on every bootstrap.
+            # A group with no policy (e.g. auto-created by Glue, so "never
+            # expire") still gets our default. Staying silent when we leave an
+            # existing policy alone keeps the console clean.
+            try:
+                if not group_existed:
+                    self.logs_client.put_retention_policy(
+                        logGroupName=log_group_name,
+                        retentionInDays=GLUE_LOG_GROUP_RETENTION_IN_DAYS
+                    )
+                    log.info(f"Set retention policy for {log_group_name} to {GLUE_LOG_GROUP_RETENTION_IN_DAYS} days")
+                elif self._get_log_group_retention(log_group_name) is None:
+                    self.logs_client.put_retention_policy(
+                        logGroupName=log_group_name,
+                        retentionInDays=GLUE_LOG_GROUP_RETENTION_IN_DAYS
+                    )
+                    log.info(f"Set retention policy for existing log group {log_group_name} to {GLUE_LOG_GROUP_RETENTION_IN_DAYS} days (had none)")
+            except Exception as e:
+                # Surface the underlying error (it names the denied operation) and
+                # the consequence, so the warning is actionable rather than noise
+                # (issues #294, #301).
+                log.warning(
+                    f"Could not manage the retention policy on log group "
+                    f"'{log_group_name}' ({e}); continuing. Any retention already "
+                    f"set is left untouched, and log capture is unaffected."
+                )
 
     def bootstrap(self, args):
         self._add_glue_job_role(args)
