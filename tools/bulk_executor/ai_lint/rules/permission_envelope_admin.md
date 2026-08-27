@@ -1,0 +1,129 @@
+# Rule: the bootstrap path must not need more permissions than the Admin policy documents
+
+**Why this can't be a unit test:** deciding whether a boto3 call *needs* a
+documented permission is judgment, not a lookup. The same call can be fine or a
+bug depending on whether its failure is fatal or swallowed, whether it sits on an
+optional path, whether the permission is documented somewhere other than the
+minimum policy block, and whether the documented statement's `Resource` scope
+actually covers the resource it touches. A mechanical method→action diff reports
+five false positives in `role_validator.py` alone, where the permissions are
+documented in prose as optional extras and every call degrades gracefully. Only a
+read separates those from an uncaught call that `exit(1)`s.
+
+## The envelope
+
+`README.md` §Security defines two user tiers. This rule covers the **first**: the
+*"powerful administrative user"* who runs `./bulk bootstrap` and `./bulk teardown`.
+
+Its documented policy has **two tiers**, and conflating them produces false
+positives:
+
+1. **The minimum** — the JSON block under *"The bootstrap must be performed by a
+   role with this policy at minimum"* (§Bootstrap), Sids `glueRoleAdmin`,
+   `passrole`, `s3`, `glue`, `glueConnection`, `logs`. A fatal call whose action is
+   missing here is a finding.
+
+2. **Known optional extras, intentionally undocumented.** The custom-role
+   validator (`client/src/utils/role_validator.py`) makes five IAM reads. **Four**
+   are *deliberately* outside the minimum policy and absent from the README, to keep
+   the reader-facing docs simple:
+
+   | Action | Call site | Purpose |
+   |---|---|---|
+   | `iam:SimulatePrincipalPolicy` | `:248` | pricing / quota / autoscaling checks |
+   | `iam:GetPolicy` | `:316` | resolve each attached managed policy |
+   | `iam:GetPolicyVersion` | `:318` | read that policy's default version |
+   | `iam:GetRolePolicy` | `:326` | read inline policy documents |
+
+   The fifth, `iam:ListRolePolicies` (`:324`), **is** already in the minimum policy's
+   `glueRoleAdmin` statement, and its `role/AWSGlueServiceRole*` scope covers the
+   role being validated (a FATAL check enforces that prefix). Don't list it as
+   optional.
+
+   Scoping note for the two managed-policy reads: `iam:GetPolicy` /
+   `iam:GetPolicyVersion` act on `policy/*` ARNs, so they could not be folded under
+   `glueRoleAdmin`'s `role/*` resource even if someone wanted to.
+
+   All four are wrapped so an `AccessDenied` returns `None` and the caller skips that
+   check rather than false-warning, and all run only on the optional
+   custom-`--XRole` path. **None is a finding, and none should be added to the
+   minimum policy or to the README** — that would be a regression, not a fix.
+   Re-derive this list from `role_validator.py` each run rather than trusting the
+   table; a *new* undocumented IAM read there is worth reporting.
+
+Teardown has **no** separate documented policy — it runs under this same envelope,
+so teardown's calls count against it.
+
+Do not confuse this with:
+
+- The **Glue job execution role** (`AWSGlueServiceRoleBulkDynamoDB-*`) — a service
+  principal, covered by [`role_permissions_agree.md`](role_permissions_agree.md).
+- The **User envelope** — covered by
+  [`permission_envelope_user.md`](permission_envelope_user.md).
+
+## What to check
+
+**Direction matters.** This rule looks for *code that needs more than the docs
+grant* — the failure mode that strands an operator who followed the README. An
+action documented but never called is over-documentation: note it if you like, but
+it is not a finding.
+
+1. **Enumerate live.** Find every AWS API call reachable from the bootstrap and
+   teardown entry points. Start at `BootstrapInfrastructure`
+   (`client/src/infrastructure/bootstrap.py`) and the teardown module, and follow
+   into whatever they call — `client/src/utils/role_validator.py` is reached this
+   way and is easy to miss. Grep for `<service>_client.<method>(` but also check
+   for paginators, waiters, `boto3.resource`, and `upload_file`-style helpers that
+   wrap an API call under a different name. Never work from a hard-coded list; new
+   calls are the whole point.
+
+2. **Map each call to its IAM action.** Usually mechanical
+   (`create_log_group` → `logs:CreateLogGroup`), but watch the ones that aren't:
+   - `head_bucket` → `s3:ListBucket`; `list_objects_v2` → `s3:ListBucket`
+   - `upload_file` → `s3:PutObject`
+   - `delete_objects` → `s3:DeleteObject`
+   - passing a role to Glue → `iam:PassRole` (no method call names it)
+   - a single call may require two actions
+
+3. **Decide whether a missing action is a real finding.** For each call whose action
+   is absent from the **minimum** policy, classify it — and say which class,
+   explicitly. This is the distinction the rule exists for:
+   - **On the tier-2 accepted list → not a finding.** Check that table before
+     anything else. Adding one of those actions to the minimum policy or the README
+     would be a regression, not a fix.
+   - **Fatal → finding.** The exception is uncaught, or caught and turned into
+     `exit(1)` / a raise. An operator with exactly the minimum policy is hard-
+     blocked.
+   - **Gracefully degraded, not on the accepted list → weak finding.** Wrapped so an
+     `AccessDenied` is swallowed and the feature skips or warns (e.g.
+     `except Exception: return None`). Nobody is blocked, so it is not urgent — but
+     the capability is silently unavailable to anyone on the minimum policy, and
+     nothing records that. Report it so a human can decide whether it joins the
+     tier-2 accepted list or gets documented. Do not assume it belongs in the
+     minimum policy.
+
+4. **Check the reachability condition, and say it out loud.** A call on a rarely-
+   taken branch is still a finding if it's fatal when taken, but *when* it fires
+   changes urgency. Two branches here are easy to under-rate:
+   - the `ResourceAlreadyExistsException` path, which only runs on accounts that
+     already have the `/aws-glue/jobs/*` log groups (so it is invisible on a fresh
+     account and hits everyone else)
+   - the role-refresh path gated on `_needs_role_refresh()`, which fires on the
+     next bootstrap after any `__version__` bump
+
+5. **Check `Resource` scope, not just the action name.** An action present in the
+   policy but scoped to an ARN pattern that doesn't match what the code touches is
+   the same bug wearing a disguise. Compare the documented `Resource` against the
+   real resource names/ARNs the call uses.
+
+## How to report
+
+Per finding: the call site (`file:line`), the IAM action it needs, which Sid should
+carry it, whether failure is **fatal or degraded**, and the condition under which
+the call is reached. Then state the calls you deliberately did **not** flag and why
+— separating *documented as optional extras* from *undocumented but gracefully
+degrading* — so a clean run is distinguishable from a shallow one, and so nobody
+"fixes" a deliberate optional into the minimum policy.
+
+If the code needs nothing beyond the documented policy, say so and list the
+capabilities you verified.

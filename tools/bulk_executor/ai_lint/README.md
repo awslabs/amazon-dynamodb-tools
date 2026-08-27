@@ -44,4 +44,4 @@ never collide). Each file should cover:
   clean, so a pass is trustworthy), plus which cases are explicitly acceptable so
   the rule stays low-noise.
 
-See the two seed rules for the shape.
+See the existing rules for the shape.

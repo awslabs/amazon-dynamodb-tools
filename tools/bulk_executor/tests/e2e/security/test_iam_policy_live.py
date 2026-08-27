@@ -155,6 +155,23 @@ _NEGATIVE_TEST_SKIP_ACTIONS = {
     # required (and documented in the README policy) for the re-bootstrap
     # path; it's just not reachable from this test's first-bootstrap flow.
     "glue:UpdateJob",
+    # iam:UpdateAssumeRolePolicy has the same shape as glue:UpdateJob. It is
+    # reached only on the role-*refresh* branch (_add_glue_job_role's
+    # EntityAlreadyExistsException handler, gated on _needs_role_refresh), where
+    # create_role was skipped so the trust policy has to be re-applied
+    # separately. Teardown deletes the role (teardown.py), so each run of this
+    # test starts with no role, takes create_role -- which sets the trust policy
+    # itself -- and never calls UpdateAssumeRolePolicy. Removing it therefore
+    # can't fail bootstrap here. It is genuinely required on the refresh path,
+    # which fires on the next bootstrap after any __version__ bump.
+    "iam:UpdateAssumeRolePolicy",
+    # iam:GetRole is only called from _is_existing_role (bootstrap.py:266), and
+    # its two callers both sit behind "a custom --XRole name was provided"
+    # (bootstrap.py:74 and :542). This test bootstraps with --XRole READ-ONLY, a
+    # magic value, so that branch is never taken and GetRole is never called --
+    # removing it can't fail bootstrap. It is genuinely required for the
+    # custom-role path, where a denial is fatal (exit(1) at :274).
+    "iam:GetRole",
 }
 
 

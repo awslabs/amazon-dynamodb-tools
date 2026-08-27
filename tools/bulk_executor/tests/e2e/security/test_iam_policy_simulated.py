@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import pytest
 
-from tests.e2e.security.actions import ActionProbe
-from tests.e2e.security.policy import policy_without_statement
+from tests.e2e.security.actions import SIMULATOR_UNSUPPORTED, ActionProbe
+from tests.e2e.security.policy import all_actions, policy_without_statement
 from tests.e2e.security.simulator import simulate
 
 
@@ -27,6 +27,52 @@ from tests.e2e.security.simulator import simulate
 def full_policy_decisions(bootstrap_policy, probes):
     """Cache the full-policy simulation across tests."""
     return simulate(bootstrap_policy, probes)
+
+
+def test_probes_cover_every_documented_action(bootstrap_policy, probes):
+    """The probe list and the README policy must describe the same action set.
+
+    Everything below simulates the *probes*, not the policy — so an action
+    added to the README without a matching probe in ``actions.py`` is silently
+    never simulated. Tier 1 stays green while its coverage quietly shrinks,
+    which is the worst kind of failure for a security test: it looks like
+    proof and isn't. Both `logs:DescribeLogGroups` and
+    `iam:UpdateAssumeRolePolicy` (added for #294) would have gone unsimulated
+    without this check.
+
+    The reverse direction matters too: a probe for an action no longer in the
+    policy means ``actions.py`` is stale and is simulating a permission we no
+    longer claim to need.
+    """
+    documented = {action for _, action in all_actions(bootstrap_policy)}
+    probed = {probe.action for probe in probes}
+
+    unprobed = documented - probed - set(SIMULATOR_UNSUPPORTED)
+    assert not unprobed, (
+        "README policy documents actions with no simulator probe, so they are "
+        "never simulated:\n"
+        + "\n".join(f"  - {a}" for a in sorted(unprobed))
+        + "\nAdd a probe for each in tests/e2e/security/actions.py, or -- if the "
+        "simulator genuinely cannot evaluate it -- add it to SIMULATOR_UNSUPPORTED "
+        "with the reason and confirm the live tier covers it."
+    )
+
+    stale = probed - documented
+    assert not stale, (
+        "actions.py probes actions the README policy no longer documents:\n"
+        + "\n".join(f"  - {a}" for a in sorted(stale))
+        + "\nRemove them from tests/e2e/security/actions.py."
+    )
+
+    # An exemption for an action we no longer document is an exemption nobody
+    # will notice has stopped applying.
+    stale_exemptions = set(SIMULATOR_UNSUPPORTED) - documented
+    assert not stale_exemptions, (
+        "SIMULATOR_UNSUPPORTED exempts actions the README policy no longer "
+        "documents:\n"
+        + "\n".join(f"  - {a}" for a in sorted(stale_exemptions))
+        + "\nRemove the stale entries from tests/e2e/security/actions.py."
+    )
 
 
 def test_full_policy_allows_every_documented_action(full_policy_decisions):
