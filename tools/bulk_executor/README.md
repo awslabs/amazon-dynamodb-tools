@@ -354,7 +354,7 @@ If you provide a custom IAM role for your AWS Glue job:
 * Ensure the role name starts with `AWSGlueServiceRole`
 * Ensure the role has a trust policy that allows the Glue service principal (`glue.amazonaws.com`) to assume the role.
 * Attach the managed policy `AWSGlueServiceRole` to grant Glue its baseline execution permissions.
-* Attach `AWSPriceListServiceFullAccess` to support querying the AWS pricing APIs to support accurate cost estimates.
+* Attach `AWSPriceListServiceFullAccess` to allow querying the AWS pricing APIs to support accurate cost estimates.
 * Attach `ServiceQuotasReadOnlyAccess` (optional) to allow the job to read service quota information.
 * Allow the `application-autoscaling:DescribeScalableTargets` action (optional) to support rate-limiting heuristics. This action does not support resource-level scoping, so it must be granted on `"Resource": "*"`.
 * Add custom IAM permissions for DynamoDB access. You may attach `AmazonDynamoDBReadOnlyAccess` or `AmazonDynamoDBFullAccess`, or define a more restrictive policy targeting specific tables.
