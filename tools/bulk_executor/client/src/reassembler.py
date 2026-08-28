@@ -63,18 +63,34 @@ class GlueLogReassembler:
         # Reassemble long lines
         reassembled = []
         for _, event in ready:
-            msg = event['message']
-            if self.partial:
-                self.partial['message'] += msg
-            else:
-                self.partial = event.copy()
-
-
-            if msg.endswith('\n'):
-                reassembled.extend(_split_on_record_boundaries(self.partial))
-                self.partial = None  # Reset buffer
-
+            reassembled.extend(self._absorb(event))
         return reassembled
+
+    def _absorb(self, event):
+        """Fold one event into self.partial, returning any completed records.
+
+        Shared by process() and flush(). It used to be written out twice, and the
+        two copies disagreed: flush() rebuilt the partial as
+        {'timestamp', 'message'}, dropping logGroupIdentifier and logStreamName,
+        which _pretty_print_log_event indexes directly. Nothing surfaces that
+        today -- LiveTail delivers events already older than buffer_time_ms, so
+        _partition_by_time never holds any and flush() has nothing to drain. But
+        the mechanism is intact, so the dead copy was one AWS timing change away
+        from mattering. One copy can't drift from itself.
+        """
+        emitted = []
+        msg = event['message']
+
+        if self.partial:
+            self.partial['message'] += msg
+        else:
+            self.partial = event.copy()
+
+        if msg.endswith('\n'):
+            emitted.extend(_split_on_record_boundaries(self.partial))
+            self.partial = None  # Reset buffer
+
+        return emitted
 
     def flush(self):
         """Force flush remaining buffered logs and any partial line."""
@@ -83,15 +99,7 @@ class GlueLogReassembler:
 
         output = []
         for event in flushed:
-            msg = event['message']
-            if self.partial:
-                self.partial['message'] += msg
-            else:
-                self.partial = {'timestamp': event['timestamp'], 'message': msg}
-
-            if msg.endswith('\n'):
-                output.extend(_split_on_record_boundaries(self.partial))
-                self.partial = None
+            output.extend(self._absorb(event))
 
         # Final forced flush of any dangling partial
         if self.partial:

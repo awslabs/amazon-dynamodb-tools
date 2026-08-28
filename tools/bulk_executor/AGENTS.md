@@ -104,22 +104,25 @@ Tests-only PRs and source-refactor PRs must stand independently on `main`. Never
 - Hold those tests for a follow-up PR that lands after the source PR, or
 - Use the pre-refactor source code from `git` history when writing the standalone tests.
 
-## Known unfixed source bugs (skip — do not chase coverage on these)
+## Known unfixed source bugs
 
-Tracked in #298. Two caveats learned the hard way:
+**Currently none.** All six entries this table once held were resolved under #298
+(#310, #311, #312, #313, #314). If you add one, follow the shape below plus three
+rules the old list taught the hard way:
 
-- **Verify before trusting an entry.** The `runner.py` row claimed an `if` should
-  be an `elif` because the `else` swallowed `ExpiredTokenException`. It never did
-  — `exit()` raises `SystemExit`, so the first branch terminated first. The entry
-  described a bug that did not exist, and sat here for months.
-- **Line numbers rot.** That row pointed at `386-392`, which by then was a
-  different function entirely. Prefer naming the function or symbol.
+- **Verify an entry before acting on it.** One of the six described a bug that did
+  not exist: it claimed an `if` should be an `elif` because the `else` swallowed
+  `ExpiredTokenException`, but `exit()` raises `SystemExit`, so the first branch
+  always terminated first. It sat here for months.
+- **Check whether the code is even reachable.** Another described dead code in a
+  module nothing imported -- the fix was deletion. A third described a log-merging
+  bug that instrumenting a real run proved unreachable: across 318 captured driver
+  events, including a deliberately split 400KB line, it never triggered once.
+- **Name the function, not the line.** That first entry pointed at `386-392`,
+  which by then was a different function entirely.
 
-Also removed: `verifier.py`'s `int()` version comparison. Not fixed — **accepted
-by design.** `__version__` is ours and is a plain incrementing integer;
-`test_version_is_a_plain_integer` keeps it that way, and if someone hand-edits a
-deployed job to `4.1` the crash is an acceptable outcome. Don't "fix" it.
+Entries here are excluded from coverage chasing -- document an unreachable branch
+in the PR description and move on rather than contorting a test to reach it.
 
-| File:line | Bug |
+| File / symbol | Bug |
 |---|---|
-| `client/src/reassembler.py` | `process` merges via a single dangling `partial`; the cross-stream case that leaked executor logs into diff output is prevented upstream (the runner feeds it only the driver stream — PR #285), but same-stream merges remain possible |
