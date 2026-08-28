@@ -6,9 +6,22 @@ a value you can assert on. It spans a Spark write, a console print loop, and a
 pointer message. Easy to see by reading; very hard to test mechanically.
 
 The motivation (issue #86): console delivery goes through CloudWatch Live Tail,
-which caps at ~500 records/sec and chops each record to ~1KB, so large output to
-the console is lossy and unreliable. The fix is a convention: persist everything
-to S3, show only a small preview on the console, and point at S3 for the rest.
+which **silently drops** data above a low volume, so large output to the console is
+lossy and unreliable. The fix is a convention: persist everything to S3, show only a
+small preview on the console, and point at S3 for the rest.
+
+The specific numbers are measured in `console_output_rate.md` — read them there
+rather than restating them here. In short: unflagged silent loss has been measured from
+~1 MB/s upward (79% of rows lost in one real run, with `sampled` reporting `false`
+throughout). An earlier version of this rule said "~500 records/sec, each record
+chopped to ~1KB" — both wrong, and wrong in the reassuring direction.
+
+Since #322, stdout is paced to 100 KB/s (`shared/throttled_output.py`), so a bounded
+preview is no longer what stands between the user and a corrupted answer. This
+convention still holds for two reasons: the console is a *preview* and S3 is the
+deliverable, and pacing buys delivery with job runtime, so a megabyte-scale preview now
+costs minutes instead of losing data. Judge previews on volume and time, not on
+corruption risk.
 
 ## Scope — discover the verbs, don't assume a fixed list
 
