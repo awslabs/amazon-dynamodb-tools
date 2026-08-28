@@ -100,6 +100,27 @@ counts as necessary.
    feature silently unavailable *and* nothing records that fact anywhere, that's
    worth reporting even though the handling is technically correct.
 
+## When you change a failure mode, check the negative test
+
+`tests/e2e/security/test_iam_policy_live.py::test_random_action_removal_breaks_bootstrap`
+removes one documented action at random and asserts bootstrap *fails*. That
+assertion is only valid for actions whose denial is fatal, so
+`_NEGATIVE_TEST_SKIP_ACTIONS` excuses the rest.
+
+Changing a call's failure mode invalidates that entry in one direction or the
+other, and **both directions fail quietly**:
+
+- Made an action **non-fatal**? It must be added to the skip list, or the next
+  random draw reports it "decorative" — a false alarm, days later, in someone
+  else's build. This happened with `logs:DescribeLogGroups` in #301 and was only
+  caught by running the suite deliberately.
+- Made a skip-listed action **fatal again**? Its entry must be removed, or that
+  action is silently never negatively tested — a real hole, and invisible,
+  because skipping produces no output.
+
+So when this rule finds a call whose handling should change, say explicitly
+whether the skip list needs updating too. A test-only omission is still a finding.
+
 ## How to report
 
 Per finding: the call site (`file:line`), whether it is necessary, how it is
