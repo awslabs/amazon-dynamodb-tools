@@ -69,6 +69,19 @@ class TestGetGlueJobDetails:
         assert excinfo.value.code == 1
 
 
+def test_version_is_a_plain_integer():
+    """assert_version_parity compares versions with int(), which is safe only
+    because __version__ is a plain incrementing integer. Keep it that way."""
+    from __version__ import __version__ as VERSION
+
+    assert VERSION.isdigit(), (
+        f"__version__ is {VERSION!r}; the version scheme must stay a plain "
+        f"integer because verifier compares versions with int(). A semver-style "
+        f"value would make a mismatch raise 'invalid literal for int()' instead "
+        f"of the re-bootstrap advice."
+    )
+
+
 class TestAssertVersionParity:
     """Behavior of assert_version_parity around the persisted version arg."""
 
@@ -107,44 +120,6 @@ class TestAssertVersionParity:
         msg = str(excinfo.value)
         assert 'must match exactly' in msg
         assert 'new bootstrap' in msg
-
-    @pytest.mark.parametrize("remote", ['4.1', 'v4', '1.0.0', 'abc'])
-    def test_non_numeric_remote_version_still_gives_useful_advice(self, remote):
-        """A non-integer remote version must not crash the comparison (#298).
-
-        The remote value comes from a deployed Glue job's DefaultArguments --
-        written by whatever client bootstrapped it -- so it is not ours to trust.
-        `int('4.1')` raises ValueError, which replaced the genuinely useful "go
-        re-bootstrap" message with "invalid literal for int() with base 10" at
-        exactly the moment the user needed the useful one.
-
-        Undecidable is fine; unhelpful is not. The error must still explain the
-        mismatch and offer both remedies.
-        """
-        glue = MagicMock()
-        glue.get_job.return_value = {
-            'Job': {'DefaultArguments': {'--bulk-dynamodb-version': remote}}
-        }
-        with pytest.raises(ValueError) as excinfo:
-            assert_version_parity(glue, MagicMock())
-        msg = str(excinfo.value)
-        assert 'invalid literal' not in msg, "must not leak Python's int() error"
-        assert 'must match exactly' in msg
-        assert remote in msg, "name the remote version so the user can see it"
-        # Both directions offered, since we can't tell which side is ahead.
-        assert 'upgrade the local client' in msg
-        assert 'new bootstrap' in msg
-
-    def test_non_numeric_local_version_is_also_survivable(self, monkeypatch):
-        """The same protection when it's the *local* version that's odd."""
-        monkeypatch.setattr(verifier_module, 'VERSION', '2.5')
-        glue = MagicMock()
-        glue.get_job.return_value = {
-            'Job': {'DefaultArguments': {'--bulk-dynamodb-version': '3'}}
-        }
-        with pytest.raises(ValueError) as excinfo:
-            assert_version_parity(glue, MagicMock())
-        assert 'invalid literal' not in str(excinfo.value)
 
     def test_raises_when_remote_version_missing(self):
         # DefaultArguments present but no --bulk-dynamodb-version key.

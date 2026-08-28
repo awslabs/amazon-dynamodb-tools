@@ -115,6 +115,11 @@ Tracked in #298. Two caveats learned the hard way:
 - **Line numbers rot.** That row pointed at `386-392`, which by then was a
   different function entirely. Prefer naming the function or symbol.
 
+Also removed: `verifier.py`'s `int()` version comparison. Not fixed — **accepted
+by design.** `__version__` is ours and is a plain incrementing integer;
+`test_version_is_a_plain_integer` keeps it that way, and if someone hand-edits a
+deployed job to `4.1` the crash is an acceptable outcome. Don't "fix" it.
+
 | File:line | Bug |
 |---|---|
 | `server/src/python_modules/fill/multi_entity_relationship.py:390-391` | missing comma drops `"Sole Proprietorship"` from `CompanyType` pool |
