@@ -343,3 +343,44 @@ class TestSplitOnRecordBoundaries:
             f'{self._INFO_NO_PREFIX}\n',
             self._WARN,
         ]
+
+
+class TestFlushPreservesEventKeys:
+    """flush() and process() must fold events identically.
+
+    They used to be written out twice and disagreed on one line: flush() rebuilt
+    the partial as {'timestamp', 'message'}, dropping logGroupIdentifier and
+    logStreamName. _pretty_print_log_event indexes log_event['logGroupIdentifier']
+    directly, so anything emitted from that branch would raise KeyError --
+    swallowed by the broad handler in _watch_log_group, which logs "Unexpected
+    error ... in live tail" and abandons the flush.
+
+    Unreachable in practice: LiveTail delivers events already older than
+    buffer_time_ms, so _partition_by_time never holds any and flush() has nothing
+    to drain. Measured across three real job runs -- count, find, and a sql
+    SELECT of a 400KB line -- the buffer was empty every time. This test exists
+    because the mechanism is still wired up, so the divergence was one AWS timing
+    change away from mattering.
+    """
+
+    def test_flush_and_process_fold_an_event_identically(self):
+        """The keys a buffered event carries must survive either path."""
+        import time as _time
+        event = {
+            'timestamp': _time.time() * 1000,   # recent -> stays buffered
+            'message': 'tail of the job output\n',
+            'logStreamName': 'jr_x',
+            'logGroupIdentifier': '123456789012:/aws-glue/jobs/output',
+        }
+
+        r = reassembler.GlueLogReassembler(buffer_time_ms=1000)
+        assert r.process([dict(event)]) == [], "must still be buffered"
+        assert len(r.buffer) == 1, "otherwise this test proves nothing"
+
+        out = r.flush()
+
+        assert len(out) == 1
+        assert set(out[0]) == set(event), (
+            "flush() must preserve every key process() would -- "
+            "_pretty_print_log_event indexes logGroupIdentifier directly"
+        )
