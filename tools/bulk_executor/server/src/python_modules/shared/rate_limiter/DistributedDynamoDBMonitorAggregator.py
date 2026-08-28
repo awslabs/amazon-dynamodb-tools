@@ -121,7 +121,7 @@ class DistributedDynamoDBMonitorAggregator:
         try:
             self.s3_client.delete_object(Bucket=self.bucket, Key=upload_key)
         except Exception as e:
-            log.warn(f"[Aggregator] Warning: failed to delete {upload_key}: {e}")
+            log.warning(f"[Aggregator] Warning: failed to delete {upload_key}: {e}")
 
     def _loop(self):
         while not self._stop_event.is_set():
