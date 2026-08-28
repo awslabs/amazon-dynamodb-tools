@@ -122,6 +122,5 @@ deployed job to `4.1` the crash is an acceptable outcome. Don't "fix" it.
 
 | File:line | Bug |
 |---|---|
-| `server/src/python_modules/fill/multi_entity_relationship.py:390-391` | missing comma drops `"Sole Proprietorship"` from `CompanyType` pool |
 | `client/src/reassembler.py` | `process` merges via a single dangling `partial`; the cross-stream case that leaked executor logs into diff output is prevented upstream (the runner feeds it only the driver stream — PR #285), but same-stream merges remain possible |
 | `client/src/utils/cli_animator.py` | `with_spinner_animation` outer `while` is dead code |

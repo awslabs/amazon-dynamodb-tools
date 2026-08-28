@@ -387,7 +387,7 @@ def _get_application(id=None, company_id=None):
                 "Limited Liability Company (LLC)",
                 "Non-Profit Organization",
                 "Partnership",
-                "Public Company (Publicly Traded)"
+                "Public Company (Publicly Traded)",
                 "Sole Proprietorship",
             ]
         ),
