@@ -61,11 +61,27 @@ Do **not** work from a hard-coded list; enumerate live so new code is covered.
 
 ## The invariant
 
-Every console emitter must be bounded by a **constant**, not by the size of the data.
+Every console emitter must be bounded by a **constant number of bytes**, not by the
+size of the data.
+
+**A count cap is not a byte cap.** This is the trap in our own reference pattern.
+`TOP_N = 10` is bounded in *items*, but a DynamoDB item may be up to 400 KB, so a
+10-item preview is up to **4 MB emitted in one burst** — squarely inside the range
+where loss was measured (28.8% at 3.9 MB/s), and under 500 events so nothing is
+flagged. Worse, a 400 KB row exceeds CloudWatch's 256 KB per-event limit and is split
+across ~13 events; losing one chunk yields **malformed JSON mid-item** rather than a
+missing row, which is the "weird partial data" this whole investigation started from.
+
+So when judging a preview, multiply by the **maximum** item/row size, not the typical
+one. A cap of N items only satisfies this rule if `N × max_item_size` stays inside the
+budget below. Tracked as #321.
+
 Acceptable bounds:
 
-1. **Fixed cap** — a top-N preview (`TOP_N = 10`), a "first N errors then a count"
-   pattern, or an explicit slice.
+1. **Fixed cap in bytes** — a top-N preview whose `N × max row size` fits the budget,
+   a "first N errors then a count" pattern, or an explicit slice. For verbs returning
+   whole DynamoDB items, assume the 400 KB maximum per item unless the code truncates
+   each line.
 2. **Sampled by a counter** — e.g. `if local_count % 1000 == 0:`, so output grows
    logarithmically-ish rather than linearly. (`shared/export/writers/batch_writer.py`
    is the reference: per-operation progress gated on `% 1000`, at `debug`.)
@@ -109,8 +125,10 @@ next run is sharper.
 **Baseline as of this rule's writing** (re-derive rather than trusting this list —
 it is a starting point, not the answer):
 
-- Bounded and fine: `find` / `sql` / `diff` result previews (`TOP_N = 10` plus an
-  "…and N more" line), `scancount`'s per-segment table (bounded by `--splits`),
+- Bounded in item count but **not in bytes**, tracked as #321: `find` / `sql` / `diff`
+  result previews (`TOP_N = 10` plus an "…and N more" line). Fine for ordinary items —
+  10 rows of a few hundred bytes is ~2.6 KB — but up to 4 MB when items are large.
+- Bounded and fine: `scancount`'s per-segment table (bounded by `--splits`),
   `shared/table_info.py` (per scalable dimension, a handful), the rate-limiter
   monitors (periodic loops with a sleep, not per item),
   `shared/export/writers/batch_writer.py` (`% 1000`, at `debug`).
