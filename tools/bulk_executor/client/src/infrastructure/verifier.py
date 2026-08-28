@@ -31,6 +31,8 @@ def assert_version_parity(glue_client, args):
                 message = f"""
                 Local and remote versions must match exactly! Local is {local_bulk_dynamodb_version}, remote is {remote_bulk_dynamodb_version}.
                 """
+                # __version__ is a plain incrementing integer by design, so
+                # int() is safe. Pinned by test_version_is_a_plain_integer.
                 if int(remote_bulk_dynamodb_version) > int(local_bulk_dynamodb_version):
                     message += "\nYou should probably upgrade the local client to match the higher version that was used for bootstrapping."
                 else:

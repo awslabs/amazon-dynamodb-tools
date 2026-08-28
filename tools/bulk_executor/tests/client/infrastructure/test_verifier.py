@@ -69,6 +69,19 @@ class TestGetGlueJobDetails:
         assert excinfo.value.code == 1
 
 
+def test_version_is_a_plain_integer():
+    """assert_version_parity compares versions with int(), which is safe only
+    because __version__ is a plain incrementing integer. Keep it that way."""
+    from __version__ import __version__ as VERSION
+
+    assert VERSION.isdigit(), (
+        f"__version__ is {VERSION!r}; the version scheme must stay a plain "
+        f"integer because verifier compares versions with int(). A semver-style "
+        f"value would make a mismatch raise 'invalid literal for int()' instead "
+        f"of the re-bootstrap advice."
+    )
+
+
 class TestAssertVersionParity:
     """Behavior of assert_version_parity around the persisted version arg."""
 
