@@ -60,9 +60,39 @@ the driver stream and every `<job_run_id>_g-*` executor stream, but
 - still consumes the Live Tail session's capacity, competing with the driver output the
   user *does* see (executor events were 69–74% of delivered events in measured runs).
 
-An unbounded worker-side emitter is therefore pure cost. The fix is not a cap: it is to
-count in an accumulator (most of these already have one) and print the total from the
-driver, keeping a handful of examples if they help diagnosis.
+An unbounded worker-side emitter is therefore pure cost. The fix is not a cap.
+
+### The convention: user-facing messages come from the driver
+
+If a message is phrased for the user — "Error deleting item …", "condition expression
+failed", a count, a total — it must be **emitted by the driver**. Workers report through
+an accumulator; the driver decides what the user sees.
+
+The codebase already does this twice, so a new case has patterns to copy rather than
+invent:
+
+- `update/__init__.py` creates `error_accumulator = spark_context.accumulator([],
+  ListAccumulator())`, workers `add([...])` to it, and after the `map` the driver reads
+  `error_accumulator.value` and prints one summary line:
+  `Processed N records: (X updates, Y non-updates, Z conditions failed)`.
+- `shared/export/pipeline/__init__.py` collects worker messages in `debug_accumulator`
+  and, in a `finally`, logs them from the driver.
+
+This also catches a defect that a pure volume check misses: an unbounded worker print is
+often **redundant**. `update` already reports its condition-failure *count* from the
+driver, so the per-item line in the worker tells the user nothing they are not already
+told — it is up to ~600 MB in service of information already on screen. Ask not only
+"how much?" but "does the driver already say this?"
+
+Two caveats so the fix does not recreate the problem:
+
+- **Cap what you accumulate.** A list accumulator ships every string back to the driver
+  and holds it in driver memory. Accumulate a count plus the first few examples, not one
+  entry per failed item.
+- **Worker output is not useless, it is just not for the user.** Executor streams are
+  where post-hoc debugging happens — reading CloudWatch after a run is a normal workflow
+  here. So worker-side diagnostics are fine at `debug` level and outside per-item hot
+  paths; what is wrong is *addressing the user* from a place the user cannot see.
 
 ## Scope — discover the emitters, don't assume a fixed list
 
@@ -135,11 +165,14 @@ to be fine, tighten this file so the next run is sharper.
   file / row / manifest line, then raise. Driver-side, so the user sees them; a wholesale
   schema or manifest mismatch is exactly the "show the problems and let them ^C" case.
 - **Finding (#319): `update/__init__.py` prints one line per item whose condition check
-  fails.** This fires on a *successful* run — a conditional update that does not match
-  most items is the user getting what they asked for — and it runs in a worker
-  (`rdd.map` → `_update_data`), so it is unpaced and the user never sees it. Each line
-  interpolates the whole `update_kwargs`. A 2M-item table where the condition mostly
-  fails is ~600 MB written to nowhere. `failed_accumulator` already holds the count.
+  fails.** Three strikes. It fires on a *successful* run — a conditional update that does
+  not match most items is the user getting what they asked for. It runs in a worker
+  (`rdd.map` → `_update_data`), so it is unpaced and the user never sees it. And it is
+  **redundant**: the driver already prints `... Z conditions failed` from
+  `failed_accumulator`. Each line interpolates the whole `update_kwargs`, so a 2M-item
+  table where the condition mostly fails is ~600 MB in service of a number already on
+  screen. The fix is a deletion, or `log.debug` if the detail helps CloudWatch
+  archaeology.
 - **Finding (#319): `find.py`'s delete path prints one line per failed item and
   interpolates the whole item.** A sad path, so the volume itself is acceptable in
   principle — but it runs inside `foreachPartition`, so the user never sees any of it
