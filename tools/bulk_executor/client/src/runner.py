@@ -262,23 +262,24 @@ class BulkDynamoDbRunner:
 
                     # Handle when log event is given in a session update
                     elif 'sessionUpdate' in event:
-                        # CloudWatch samples a Live Tail session when more than 500
-                        # log events match the request in one update, and says so in
-                        # sessionMetadata.sampled. Sampled events are DISCARDED, not
-                        # delayed -- so output can go missing with no error anywhere,
-                        # and no amount of waiting recovers it. We match the driver
-                        # stream plus every '<job_run_id>_g-*' executor stream, which
-                        # is ~220 streams by default and 70%+ of delivered volume, so
-                        # a burst past the threshold is realistic. Warn once rather
-                        # than per update, and count for the summary at teardown.
+                        # One sessionUpdate carries the events matched during one
+                        # second. If more than 500 matched in that second, CloudWatch
+                        # delivers a 500-event sample and DISCARDS the rest, saying so
+                        # in sessionMetadata.sampled -- output goes missing with no
+                        # error anywhere, and no amount of waiting recovers it. We
+                        # match the driver stream plus every '<job_run_id>_g-*'
+                        # executor stream, ~220 streams by default and 70%+ of
+                        # delivered volume, so we push our own matched rate toward the
+                        # limit. Warn once, and count for the summary at teardown.
                         if event['sessionUpdate'].get('sessionMetadata', {}).get('sampled'):
                             if sampled_updates == 0:
                                 log.warning(
                                     f"CloudWatch is sampling the {log_group_name} live "
-                                    f"tail: more than 500 log events matched at once, so "
-                                    f"it is discarding some. The output for this run may "
-                                    f"be incomplete -- the job itself is unaffected, and "
-                                    f"commands that write to S3 still wrote everything."
+                                    f"tail: more than 500 log events matched in a single "
+                                    f"second, so it delivered 500 of them and discarded "
+                                    f"the rest. This run's output may be incomplete -- "
+                                    f"the job itself is unaffected, and commands that "
+                                    f"write to S3 still wrote every row."
                                 )
                             sampled_updates += 1
 
