@@ -29,7 +29,7 @@ class TeardownInfrastructure:
             job_details = self.glue_client.get_job(JobName=GLUE_JOB_NAME)
         except ClientError as e:
             if e.response['Error']['Code'] == 'EntityNotFoundException':
-                log.warn('Bulk Executor Glue Job does not exist!') # Warn since this is expected behavior if teardown is executed twice consecutively.
+                log.warning('Bulk Executor Glue Job does not exist!') # Warn since this is expected behavior if teardown is executed twice consecutively.
                 exit(1)
             else:
                 log.error(f"Unexpected error while getting Glue Job Role name: {e}")
@@ -158,7 +158,7 @@ class TeardownInfrastructure:
         """
         bucket_name = self._get_glue_job_bucket_name()
         if not bucket_name:
-            log.warn("Unable to determine glue job bucket name! Has the Bulk Executor Glue Job already been deleted?")
+            log.warning("Unable to determine glue job bucket name! Has the Bulk Executor Glue Job already been deleted?")
             return
         try:
             response = self.s3_client.list_objects_v2(Bucket=bucket_name, Prefix='server/')
@@ -196,7 +196,7 @@ class TeardownInfrastructure:
             return # Early return intentional
         except self.s3_client.exceptions.ClientError as e:
             if e.response['Error']['Code'] == 'BucketNotEmpty':
-                log.warn(f'Bucket {bucket_name} is not empty and could not be deleted. Continuing with teardown.')
+                log.warning(f'Bucket {bucket_name} is not empty and could not be deleted. Continuing with teardown.')
             else:
                 log.error(f'Unexpected error deleting bucket {bucket_name}: {e}')
                 exit(1)
