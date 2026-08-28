@@ -648,6 +648,72 @@ class TestWatchLogGroup:
             assert kwargs['logStreamNamePrefixes'] == ['jr-xyz']
             assert 'logStreamNames' not in kwargs
 
+    def _run_tail_with(self, bulk_runner, events, state=None):
+        """Drive _watch_log_group over a canned event stream, once."""
+        import threading
+        unhealthy = threading.Event()
+        bulk_runner._wait_for_log_groups_to_exist = MagicMock()
+        bulk_runner._get_job_run_state = MagicMock(
+            return_value=state or runner_module.RUNNING_STATE)
+        event_stream = MagicMock()
+        event_stream.__iter__ = MagicMock(return_value=iter(events))
+        bulk_runner.logs_client.start_live_tail.return_value = {'responseStream': event_stream}
+        bulk_runner._watch_log_group('jr-xyz', self._arn(), unhealthy)
+
+    @staticmethod
+    def _update(messages, sampled=None):
+        """Build a sessionUpdate, optionally carrying sessionMetadata.sampled."""
+        upd = {'sessionResults': [
+            {'timestamp': 1, 'message': m, 'logStreamName': 'jr-xyz',
+             'logGroupIdentifier': '123456789012:/aws-glue/jobs/output'}
+            for m in messages
+        ]}
+        if sampled is not None:
+            upd['sessionMetadata'] = {'sampled': sampled}
+        return {'sessionUpdate': upd}
+
+    def test_warns_when_cloudwatch_reports_sampling(self, bulk_runner, caplog):
+        """sessionMetadata.sampled means CloudWatch DISCARDED matching events.
+
+        Those events are dropped, not delayed, so output can go missing with no
+        error anywhere and no amount of waiting recovers it. Silence here is the
+        bug: a user sees a successful command with output quietly absent.
+        """
+        import logging
+        with caplog.at_level(logging.WARNING):
+            self._run_tail_with(bulk_runner, [
+                self._update(['line one\n'], sampled=True),
+                self._update(['line two\n'], sampled=True),
+            ])
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert warnings, "sampling must be surfaced, not swallowed"
+        assert any('sampling' in w for w in warnings)
+        assert any('incomplete' in w for w in warnings), "say what it means for the user"
+        # Summary at teardown reports how many updates were affected.
+        assert any('sampled 2 live-tail' in w for w in warnings), warnings
+
+    def test_warns_only_once_per_session_however_many_updates(self, bulk_runner, caplog):
+        """Warn once, not per update -- a sampled burst is many updates, and a
+        wall of identical warnings would bury the output it's warning about."""
+        import logging
+        with caplog.at_level(logging.WARNING):
+            self._run_tail_with(bulk_runner,
+                               [self._update([f'line {i}\n'], sampled=True) for i in range(12)])
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        first = [w for w in warnings if 'more than 500 log events' in w]
+        assert len(first) == 1, f"expected exactly one up-front warning, got {len(first)}"
+        assert any('sampled 12 live-tail' in w for w in warnings), warnings
+
+    def test_silent_when_not_sampled(self, bulk_runner, caplog):
+        """No warning when sampled is False or the metadata is absent entirely."""
+        import logging
+        with caplog.at_level(logging.WARNING):
+            self._run_tail_with(bulk_runner, [
+                self._update(['a\n'], sampled=False),
+                self._update(['b\n']),                    # no sessionMetadata at all
+            ])
+        assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+
     def test_executor_events_bypass_reassembler_but_are_health_checked(self, bulk_runner, monkeypatch):
         """The routing: driver events go to the reassembler and are printed;
         executor ("_g-") events skip the reassembler entirely (so they can't be

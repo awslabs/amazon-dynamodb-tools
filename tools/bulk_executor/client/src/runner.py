@@ -226,6 +226,7 @@ class BulkDynamoDbRunner:
         self._wait_for_log_groups_to_exist([log_group_arn])
 
         succeeded_counter = 0
+        sampled_updates = 0  # CloudWatch dropped events from this session (see below)
         reassembler = GlueLogReassembler()  # Each thread gets its own reassembler
 
         # Subscribe by stream-name prefix -- matches the driver stream
@@ -261,6 +262,26 @@ class BulkDynamoDbRunner:
 
                     # Handle when log event is given in a session update
                     elif 'sessionUpdate' in event:
+                        # CloudWatch samples a Live Tail session when more than 500
+                        # log events match the request in one update, and says so in
+                        # sessionMetadata.sampled. Sampled events are DISCARDED, not
+                        # delayed -- so output can go missing with no error anywhere,
+                        # and no amount of waiting recovers it. We match the driver
+                        # stream plus every '<job_run_id>_g-*' executor stream, which
+                        # is ~220 streams by default and 70%+ of delivered volume, so
+                        # a burst past the threshold is realistic. Warn once rather
+                        # than per update, and count for the summary at teardown.
+                        if event['sessionUpdate'].get('sessionMetadata', {}).get('sampled'):
+                            if sampled_updates == 0:
+                                log.warning(
+                                    f"CloudWatch is sampling the {log_group_name} live "
+                                    f"tail: more than 500 log events matched at once, so "
+                                    f"it is discarding some. Output shown below may be "
+                                    f"incomplete -- the job itself is unaffected, and "
+                                    f"commands that write to S3 still wrote everything."
+                                )
+                            sampled_updates += 1
+
                         log_events = event['sessionUpdate']['sessionResults']
 
                         # Split by stream. The driver stream (no "_g-") is the
@@ -297,6 +318,13 @@ class BulkDynamoDbRunner:
 
                     else:
                         raise RuntimeError(str(event))
+
+                if sampled_updates:
+                    log.warning(
+                        f"{log_group_name}: CloudWatch sampled {sampled_updates} live-tail "
+                        f"update(s) during this run, so some log lines were never "
+                        f"delivered. Check CloudWatch Logs for the complete output."
+                    )
 
                 # Final flush for any remaining buffered logs
                 log.debug(f"Flushing remaining buffered/reassembled logs from {log_group_name}...")
