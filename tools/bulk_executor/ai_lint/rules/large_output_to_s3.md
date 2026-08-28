@@ -6,9 +6,17 @@ a value you can assert on. It spans a Spark write, a console print loop, and a
 pointer message. Easy to see by reading; very hard to test mechanically.
 
 The motivation (issue #86): console delivery goes through CloudWatch Live Tail,
-which caps at ~500 records/sec and chops each record to ~1KB, so large output to
-the console is lossy and unreliable. The fix is a convention: persist everything
-to S3, show only a small preview on the console, and point at S3 for the rest.
+which **silently drops** data above a low volume, so large output to the console is
+lossy and unreliable. The fix is a convention: persist everything to S3, show only a
+small preview on the console, and point at S3 for the rest.
+
+The specific numbers are measured in `console_output_rate.md` — read them there
+rather than restating them here. In short: Glue chunks output into 32 KB CloudWatch
+events, the documented 500-events/sec sampling limit works out to ~16 MB/s and is
+effectively unreachable, and *unflagged* silent loss has been measured from ~1 MB/s
+upward (79% of rows lost in one real run, with `sampled` reporting `false`
+throughout). An earlier version of this rule said "~500 records/sec, each record
+chopped to ~1KB" — both wrong, and wrong in the reassuring direction.
 
 ## Scope — discover the verbs, don't assume a fixed list
 
