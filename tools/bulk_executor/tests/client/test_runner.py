@@ -899,6 +899,78 @@ class TestWatchLogGroup:
         bulk_runner._watch_log_group('jr-1', self._arn(), unhealthy)
         assert bulk_runner.logs_client.start_live_tail.call_count == 1
 
+    def test_reconnect_warns_that_the_gap_may_have_lost_output(self, bulk_runner, monkeypatch, caplog):
+        """A dropped session is a hole in the output, so say so.
+
+        Live Tail delivers only what is ingested while a session is open and never
+        backfills, so every line CloudWatch ingested between the drop and the new
+        session is gone from the console. This used to be log.debug -- invisible
+        unless the user passed --XDebug -- which meant a truncated run looked
+        exactly like a complete one, since the job still reports success.
+        """
+        import logging
+        import threading
+        unhealthy = threading.Event()
+        bulk_runner._wait_for_log_groups_to_exist = MagicMock()
+        bulk_runner._get_job_run_state = MagicMock(side_effect=[
+            runner_module.RUNNING_STATE,        # still running -> reconnect
+            runner_module.SUCCEEDED_STATE,      # done on the retry -> clean exit
+        ])
+        monkeypatch.setattr(runner_module.time, 'sleep', lambda s: None)
+        bulk_runner.logs_client.start_live_tail.side_effect = [
+            {'responseStream': self._raising_stream(ProtocolError('Connection broken'))},
+            {'responseStream': MagicMock(__iter__=MagicMock(return_value=iter([])))},
+        ]
+
+        with caplog.at_level(logging.WARNING):
+            bulk_runner._watch_log_group('jr-1', self._arn(), unhealthy)
+
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert warnings, "a reconnect gap must be visible without --XDebug"
+        assert any('reconnecting' in w for w in warnings)
+        assert any('missing' in w for w in warnings), "say output may be lost"
+        assert any('CloudWatch Logs' in w for w in warnings), "point somewhere useful"
+        # Still reconnects -- the warning must not change the recovery behavior.
+        assert bulk_runner.logs_client.start_live_tail.call_count == 2
+
+    def test_drop_after_job_finished_flushes_and_warns(self, bulk_runner, caplog):
+        """The give-up path used to drop buffered output silently.
+
+        When the stream dies and the job has already finished there is nothing to
+        reconnect for, but the session ended abnormally: whatever the reassembler
+        was still holding was discarded with no message at all. This is the shape
+        that fits the e2e failure that started this work -- a `Wrote ... to s3://`
+        line lost while the command reported success.
+        """
+        import logging
+        import threading
+        unhealthy = threading.Event()
+        bulk_runner._wait_for_log_groups_to_exist = MagicMock()
+        bulk_runner._get_job_run_state = MagicMock(return_value=runner_module.SUCCEEDED_STATE)
+        printed = []
+        bulk_runner._pretty_print_log_event = MagicMock(side_effect=printed.append)
+
+        dangling = {'message': 'Wrote 100 rows in JSON format to s3://bucket/out',
+                    'timestamp': 1, 'logStreamName': 'jr-1',
+                    'logGroupIdentifier': '123456789012:/aws-glue/jobs/output'}
+        with patch.object(runner_module, 'GlueLogReassembler') as reasm_cls:
+            reasm = MagicMock()
+            reasm.process.return_value = []
+            reasm.flush.return_value = [dangling]   # buffered when the stream died
+            reasm_cls.return_value = reasm
+            bulk_runner.logs_client.start_live_tail.side_effect = [
+                {'responseStream': self._raising_stream(ReadTimeoutError(MagicMock(), 'https://x', 'timed out'))},
+            ]
+            with caplog.at_level(logging.WARNING):
+                bulk_runner._watch_log_group('jr-1', self._arn(), unhealthy)
+
+        # The buffered line reaches the user instead of vanishing.
+        assert printed == [dangling]
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any('not yet delivered is' in w for w in warnings), warnings
+        # Did not try to reconnect -- the job was already done.
+        assert bulk_runner.logs_client.start_live_tail.call_count == 1
+
     def test_generic_exception_returns(self, bulk_runner):
         """Lines 255-257: unexpected Exception logs and returns (no re-raise)."""
         import threading

@@ -305,11 +305,30 @@ class BulkDynamoDbRunner:
 
                 return  # Clean exit
 
+            # A dropped session is a hole in the output, not just a hiccup. Live Tail
+            # only delivers what is ingested while a session is open and never
+            # backfills, so every log line CloudWatch ingested between the drop and
+            # the new session is gone from the console for good. It is still in
+            # CloudWatch Logs, which is why both messages below point there. These
+            # are warnings rather than debug because the user cannot otherwise tell a
+            # complete run from a truncated one -- the job still reports success.
             except (ConnectionError, HTTPClientError, EventStreamError, ReadTimeoutError, ProtocolError) as e:
                 job_run_state = self._get_job_run_state(job_run_id)
                 if job_run_state in TERMINAL_JOB_STATES or job_run_state == SUCCEEDED_STATE or job_unhealthy_event.is_set():
-                    return  # Job is done, no need to reconnect
-                log.debug(f"Live tail session for {log_group_name} expired or failed ({e}), reconnecting...")
+                    # Nothing to reconnect for, but the session died instead of
+                    # closing cleanly, so anything not yet delivered is lost. Flush
+                    # what the reassembler is still holding before giving up.
+                    for log_event in reassembler.flush():
+                        self._pretty_print_log_event(log_event)
+                    log.warning(
+                        f"Live tail for {log_group_name} dropped as the job finished "
+                        f"({type(e).__name__}). Any output not yet delivered is "
+                        f"missing above -- see CloudWatch Logs for the full output.")
+                    return
+                log.warning(
+                    f"Live tail for {log_group_name} dropped and is reconnecting "
+                    f"({type(e).__name__}). Output from the gap is not redelivered, so "
+                    f"some lines may be missing -- see CloudWatch Logs for the full output.")
                 time.sleep(1)
             except Exception as e:
                 log.error(f"Unexpected error occurred in {log_group_name} live tail: {str(e)}.")
