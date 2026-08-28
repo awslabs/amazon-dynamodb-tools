@@ -276,8 +276,8 @@ class BulkDynamoDbRunner:
                                 log.warning(
                                     f"CloudWatch is sampling the {log_group_name} live "
                                     f"tail: more than 500 log events matched at once, so "
-                                    f"it is discarding some. Output shown below may be "
-                                    f"incomplete -- the job itself is unaffected, and "
+                                    f"it is discarding some. The output for this run may "
+                                    f"be incomplete -- the job itself is unaffected, and "
                                     f"commands that write to S3 still wrote everything."
                                 )
                             sampled_updates += 1
