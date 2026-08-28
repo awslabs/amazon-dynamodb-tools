@@ -81,6 +81,16 @@ action_script_function_name = 'run'
 from python_modules.shared.logger import init, log # Import order intentional to determine if XDebug flag present (for debug logging)
 init(parsed_args)
 
+# Pace stdout so CloudWatch Live Tail can actually deliver what we print. Live Tail
+# silently drops events that arrive faster than it will deliver them -- 79% of rows
+# lost on a measured run, with its own `sampled` flag reporting false -- so printing
+# a large result in one burst can truncate or corrupt it while the job still reports
+# success (issues #315, #321). Installed here, once, so every verb inherits it
+# rather than each one pacing its own prints. stdout only: logging goes to stderr and
+# diagnostics should not queue behind a big result set.
+from python_modules.shared.throttled_output import install as _install_output_throttle
+_install_output_throttle()
+
 try:
     module = importlib.import_module(module_name)
 except ImportError:
