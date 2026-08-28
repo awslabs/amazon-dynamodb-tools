@@ -13,6 +13,10 @@ from pyspark.sql.functions import asc, desc
 sys.path.append('/server/src')
 from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.errors import *
+from python_modules.shared.failure_reporter import (
+    MAX_REPORTED_PER_PARTITION,
+    BoundedFailureReporter
+)
 from python_modules.shared.pricing import PricingUtility
 from python_modules.shared.rate_limiter import (
     RateLimiterAggregator,
@@ -180,7 +184,14 @@ def run(job, spark_context, glue_context, parsed_args):
         elif DO_DELETE:
             keys = get_table_keys(DYNAMO_DB_TABLE_NAME)
 
-            def delete_partition(monitor_options, partition, shared_config):
+            def delete_partition(monitor_options, partition, shared_config,
+                                 failure_accumulator):
+                # Failures are counted into the accumulator so the driver can tell the
+                # user how many there were, and only the first few are logged per
+                # partition. This runs in a worker, so nothing printed here reaches the
+                # console -- it exists for CloudWatch after the fact. See
+                # shared/failure_reporter.py.
+                failures = BoundedFailureReporter('Delete', failure_accumulator)
                 rate_limiter_worker = RateLimiterWorker(
                     shared_config=rate_limiter_shared_config,
                     **monitor_options
@@ -200,12 +211,18 @@ def run(job, spark_context, glue_context, parsed_args):
                 try:
                     with table.batch_writer() as batch:
                         for record in partition:
+                            # Set before the try so the failure path never reports a
+                            # stale key from the previous iteration -- and never trips
+                            # over an unbound name when json.loads is what failed.
+                            key = None
                             try:
                                 item = json.loads(record)
                                 key = {k: item[k] for k in keys}
                                 batch.delete_item(Key=key)
                             except Exception as e:
-                                print(f"Error deleting item {item}: {e}")
+                                # The key, not the item: an item can be 400 KB, and a
+                                # systemic failure would log one per row.
+                                failures.report(key if key else record[:200], e)
                 finally:
                     rate_limiter_worker.shutdown()
 
@@ -231,13 +248,22 @@ def run(job, spark_context, glue_context, parsed_args):
             rate_limiter_aggregator = RateLimiterAggregator(shared_config=rate_limiter_shared_config)
 
             monitor_options = get_dynamodb_throughput_configs(parsed_args, DYNAMO_DB_TABLE_NAME, modes=["write"], format="monitor")
+            delete_failure_accumulator = spark_context.accumulator(0)
             try:
                 records.toJSON().foreachPartition(
-                    lambda partition: delete_partition(monitor_options, partition, rate_limiter_shared_config)
+                    lambda partition: delete_partition(monitor_options, partition, rate_limiter_shared_config, delete_failure_accumulator)
                 )
             finally:
                 rate_limiter_aggregator.shutdown()
-            print(f"Deleted {count:,} items")
+
+            # Report failures rather than claiming every matched item was deleted. The
+            # per-item detail is in the executor logs, which the console never shows.
+            failed = delete_failure_accumulator.value
+            if failed:
+                print(f"Deleted {count - failed:,} items, {failed:,} failed")
+                print(f"Up to {MAX_REPORTED_PER_PARTITION} failures per partition are logged in CloudWatch under /aws-glue/jobs/output, in the streams ending '_g-<id>'")
+            else:
+                print(f"Deleted {count:,} items")
 
         else:
             raise ValueError("Logic error, don't know what action to take")

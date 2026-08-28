@@ -714,8 +714,16 @@ class TestUpdateDataClientErrors:
         failed_acc.add.assert_called_once_with(2)
         updated_acc.add.assert_called_once_with(0)
 
-    def test_conditional_check_failed_prints_kwargs(self, monkeypatch, capsys):
-        """Line 142: prints the update_kwargs that caused the condition failure."""
+    def test_conditional_check_failed_logs_the_key_not_the_whole_kwargs(
+        self, monkeypatch, capsys
+    ):
+        """Logs the failing item's Key only.
+
+        It used to interpolate the entire update_kwargs -- key, expression and every
+        attribute value -- once per item, from a worker, on a run that succeeds. A
+        conditional update that matches few items is a normal outcome, so on a 2M-item
+        table that was ~600 MB of log nobody reads. See #319.
+        """
         table = _make_table_with_scan([{'Items': [{'id': 'x'}]}])
         table.update_item = MagicMock(
             side_effect=self._make_client_error('ConditionalCheckFailedException')
@@ -726,13 +734,50 @@ class TestUpdateDataClientErrors:
                             lambda e: e.response['Error']['Code'])
 
         update_module._update_data(
-            {}, 'tbl', lambda item: {'Key': {'id': 'x'}, 'CE': 'cond'}, 0, 1,
+            {}, 'tbl',
+            lambda item: {'Key': {'id': 'x'}, 'UpdateExpression': 'SET a = :v',
+                          'ExpressionAttributeValues': {':v': 'a very long value'}},
+            0, 1,
             MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock()
         )
 
         out = capsys.readouterr().out
-        assert 'condition expression failed' in out
-        assert "{'Key': {'id': 'x'}, 'CE': 'cond'}" in out
+        assert "{'id': 'x'}" in out, "the key identifies which item failed"
+        assert 'UpdateExpression' not in out, "the expression is not per-item detail"
+        assert 'a very long value' not in out, "attribute values must not be logged"
+
+    def test_conditional_check_failures_are_capped_per_worker(self, monkeypatch, capsys):
+        """Only the first N failures are logged, but every one is counted.
+
+        There are 800 workers and this fires once per item, so an uncapped log is the
+        800x multiplier that made #319 a problem. The count still has to be exact --
+        the driver's summary line is the only part the user ever sees.
+        """
+        from python_modules.shared.failure_reporter import MAX_REPORTED_PER_PARTITION
+
+        items = [{'id': str(i)} for i in range(MAX_REPORTED_PER_PARTITION + 5)]
+        table = _make_table_with_scan([{'Items': items}])
+        table.update_item = MagicMock(
+            side_effect=self._make_client_error('ConditionalCheckFailedException')
+        )
+        rl = _make_rl_worker(table)
+        monkeypatch.setattr(update_module, 'RateLimiterWorker', MagicMock(return_value=rl))
+        monkeypatch.setattr(update_module, 'get_error_code',
+                            lambda e: e.response['Error']['Code'])
+        failed_acc = MagicMock()
+
+        update_module._update_data(
+            {}, 'tbl', lambda item: {'Key': item}, 0, 1,
+            MagicMock(), MagicMock(), failed_acc, MagicMock(), MagicMock()
+        )
+
+        out = capsys.readouterr().out
+        logged = [line for line in out.splitlines()
+                  if line.startswith('Update condition failed for')]
+        assert len(logged) == MAX_REPORTED_PER_PARTITION, (
+            f"expected {MAX_REPORTED_PER_PARTITION} logged failures, got {len(logged)}")
+        assert 'only the first' in out, "say once that logging stopped"
+        failed_acc.add.assert_called_once_with(len(items)), "all failures still counted"
 
     def test_unhandled_client_error_re_raises(self, monkeypatch):
         """Lines 144-146: unknown error code prints to stderr and re-raises."""

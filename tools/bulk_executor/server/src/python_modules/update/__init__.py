@@ -14,6 +14,7 @@ from pyspark.context import SparkContext
 # Custom Library Imports
 sys.path.append('/server/src')
 from python_modules.shared.errors import *
+from python_modules.shared.failure_reporter import BoundedFailureReporter
 from python_modules.shared.logger import log
 from python_modules.shared.pricing import PricingUtility
 from python_modules.shared.rate_limiter import (
@@ -114,6 +115,9 @@ def _update_data(monitor_options, table_name, generate, segment, total_segments,
     updated_count = 0
     skipped_count = 0
     failed_count = 0
+    # Counting is already done by failed_count/failed_accumulator, so this only bounds
+    # the logging. See shared/failure_reporter.py.
+    condition_failures = BoundedFailureReporter('Update condition')
     scan_kwargs = {
         "Segment": segment,
         "TotalSegments": total_segments
@@ -138,7 +142,12 @@ def _update_data(monitor_options, table_name, generate, segment, total_segments,
                     elif error_code == DYNAMO_DB_VALIDATION_EXCEPTION:
                         exit(f"Validation exception (usually caused by the generator producing items incompatible with the table schema): {get_error_message(e)}")
                     elif error_code == DYNAMO_DB_CONDITIONAL_CHECK_FAILED:
-                        print(f"UpdateItem condition expression failed, skipping... with kwargs: {update_kwargs}")
+                        # A condition that does not match is a normal outcome of what the
+                        # user asked for, and the driver already prints the total below as
+                        # "N conditions failed". So log the key only, and only the first
+                        # few per worker: there are 800 workers, this fires once per item,
+                        # and nothing printed here is ever shown to the user anyway.
+                        condition_failures.report(update_kwargs.get('Key'), 'condition not met')
                         failed_count += 1
                     else:
                         print('Unhandled ClientError thrown!', e, file=sys.stderr)
