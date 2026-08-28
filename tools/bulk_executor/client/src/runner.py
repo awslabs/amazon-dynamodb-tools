@@ -445,13 +445,18 @@ class BulkDynamoDbRunner:
                 error_response = e.response.get('Error')
                 if error_response:
                     error_code = error_response.get('Code')
+            # elif, not a second if. Behavior is unchanged -- exit() raises
+            # SystemExit, so the first branch already terminated before the
+            # second was ever evaluated -- but the if/if/else shape read like a
+            # bug where the else swallowed ExpiredTokenException, and was
+            # recorded as one in AGENTS.md for months. It would also *become*
+            # that bug the moment someone changed an exit() to a log call.
             if error_code == 'ExpiredTokenException':
                 exit(f"Auth Credentials failed with an ExpiredTokenException! {e}")
-            if error_code == 'EntityNotFoundException':
+            elif error_code == 'EntityNotFoundException':
                 exit(f"Could not find the Glue job 'bulk_dynamodb' in account '{self.aws_account_id}' in region '{self.aws_region}', perhaps you need to run bootstrap...")
             else:
                 exit(f"Unhandled Exception! {e}")
-            exit(e) # could be smarter?
 
     def _stop_glue_job(self, job_run_id):
         try:

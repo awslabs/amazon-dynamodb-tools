@@ -1234,6 +1234,31 @@ class TestStartGlueJob:
         with pytest.raises(SystemExit):
             bulk_runner._start_glue_job({}, {})
 
+    def test_expired_token_message_is_not_swallowed_by_the_else(self, bulk_runner):
+        """#298 recorded this as a bug; it never was. Pin it either way.
+
+        AGENTS.md claimed the second `if` should be an `elif` because "else fires
+        on ExpiredTokenException too". It doesn't: exit() raises SystemExit, so
+        the first branch terminates before the second is evaluated. The shape has
+        been changed to if/elif/else for legibility, and this asserts the message
+        each error code actually produces -- so a future edit that turns an
+        exit() into a log call (which WOULD create the bug) fails here.
+        """
+        cases = {
+            'ExpiredTokenException': 'ExpiredTokenException',
+            'EntityNotFoundException': 'perhaps you need to run bootstrap',
+            'SomeOtherCode': 'Unhandled Exception',
+        }
+        for code, expected in cases.items():
+            bulk_runner.glue_client.start_job_run.side_effect = ClientError(
+                {'Error': {'Code': code, 'Message': 'm'}}, 'StartJobRun',
+            )
+            with pytest.raises(SystemExit) as exc:
+                bulk_runner._start_glue_job({}, {})
+            assert expected in str(exc.value), (
+                f"{code} produced the wrong message: {exc.value}"
+            )
+
     def test_entity_not_found_exception_exits(self, bulk_runner):
         err = ClientError(
             {'Error': {'Code': 'EntityNotFoundException', 'Message': 'no job'}},

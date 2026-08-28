@@ -106,11 +106,18 @@ Tests-only PRs and source-refactor PRs must stand independently on `main`. Never
 
 ## Known unfixed source bugs (skip — do not chase coverage on these)
 
+Tracked in #298. Two caveats learned the hard way:
+
+- **Verify before trusting an entry.** The `runner.py` row claimed an `if` should
+  be an `elif` because the `else` swallowed `ExpiredTokenException`. It never did
+  — `exit()` raises `SystemExit`, so the first branch terminated first. The entry
+  described a bug that did not exist, and sat here for months.
+- **Line numbers rot.** That row pointed at `386-392`, which by then was a
+  different function entirely. Prefer naming the function or symbol.
+
 | File:line | Bug |
 |---|---|
-| `client/src/runner.py:386-392` | second `if` should be `elif`; else fires on `ExpiredTokenException` too |
 | `server/src/python_modules/fill/multi_entity_relationship.py:390-391` | missing comma drops `"Sole Proprietorship"` from `CompanyType` pool |
 | `client/src/reassembler.py` | `process` merges via a single dangling `partial`; the cross-stream case that leaked executor logs into diff output is prevented upstream (the runner feeds it only the driver stream — PR #285), but same-stream merges remain possible |
 | `client/src/utils/cli_animator.py` | `with_spinner_animation` outer `while` is dead code |
 | `client/src/infrastructure/teardown.py:31,160,198` | uses deprecated `log.warn`; should be `log.warning` |
-| `client/src/infrastructure/verifier.py:34` | `int(remote_bulk_dynamodb_version)` will crash on non-numeric semver strings |
