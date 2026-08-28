@@ -351,7 +351,9 @@ class TestPrettyPrintLogEvent:
             log_group='123456789012:/aws-glue/jobs/output',
         )
         # Drive the real reassembler → tailer path.
-        reassembler = runner_module.GlueLogReassembler(buffer_time_ms=0)
+        # reorder window of 0 so the event is released immediately (#323 renamed
+        # this knob; the old buffer_time_ms compared against event timestamps).
+        reassembler = runner_module.GlueLogReassembler(reorder_window_ms=0)
         for ev in reassembler.process([merged]):
             bulk_runner._pretty_print_log_event(ev)
         for ev in reassembler.flush():

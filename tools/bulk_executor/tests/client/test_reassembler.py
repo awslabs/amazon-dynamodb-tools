@@ -1,272 +1,306 @@
 """Unit tests for GlueLogReassembler.
 
 Covers `client/src/reassembler.py`:
-- __init__: default and custom buffer_time_ms, empty buffer/partial state
-- process: timestamp-sorted ingestion, time-based partition (ready vs pending),
-  reassembly of multi-fragment lines, newline-terminated emission, partial
-  carry-over across calls
-- flush: returns sorted-by-timestamp dump, completes partial line if newline
-  arrives, emits dangling partial without newline, clears internal state
-- _partition_by_time: items older than buffer_time_ms are ready, fresher
-  items remain pending
-- _split_on_record_boundaries / record-boundary splitting: an emitted event that
-  bundles multiple logical records (a new record begins at a "<asctime> <LEVEL>"
-  line) is split into one event per record, while a multi-line trace whose
-  continuation lines lack that prefix stays a single record
+
+- __init__: default and custom reorder window, empty held/partial state
+- _order_key: ordering by ingestionTime, then timestamp, then arrival; fallback
+  when ingestionTime is absent
+- _release: the three ways an event becomes releasable -- behind the watermark
+  (correctness), waited out in real time (liveness), over capacity (memory)
+- process: out-of-order delivery corrected, reassembly of split lines, partial
+  carry-over across calls, byte preservation
+- flush: drains held events in order, completes or emits a dangling partial,
+  clears state, preserves every key an event carried
+- _split_on_record_boundaries: an emitted event bundling multiple logical
+  records is split per record, while a multi-line trace stays whole
+
+**Why the ordering tests exist (issue #323).** Live Tail does not deliver in
+order. Measured across three runs of a 100,000-row `find`: 22, 22 and 19
+timestamp inversions in arrival order, worst 856 ms behind events already
+delivered. Because every chunk boundary sits mid-line, absorbing in arrival
+order splices the tail of one record onto the head of a record from elsewhere,
+and the newline between them is in neither chunk -- printing 5, 5 and 11 pairs
+of rows sharing a line, and (with --orderby) rows out of order.
+
+The previous mechanism could not have caught it: `buffer_time_ms` compared the
+wall clock against the *event* timestamp, and Live Tail delivers events already
+~1.3 s old, so every event was instantly releasable and nothing was ever held.
+Tests here therefore drive an injected clock and set `ingestionTime`
+explicitly; a test that only checks "old events come out" would pass against
+the broken code.
 
 Style notes:
-- `time.time()` is patched at the reassembler module namespace
-  (`reassembler.time.time`) because the source binds `import time` at module
-  scope. Setting `now` deterministically lets us drive the time partition
-  cutoff without flakiness.
-- Timestamps in events are milliseconds (Glue convention); `now` is
-  computed as `time.time() * 1000` in the source.
+- The clock is injected (`clock=...`) rather than patched, since ordering is
+  driven by data (ingestionTime watermark) and only liveness uses wall time.
+- Timestamps and ingestionTime are milliseconds (CloudWatch convention); the
+  injected clock is in seconds (`time.monotonic` convention).
 """
-
-from unittest.mock import patch
 
 import pytest
 
 import reassembler
 
 
-def _evt(ts, msg):
-    """Build a log event dict in CloudWatch/Glue shape."""
-    return {'timestamp': ts, 'message': msg}
+def _evt(ts, msg, ing=None):
+    """A log event in CloudWatch/Glue shape. ingestionTime defaults to ts."""
+    return {'timestamp': ts, 'message': msg,
+            'ingestionTime': ts if ing is None else ing}
+
+
+class _Clock:
+    """A monotonic clock, in seconds, that only moves when told to."""
+
+    def __init__(self, now=100.0):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
+
+
+def _reassembler(window_ms=2000, clock=None, **kw):
+    return reassembler.GlueLogReassembler(
+        reorder_window_ms=window_ms, clock=clock or _Clock(), **kw)
 
 
 # --- __init__ ---------------------------------------------------------------
 
 class TestInit:
-    """Tests for GlueLogReassembler.__init__ (lines 10-13)."""
 
-    def test_default_buffer_time(self):
+    def test_default_window_is_two_seconds(self):
+        """2000 ms is ~2.3x the worst inversion measured (856 ms)."""
         r = reassembler.GlueLogReassembler()
-        assert r.buffer_time_ms == 1000
+        assert r.reorder_window_ms == 2000
+        assert reassembler.REORDER_WINDOW_MS == 2000
 
-    def test_custom_buffer_time(self):
-        r = reassembler.GlueLogReassembler(buffer_time_ms=5000)
-        assert r.buffer_time_ms == 5000
+    def test_custom_window(self):
+        assert _reassembler(window_ms=5000).reorder_window_ms == 5000
 
-    def test_starts_with_empty_buffer_and_no_partial(self):
+    def test_starts_empty(self):
         r = reassembler.GlueLogReassembler()
-        assert r.buffer == []
+        assert r.held == []
         assert r.partial is None
 
 
-# --- _partition_by_time -----------------------------------------------------
+# --- ordering (issue #323) --------------------------------------------------
 
-class TestPartitionByTime:
-    """Tests for _partition_by_time (lines 67-75)."""
+class TestOrdering:
+    """The heart of the fix: delivery order is not stream order."""
 
-    def test_old_items_are_ready(self):
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000)
-        # current_time=10000, items older than 1s ago (ts < 9000) are ready
-        items = [(8000, _evt(8000, 'old\n')), (8500, _evt(8500, 'mid\n'))]
-        ready, pending = r._partition_by_time(items, 10000)
-        assert len(ready) == 2
-        assert pending == []
+    def test_out_of_order_arrival_is_corrected(self):
+        r = _reassembler()
+        r.process([_evt(2000, 'second\n', ing=2000)])
+        r.process([_evt(1000, 'first\n', ing=1000)])
+        out = [e['message'] for e in r.flush()]
+        assert out == ['first\n', 'second\n']
 
-    def test_fresh_items_remain_pending(self):
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000)
-        # ts=9500, current=10000, diff=500 < 1000 → pending
-        items = [(9500, _evt(9500, 'fresh\n'))]
-        ready, pending = r._partition_by_time(items, 10000)
-        assert ready == []
-        assert len(pending) == 1
+    def test_regression_the_real_bug_shape(self):
+        """A faithful minimum of what was measured in production.
 
-    def test_split_around_threshold(self):
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000)
-        items = [
-            (5000, _evt(5000, 'old\n')),
-            (9500, _evt(9500, 'fresh\n')),
-        ]
-        ready, pending = r._partition_by_time(items, 10000)
-        assert len(ready) == 1 and ready[0][0] == 5000
-        assert len(pending) == 1 and pending[0][0] == 9500
+        Chunk A ends mid-line (no newline). Its true continuation is B, which
+        begins with the newline. C is a later chunk starting with '{'. Live Tail
+        delivered C before B -- an inversion -- so absorbing in arrival order
+        glued C onto A and produced '}{': two rows sharing one line.
+        """
+        a = _evt(1000, '{"pk":"a"}', ing=1000)
+        b = _evt(1100, '\n{"pk":"b"}\n', ing=1100)
+        c = _evt(1200, '{"pk":"c"}\n', ing=1200)
+
+        r = _reassembler()
+        for event in (a, c, b):          # note: c arrives before b
+            r.process([event])
+        stream = ''.join(e['message'] for e in r.flush())
+
+        assert '}{' not in stream, f"rows merged onto one line: {stream!r}"
+        assert stream == '{"pk":"a"}\n{"pk":"b"}\n{"pk":"c"}\n'
+
+    def test_ingestion_time_beats_timestamp(self):
+        """Sorting by timestamp alone still left 3, 4 and 7 merged rows across the
+        three measured runs; ingestionTime is what recovers the true order.
+
+        The two keys deliberately DISAGREE here: ordering by timestamp puts these
+        the wrong way round, so a regression to a timestamp-only key fails.
+        """
+        r = _reassembler()
+        r.process([_evt(9000, 'ingested-first\n', ing=1000)])
+        r.process([_evt(1000, 'ingested-second\n', ing=2000)])
+        out = [e['message'] for e in r.flush()]
+        assert out == ['ingested-first\n', 'ingested-second\n'], (
+            "ingestionTime must win: by timestamp these sort the other way")
+
+    def test_ties_fall_back_to_timestamp_then_arrival(self):
+        """A single PutLogEvents batch can share ingestionTime, so ties must at
+        least be deterministic."""
+        r = _reassembler()
+        r.process([_evt(20, 'b\n', ing=500), _evt(10, 'a\n', ing=500)])
+        assert [e['message'] for e in r.flush()] == ['a\n', 'b\n']
+
+        r2 = _reassembler()
+        r2.process([_evt(10, 'first\n', ing=500), _evt(10, 'second\n', ing=500)])
+        assert [e['message'] for e in r2.flush()] == ['first\n', 'second\n'], \
+            "identical keys keep arrival order"
+
+    def test_release_through_process_is_ordered_not_arrival_ordered(self):
+        """The release path itself must emit in order, not just flush().
+
+        Everything here is released by the watermark inside process(), so no
+        flush() sort can rescue it -- this is the case that matters in production,
+        where flush() only runs once at teardown.
+        """
+        r = _reassembler(window_ms=1000)
+        emitted = []
+        for event in (_evt(3000, 'third\n', ing=3000),
+                      _evt(1000, 'first\n', ing=1000),
+                      _evt(2000, 'second\n', ing=2000),
+                      _evt(9000, 'trigger\n', ing=9000)):
+            emitted += [e['message'] for e in r.process([event])]
+        emitted += [e['message'] for e in r.flush()]
+        # Each is released as soon as the watermark makes it safe, so they come out
+        # across several calls -- but the sequence must be the stream's, not arrival's.
+        assert emitted == ['first\n', 'second\n', 'third\n', 'trigger\n'], f"got {emitted}"
+
+    def test_missing_ingestion_time_falls_back_to_timestamp(self):
+        """Events built without ingestionTime must not all sort to the front."""
+        r = _reassembler()
+        r.process([{'timestamp': 2000, 'message': 'second\n'}])
+        r.process([{'timestamp': 1000, 'message': 'first\n'}])
+        assert [e['message'] for e in r.flush()] == ['first\n', 'second\n']
+
+
+# --- _release ---------------------------------------------------------------
+
+class TestRelease:
+
+    def test_held_until_the_watermark_moves_past_the_window(self):
+        r = _reassembler(window_ms=2000)
+        assert r.process([_evt(1000, 'early\n')]) == [], "nothing to compare against yet"
+        assert len(r.held) == 1
+
+        assert r.process([_evt(2500, 'mid\n')]) == [], "watermark only 1500ms ahead"
+        out = r.process([_evt(3100, 'late\n')])
+        assert [e['message'] for e in out] == ['early\n'], \
+            "watermark 2100ms past 'early' releases exactly it"
+
+    def test_waited_out_releases_without_a_new_watermark(self):
+        """Liveness: a stream that goes quiet must not sit on its last events."""
+        clock = _Clock()
+        r = _reassembler(window_ms=2000, clock=clock)
+        assert r.process([_evt(1000, 'only\n')]) == []
+        clock.advance(2.0)
+        assert [e['message'] for e in r.process([])] == ['only\n']
+
+    def test_over_capacity_by_count_releases_oldest_first(self):
+        r = _reassembler(max_held_events=3)
+        out = []
+        for i in range(6):
+            out += [e['message'] for e in r.process([_evt(1000 + i, f'row{i}\n')])]
+        assert out == ['row0\n', 'row1\n', 'row2\n'], f"got {out}"
+        assert len(r.held) == 3
+
+    def test_over_capacity_by_bytes_releases(self):
+        r = _reassembler(max_held_bytes=20)
+        assert r.process([_evt(1000, 'x' * 10 + '\n')]) == []
+        out = r.process([_evt(1001, 'y' * 30 + '\n')])
+        assert out, "exceeding the byte cap must release rather than grow"
+
+    def test_capacity_accounting_shrinks_on_release(self):
+        clock = _Clock()
+        r = _reassembler(clock=clock)
+        r.process([_evt(1000, 'abc\n')])
+        assert r._held_bytes == 4
+        clock.advance(2.0)
+        r.process([])
+        assert r._held_bytes == 0
 
 
 # --- process ----------------------------------------------------------------
 
 class TestProcess:
-    """Tests for process (lines 15-41)."""
-
-    def test_emits_complete_line_after_buffer_window(self):
-        """Newline-terminated message older than buffer_time_ms gets emitted."""
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000)
-        with patch.object(reassembler.time, 'time', return_value=10):  # now=10000ms
-            result = r.process([_evt(5000, 'hello\n')])
-
-        assert len(result) == 1
-        assert result[0]['message'] == 'hello\n'
-        assert result[0]['timestamp'] == 5000
-
-    def test_buffers_fresh_events(self):
-        """Events newer than buffer window stay in buffer, none returned."""
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000)
-        with patch.object(reassembler.time, 'time', return_value=10):  # now=10000ms
-            result = r.process([_evt(9800, 'too fresh\n')])
-
-        assert result == []
-        assert len(r.buffer) == 1
-
-    def test_sorts_out_of_order_events(self):
-        """Buffer is sorted by timestamp before partitioning."""
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000)
-        with patch.object(reassembler.time, 'time', return_value=20):  # now=20000ms
-            # Inputs out of order; both old enough to be ready
-            result = r.process([
-                _evt(8000, 'second\n'),
-                _evt(5000, 'first\n'),
-            ])
-
-        assert [e['message'] for e in result] == ['first\n', 'second\n']
 
     def test_reassembles_split_line_within_one_call(self):
-        """Two fragments without trailing newline + final newline → one merged line."""
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000)
-        with patch.object(reassembler.time, 'time', return_value=10):  # now=10000ms
-            result = r.process([
-                _evt(5000, 'part-a-'),
-                _evt(5500, 'part-b\n'),
-            ])
-
-        assert len(result) == 1
-        assert result[0]['message'] == 'part-a-part-b\n'
+        clock = _Clock()
+        r = _reassembler(clock=clock)
+        r.process([_evt(5000, 'part-a-'), _evt(5001, 'part-b\n')])
+        clock.advance(2.0)
+        out = r.process([])
+        assert [e['message'] for e in out] == ['part-a-part-b\n']
 
     def test_partial_carries_across_process_calls(self):
-        """Partial line started in one call completes in the next."""
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000)
+        clock = _Clock()
+        r = _reassembler(clock=clock)
+        r.process([_evt(5000, 'prefix-')])
+        clock.advance(2.0)
+        assert r.process([]) == []
+        assert r.partial is not None and r.partial['message'] == 'prefix-'
 
-        # First call: only the prefix arrives (no newline yet)
-        with patch.object(reassembler.time, 'time', return_value=10):
-            result1 = r.process([_evt(5000, 'prefix-')])
-        assert result1 == []
-        assert r.partial is not None
-        assert r.partial['message'] == 'prefix-'
-
-        # Second call: the suffix arrives with newline
-        with patch.object(reassembler.time, 'time', return_value=11):  # now=11000ms
-            result2 = r.process([_evt(6000, 'suffix\n')])
-
-        assert len(result2) == 1
-        assert result2[0]['message'] == 'prefix-suffix\n'
+        r.process([_evt(6000, 'suffix\n')])
+        clock.advance(2.0)
+        out = r.process([])
+        assert [e['message'] for e in out] == ['prefix-suffix\n']
         assert r.partial is None
 
-    def test_pending_events_not_consumed(self):
-        """Mix of ready + pending: only ready ones flow through; rest stay buffered."""
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000)
-        with patch.object(reassembler.time, 'time', return_value=10):  # now=10000ms
-            result = r.process([
-                _evt(5000, 'ready\n'),
-                _evt(9800, 'fresh\n'),
-            ])
-
-        assert len(result) == 1
-        assert result[0]['message'] == 'ready\n'
-        assert len(r.buffer) == 1
-        assert r.buffer[0][0] == 9800
-
     def test_empty_input(self):
-        """Empty event list returns empty result."""
-        r = reassembler.GlueLogReassembler()
-        with patch.object(reassembler.time, 'time', return_value=10):
-            assert r.process([]) == []
+        assert _reassembler().process([]) == []
+
+    def test_byte_preserving_across_a_shuffled_stream(self):
+        """Whatever the arrival order, the emitted bytes are the stream's bytes."""
+        chunks = ['{"a":1}\n', '{"b":', '2}\n{"c":3}', '\n{"d":4}\n']
+        events = [_evt(1000 + i, c, ing=1000 + i) for i, c in enumerate(chunks)]
+        shuffled = [events[2], events[0], events[3], events[1]]
+
+        r = _reassembler()
+        for e in shuffled:
+            r.process([e])
+        assert ''.join(e['message'] for e in r.flush()) == ''.join(chunks)
 
 
 # --- flush ------------------------------------------------------------------
 
 class TestFlush:
-    """Tests for flush (lines 43-65)."""
 
     def test_empty_state_returns_empty(self):
-        """Flush with no buffer and no partial returns []."""
-        r = reassembler.GlueLogReassembler()
-        assert r.flush() == []
+        assert reassembler.GlueLogReassembler().flush() == []
 
-    def test_flushes_buffered_complete_line(self):
-        """Buffered complete line emerges via flush regardless of buffer_time_ms."""
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000000)  # absurdly long
-        with patch.object(reassembler.time, 'time', return_value=10):
-            r.process([_evt(5000, 'queued\n')])
-
-        # Was pending (1ms ago < 1000s); flush should still emit
-        result = r.flush()
-
-        assert len(result) == 1
-        assert result[0]['message'] == 'queued\n'
-        assert r.buffer == []
-
-    def test_flushes_in_timestamp_order(self):
-        """Flush sorts the buffer by timestamp before processing."""
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000000)
-        with patch.object(reassembler.time, 'time', return_value=10):
-            r.process([
-                _evt(7000, 'second\n'),
-                _evt(3000, 'first\n'),
-            ])
-
-        result = r.flush()
-        assert [e['message'] for e in result] == ['first\n', 'second\n']
+    def test_drains_held_events_in_order(self):
+        r = _reassembler(window_ms=10_000_000)
+        r.process([_evt(7000, 'second\n', ing=7000), _evt(3000, 'first\n', ing=3000)])
+        assert [e['message'] for e in r.flush()] == ['first\n', 'second\n']
+        assert r.held == []
 
     def test_dangling_partial_emitted_without_newline(self):
-        """If a partial line never got its newline, flush emits it anyway (lines 61-63)."""
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000)
-
-        # Make a partial via process()
-        with patch.object(reassembler.time, 'time', return_value=10):
-            r.process([_evt(5000, 'incomplete-msg')])
+        clock = _Clock()
+        r = _reassembler(clock=clock)
+        r.process([_evt(5000, 'incomplete-msg')])
+        clock.advance(2.0)
+        r.process([])
         assert r.partial is not None
 
-        # No more buffered events; flush should still emit the dangling partial.
-        result = r.flush()
-
-        assert len(result) == 1
-        assert result[0]['message'] == 'incomplete-msg'
+        out = r.flush()
+        assert [e['message'] for e in out] == ['incomplete-msg']
         assert r.partial is None
 
-    def test_flush_completes_partial_with_buffered_newline(self):
-        """Lines 51-58: flush of a partial + buffered terminator concatenates them."""
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000)
-
-        # Establish a partial first using a short buffer so the leading
-        # fragment ages out and becomes 'ready' inside process().
-        with patch.object(reassembler.time, 'time', return_value=10):  # now=10000ms
-            r.process([_evt(5000, 'lead-')])
+    def test_completes_partial_with_held_terminator(self):
+        clock = _Clock()
+        r = _reassembler(clock=clock)
+        r.process([_evt(5000, 'lead-')])
+        clock.advance(2.0)
+        r.process([])
         assert r.partial is not None
 
-        # Inflate the buffer window so subsequent events stay pending
-        # — they should only be drained by flush.
-        r.buffer_time_ms = 1000000
-        with patch.object(reassembler.time, 'time', return_value=10):
-            r.process([_evt(6000, 'tail\n')])
-
-        result = r.flush()
-
-        assert len(result) == 1
-        assert result[0]['message'] == 'lead-tail\n'
+        r.process([_evt(6000, 'tail\n')])       # still held: watermark hasn't moved on
+        out = r.flush()
+        assert [e['message'] for e in out] == ['lead-tail\n']
         assert r.partial is None
-        assert r.buffer == []
+        assert r.held == []
 
-    def test_flush_clears_buffer(self):
-        """After flush, buffer is empty."""
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000000)
-        with patch.object(reassembler.time, 'time', return_value=10):
-            r.process([_evt(5000, 'msg\n')])
-
+    def test_clears_held_and_byte_count(self):
+        r = _reassembler(window_ms=10_000_000)
+        r.process([_evt(5000, 'msg\n')])
         r.flush()
-        assert r.buffer == []
-
-    def test_flush_no_partial_starts_fresh(self):
-        """Lines 53-54: when partial is None, flush copies event to start a new partial."""
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000000)
-        with patch.object(reassembler.time, 'time', return_value=10):
-            r.process([_evt(5000, 'standalone\n')])  # buffered, fresh
-
-        result = r.flush()
-        assert len(result) == 1
-        assert result[0]['message'] == 'standalone\n'
-        assert result[0]['timestamp'] == 5000
+        assert r.held == []
+        assert r._held_bytes == 0
 
 
 # --- record-boundary splitting ----------------------------------------------
@@ -279,8 +313,6 @@ class TestSplitOnRecordBoundaries:
     _INFO_NO_PREFIX = '[before] Max read rate set to specified limit: 20'
 
     def test_helper_splits_info_then_warning(self):
-        # The exact live bug: an INFO line (no timestamp prefix) glued to a WARNING
-        # line via an internal newline. Split into two records.
         event = {'timestamp': 1, 'message': f'{self._INFO_NO_PREFIX}\n{self._WARN}\n'}
         result = reassembler._split_on_record_boundaries(event)
         assert [e['message'] for e in result] == [
@@ -289,7 +321,6 @@ class TestSplitOnRecordBoundaries:
         ]
 
     def test_helper_keeps_multiline_trace_as_one_record(self):
-        # Continuation lines (no "<asctime> <LEVEL>" prefix) stay attached.
         trace = (
             '2026-08-04 04:17:36,000 ERROR root - Boom\n'
             'Traceback (most recent call last):\n'
@@ -303,41 +334,33 @@ class TestSplitOnRecordBoundaries:
 
     def test_helper_single_record_unchanged(self):
         event = {'timestamp': 1, 'message': f'{self._WARN}\n'}
-        result = reassembler._split_on_record_boundaries(event)
-        assert result == [event]
+        assert reassembler._split_on_record_boundaries(event) == [event]
 
     def test_helper_no_prefix_lines_stay_one_record(self):
-        # A message whose lines never match the record prefix (e.g. pass-through
-        # data output) is never split, regardless of how many lines it has.
         event = {'timestamp': 1, 'message': 'line one\nline two\nline three\n'}
-        result = reassembler._split_on_record_boundaries(event)
-        assert result == [event]
+        assert reassembler._split_on_record_boundaries(event) == [event]
 
     def test_helper_is_byte_preserving(self):
-        # Concatenating split messages reproduces the original exactly.
         original = f'{self._INFO_NO_PREFIX}\n{self._WARN}\ntail-continuation\n'
         event = {'timestamp': 7, 'message': original}
         result = reassembler._split_on_record_boundaries(event)
         assert ''.join(e['message'] for e in result) == original
-        # Metadata (timestamp) is carried onto each split record.
         assert all(e['timestamp'] == 7 for e in result)
 
     def test_process_splits_merged_records(self):
-        # End to end through process(): a merged INFO+WARNING event yields two.
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000)
-        with patch.object(reassembler.time, 'time', return_value=10):  # now=10000ms
-            result = r.process([_evt(5000, f'{self._INFO_NO_PREFIX}\n{self._WARN}\n')])
+        clock = _Clock()
+        r = _reassembler(clock=clock)
+        r.process([_evt(5000, f'{self._INFO_NO_PREFIX}\n{self._WARN}\n')])
+        clock.advance(2.0)
+        result = r.process([])
         assert [e['message'] for e in result] == [
             f'{self._INFO_NO_PREFIX}\n',
             f'{self._WARN}\n',
         ]
 
     def test_flush_splits_dangling_merged_records(self):
-        # A dangling partial (no trailing newline) that bundles two records is
-        # also split when force-flushed.
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000000)
-        with patch.object(reassembler.time, 'time', return_value=10):
-            r.process([_evt(5000, f'{self._INFO_NO_PREFIX}\n{self._WARN}')])  # no trailing \n
+        r = _reassembler(window_ms=10_000_000)
+        r.process([_evt(5000, f'{self._INFO_NO_PREFIX}\n{self._WARN}')])
         result = r.flush()
         assert [e['message'] for e in result] == [
             f'{self._INFO_NO_PREFIX}\n',
@@ -348,34 +371,26 @@ class TestSplitOnRecordBoundaries:
 class TestFlushPreservesEventKeys:
     """flush() and process() must fold events identically.
 
-    They used to be written out twice and disagreed on one line: flush() rebuilt
-    the partial as {'timestamp', 'message'}, dropping logGroupIdentifier and
-    logStreamName. _pretty_print_log_event indexes log_event['logGroupIdentifier']
-    directly, so anything emitted from that branch would raise KeyError --
-    swallowed by the broad handler in _watch_log_group, which logs "Unexpected
-    error ... in live tail" and abandons the flush.
-
-    Unreachable in practice: LiveTail delivers events already older than
-    buffer_time_ms, so _partition_by_time never holds any and flush() has nothing
-    to drain. Measured across three real job runs -- count, find, and a sql
-    SELECT of a 400KB line -- the buffer was empty every time. This test exists
-    because the mechanism is still wired up, so the divergence was one AWS timing
-    change away from mattering.
+    They were once written out twice and disagreed: flush() rebuilt the partial as
+    {'timestamp', 'message'}, dropping logGroupIdentifier and logStreamName, which
+    _pretty_print_log_event indexes directly -- a KeyError swallowed by the broad
+    handler in _watch_log_group, abandoning the flush. Now reachable in normal
+    operation, because events really are held (that is the point of the reorder
+    window), so this is a live guarantee rather than a latent one.
     """
 
     def test_flush_and_process_fold_an_event_identically(self):
-        """The keys a buffered event carries must survive either path."""
-        import time as _time
         event = {
-            'timestamp': _time.time() * 1000,   # recent -> stays buffered
+            'timestamp': 5000,
+            'ingestionTime': 5000,
             'message': 'tail of the job output\n',
             'logStreamName': 'jr_x',
             'logGroupIdentifier': '123456789012:/aws-glue/jobs/output',
         }
 
-        r = reassembler.GlueLogReassembler(buffer_time_ms=1000)
-        assert r.process([dict(event)]) == [], "must still be buffered"
-        assert len(r.buffer) == 1, "otherwise this test proves nothing"
+        r = _reassembler(window_ms=10_000_000)
+        assert r.process([dict(event)]) == [], "must still be held"
+        assert len(r.held) == 1, "otherwise this test proves nothing"
 
         out = r.flush()
 
