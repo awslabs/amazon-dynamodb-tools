@@ -11,12 +11,17 @@ lossy and unreliable. The fix is a convention: persist everything to S3, show on
 small preview on the console, and point at S3 for the rest.
 
 The specific numbers are measured in `console_output_rate.md` — read them there
-rather than restating them here. In short: Glue chunks output into 32 KB CloudWatch
-events, the documented 500-events/sec sampling limit works out to ~16 MB/s and is
-effectively unreachable, and *unflagged* silent loss has been measured from ~1 MB/s
-upward (79% of rows lost in one real run, with `sampled` reporting `false`
+rather than restating them here. In short: unflagged silent loss has been measured from
+~1 MB/s upward (79% of rows lost in one real run, with `sampled` reporting `false`
 throughout). An earlier version of this rule said "~500 records/sec, each record
 chopped to ~1KB" — both wrong, and wrong in the reassuring direction.
+
+Since #322, stdout is paced to 100 KB/s (`shared/throttled_output.py`), so a bounded
+preview is no longer what stands between the user and a corrupted answer. This
+convention still holds for two reasons: the console is a *preview* and S3 is the
+deliverable, and pacing buys delivery with job runtime, so a megabyte-scale preview now
+costs minutes instead of losing data. Judge previews on volume and time, not on
+corruption risk.
 
 ## Scope — discover the verbs, don't assume a fixed list
 
