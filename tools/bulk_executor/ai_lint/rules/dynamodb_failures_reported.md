@@ -17,11 +17,13 @@ For every function that executes in a worker:
 
 1. **Catch broadly.** `except Exception`, not just `except ClientError`. A narrow
    handler is the most common way this breaks.
-2. **Record on an error accumulator**, with the message built through
-   `get_error_message(e)` so AWS's own sentence survives.
+2. **Record through `shared/worker_errors.py`** — `record_worker_failure(acc, e,
+   context)`, or `record_understood_failure(acc, message)` when the verb has already
+   phrased the failure itself. A direct `error_accumulator.add([...])` skips the
+   classification below.
 3. **Return something the driver can aggregate** (e.g. `0, []`) rather than raising.
-4. **The driver must check the accumulator** after `collect()` / `foreachPartition`
-   and raise the first error. Recording without checking is worse than not
+4. **The driver must surface it** with `raise_first_worker_error(acc)` after
+   `collect()` / `foreachPartition`. Recording without surfacing is worse than not
    recording: the run reports success having done nothing.
 
 ## Why it matters, measured
@@ -50,24 +52,41 @@ Do **not** work from a hard-coded list.
 - For each, locate the `try` and confirm its `except` clauses, then confirm the
   matching driver-side check.
 
-## The exception type decides whether there is a traceback
+## Classification decides what the user sees
 
-Recording and surfacing is not enough: **the driver must raise
-`BulkExecutorError`**, which `root.py` turns into `sys.exit(str(e))`. Anything else
-is re-raised, so the user gets a Python traceback and a `GlueExceptionAnalysis` blob
-on top of the message.
+Recording and surfacing is not enough. `shared/worker_errors.py` splits failures in
+two, and the split is what the user experiences:
 
-Measured on a denied `diff`: **82 lines with a traceback** when the driver raised a
-plain `Exception`, **52 lines and no traceback** once it raised `BulkExecutorError`.
-The message text was byte-identical in both. This is the kind of difference that
-reads as fine in review, passes a unit test asserting on the message, and is only
-visible in real output — so check the type, not just the text.
+- **understood** — a permission denial, throttling, a validation rejection, a missing
+  table (`UNDERSTOOD_ERROR_CODES`, plus AWS's own "is not authorized to perform"
+  wording). The user can act on it and there is nothing to debug, so the one sentence
+  is the whole report.
+- **unexpected** — a bug of ours, or a user-supplied generator or transform doing
+  something we cannot anticipate. The driver prints the worker's traceback to the
+  **console**, once, from the first recorded failure however many workers hit it.
+  Nobody should have to open CloudWatch to find it.
 
-A deterministic guard now covers the raise sites
-(`tests/test_accumulator_errors_are_bulk_executor_errors.py`), which is worth knowing
-because it found a seventh site nobody had noticed:
-`shared/export/pipeline/writer.py`. Do not treat the guard as replacing this rule —
-it checks the raise type, not whether a handler exists or is broad enough.
+Either way the raise is `BulkExecutorError`, so `root.py` calls `sys.exit(str(e))` and
+the job's `ErrorMessage` — the last line the user sees, and what the Glue console shows
+as the failure reason — stays to one line. The traceback goes above it, never into it.
+Re-raising a plain exception instead gets the traceback *and* a `GlueExceptionAnalysis`
+blob wrapped around the message.
+
+Measured on a denied `diff`: **82 lines with a traceback** when the driver re-raised,
+**52 lines and no traceback** through the seam. The message text was byte-identical.
+This reads as fine in review and passes a unit test asserting on the message, so check
+the path, not just the text.
+
+Code we do not own is the case worth looking for: a user's faker generator or transform
+should report with its traceback even when the exception type looks recognisable, which
+is what `understood=False` is for at the `Transform function raised an exception` site.
+
+A deterministic guard covers the seam
+(`tests/server/test_worker_failures_go_through_worker_errors.py`): no direct adds to an
+error accumulator, no raising out of one. Worth knowing that the earlier version of that
+guard found a seventh site nobody had noticed (`shared/export/pipeline/writer.py`). Do
+not treat the guard as replacing this rule — it checks the plumbing, not whether a
+handler exists or is broad enough.
 
 ## Two traps worth checking explicitly
 
@@ -124,6 +143,16 @@ the test have burned time here:
   immediately; a DynamoDB resource-based policy took **5-10 minutes** to become
   visible in testing, which makes an iteration loop painful. Note that bootstrap
   leaves a custom role untouched (#330), so what you grant is what the job gets.
+- **A denial is only half the test.** It exercises the understood path. To see the
+  unexpected path, break something we do not own — a `fill` generator whose items do
+  not match the table's key schema, or a transform that raises — and confirm the
+  traceback reaches the console *and* the closing line is still one sentence.
+- **Two unit-test traps that made green tests meaningless here.** `pytest.ini` sets
+  `testpaths = tests/client tests/server`, so a guard dropped in `tests/` is collected
+  by nothing — put source guards under `tests/server/`. And `tests/server/conftest.py`
+  mocks `python_modules.shared.errors`, so `get_error_message` returns a `Mock`; a test
+  asserting on message text has to patch it on `worker_errors`, not on the verb's
+  module.
 
 Judge the result on three things, not one: the **line count** (a conforming denial is
 tens of lines, not hundreds), whether any of `Traceback`, `py4j`,
@@ -154,8 +183,8 @@ State what you verified even when clean, so a pass is trustworthy.
   (`_count_data`), `diff` (`diff_segment`), `fill` (`_fill_data`), `find --delete`
   (`delete_partition`), and `shared/export/pipeline/writer.py`. The last three verbs
   were fixed in the PR that added this rule; the first three were the pattern it
-  copies. All seven now raise `BulkExecutorError` — verified live for `diff`, `fill`
-  and `find --delete`: 41-52 lines, no traceback, closing line naming the principal,
+  copies. All seven record through `worker_errors` and surface with
+  `raise_first_worker_error` — verified live for `diff`, `fill` and `find --delete`: 41-52 lines, no traceback, closing line naming the principal,
   action and resource.
 - **Does not conform to invariant 2, tracked as #332:** `find`, `count` and `sql`.
   A table the role cannot `Scan` gives 314-324 lines closing on

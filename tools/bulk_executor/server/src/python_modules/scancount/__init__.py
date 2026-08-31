@@ -22,7 +22,6 @@ class DecimalEncoder(json.JSONDecoder):
 
 # Custom Library Imports
 sys.path.append('/server/src')
-from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.errors import *
 from python_modules.shared.pricing import PricingUtility
 from python_modules.shared.rate_limiter import (
@@ -33,6 +32,10 @@ from python_modules.shared.rate_limiter import (
 from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info, get_and_print_table_scan_cost,
     get_dynamodb_throughput_configs)
+from python_modules.shared.worker_errors import (
+    raise_first_worker_error,
+    record_worker_failure
+)
 
 class ListAccumulator(AccumulatorParam):
     def zero(self, initialValue):
@@ -112,9 +115,7 @@ def run(job, spark_context, glue_context, parsed_args):
         raise Exception(f"Error in parallel execution: {get_error_message(e)}") from None
     finally:
         rate_limiter_aggregator.shutdown()
-    if error_accumulator.value:
-        first_error = error_accumulator.value[0]
-        raise BulkExecutorError(first_error) from None
+    raise_first_worker_error(error_accumulator)
 
     scanned_count = sum(count for _, count in segment_counts)
 
@@ -282,7 +283,7 @@ def _count_data(monitor_options, table_name, index_name, filter_expression,
                 break
             scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
     except Exception as e:
-        error_accumulator.add([f"Error in worker {segment}: {get_error_message(e)}"])
+        record_worker_failure(error_accumulator, e, f"Error in worker {segment}")
         # Let control drop down to exit
     finally:
         rate_limiter_worker.shutdown()

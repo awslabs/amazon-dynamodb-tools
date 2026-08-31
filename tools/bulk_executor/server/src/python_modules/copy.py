@@ -6,7 +6,6 @@ from pyspark import AccumulatorParam
 
 
 sys.path.append('/server/src')
-from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.errors import get_error_message
 from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info,
@@ -20,6 +19,10 @@ from python_modules.shared.rate_limiter import (
     RateLimiterAggregator,  
     RateLimiterSharedConfig,
     RateLimiterWorker
+)
+from python_modules.shared.worker_errors import (
+    raise_first_worker_error,
+    record_worker_failure
 )
 
 class ListAccumulator(AccumulatorParam):
@@ -84,9 +87,7 @@ def run(job, spark_context, glue_context, parsed_args):
     finally:
         source_rate_limiter_aggregator.shutdown()
         target_rate_limiter_aggregator.shutdown()
-    if error_accumulator.value:
-        first_error = error_accumulator.value[0]
-        raise BulkExecutorError(first_error) from None
+    raise_first_worker_error(error_accumulator)
 
     print(f"Total records copied: {total_matched_accumulator.value:,}")
 
@@ -142,7 +143,7 @@ def _copy_data(source_table, target_table, source_monitor_options, target_monito
                     break
                 scan_kwargs["ExclusiveStartKey"] = lek
     except Exception as e:
-        error_accumulator.add([f"Error in worker {segment}: {get_error_message(e)}"])
+        record_worker_failure(error_accumulator, e, f"Error in worker {segment}")
         # Let control drop down to exit
     finally:
         source_rl.shutdown()

@@ -8,7 +8,6 @@ from boto3 import Session
 from botocore.config import Config
 
 sys.path.append('/server/src')
-from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.errors import ListAccumulator, get_error_message
 from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info,
@@ -22,6 +21,10 @@ from python_modules.shared.rate_limiter import (
     RateLimiterAggregator,  
     RateLimiterSharedConfig,
     RateLimiterWorker
+)
+from python_modules.shared.worker_errors import (
+    raise_first_worker_error,
+    record_worker_failure
 )
 
 # Console preview cap. Output reaches the client through CloudWatch Live Tail,
@@ -302,7 +305,7 @@ def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_option
             stream_b.advance()
     except Exception as e:
         # Record and return; the driver raises the first error after collect().
-        error_accumulator.add([f"Error in worker {segment}: {get_error_message(e)}"])
+        record_worker_failure(error_accumulator, e, f"Error in worker {segment}")
         return 0, []
     finally:
         rate_limiter_worker_a.shutdown()
@@ -397,8 +400,7 @@ def run(job, spark_context, glue_context, parsed_args):
     finally:
         rate_limiter_aggregator.shutdown()
 
-    if error_accumulator.value:
-        raise BulkExecutorError(error_accumulator.value[0]) from None
+    raise_first_worker_error(error_accumulator)
 
     total = sum(count for count, _ in rdd2)
 

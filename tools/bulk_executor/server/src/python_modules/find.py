@@ -28,6 +28,10 @@ from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info, get_and_print_table_scan_cost,
     get_dynamodb_throughput_configs)
 from python_modules.shared.glue_connector import read_dynamodb_dataframe
+from python_modules.shared.worker_errors import (
+    raise_first_worker_error,
+    record_worker_failure
+)
 
 
 def print_dynamodb_table_info(table_name, is_delete, **kwargs):
@@ -226,7 +230,7 @@ def run(job, spark_context, glue_context, parsed_args):
                 except Exception as e:
                     # batch_writer buffers 25 items and flushes on exit, so a denied or
                     # throttled write raises here, outside the per-item handler above.
-                    delete_error_accumulator.add([f"Error during delete: {get_error_message(e)}"])
+                    record_worker_failure(delete_error_accumulator, e, "Error during delete")
                 finally:
                     rate_limiter_worker.shutdown()
 
@@ -263,8 +267,7 @@ def run(job, spark_context, glue_context, parsed_args):
 
             # A batch-level failure means the delete did not do what was asked, so it
             # is fatal rather than a count to report.
-            if delete_error_accumulator.value:
-                raise BulkExecutorError(delete_error_accumulator.value[0]) from None
+            raise_first_worker_error(delete_error_accumulator)
 
             # Report failures rather than claiming every matched item was deleted. The
             # per-item detail is in the executor logs, which the console never shows.

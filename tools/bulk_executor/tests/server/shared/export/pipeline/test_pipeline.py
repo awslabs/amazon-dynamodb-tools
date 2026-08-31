@@ -368,7 +368,9 @@ class TestApplyTransformStage:
         result = flatmap_fn({'some': 'record'})
         assert result == []
         error_acc.add.assert_called_once()
-        assert "Transform function raised an exception" in error_acc.add.call_args[0][0][0]
+        message, detail = error_acc.add.call_args[0][0][0]
+        assert "Transform function raised an exception" in message
+        assert 'Traceback' in detail, "a user transform's failure is reported with its traceback"
 
     @patch('python_modules.shared.export.pipeline.load_transform_module')
     def test_transform_returning_non_list_wraps_in_list(self, mock_load_transform, mock_spark_context, key_schema):
@@ -426,7 +428,7 @@ class TestApplyTransformStage:
         result = resolve_fn({'some': 'record'})
         assert result is None
         error_acc.add.assert_called_once()
-        assert "missing key attributes" in error_acc.add.call_args[0][0][0]
+        assert "missing key attributes" in error_acc.add.call_args[0][0][0][0]
 
     def test_resolve_and_validate_passes_valid_put(self, mock_spark_context, key_schema):
         mock_parser = Mock()
@@ -469,7 +471,7 @@ class TestApplyTransformStage:
         result = resolve_fn({'some': 'record'})
         assert result is None
         error_acc.add.assert_called_once()
-        assert "non-key attributes" in error_acc.add.call_args[0][0][0]
+        assert "non-key attributes" in error_acc.add.call_args[0][0][0][0]
 
     def test_resolve_and_validate_delete_missing_keys_rejected(self, mock_spark_context, key_schema):
         mock_parser = Mock()
@@ -491,7 +493,7 @@ class TestApplyTransformStage:
         result = resolve_fn({'some': 'record'})
         assert result is None
         error_acc.add.assert_called_once()
-        assert "DELETE item missing key attributes" in error_acc.add.call_args[0][0][0]
+        assert "DELETE item missing key attributes" in error_acc.add.call_args[0][0][0][0]
 
     def test_resolve_and_validate_valid_delete(self, mock_spark_context, key_schema):
         mock_parser = Mock()

@@ -21,6 +21,7 @@ import botocore.exceptions
 import pytest
 
 from python_modules import update as update_module
+from python_modules.shared import worker_errors
 
 # The update verb does `from python_modules.shared.errors import *` which yields
 # nothing from a Mock (no __all__). Inject the names so they exist at module level.
@@ -798,8 +799,9 @@ class TestUpdateDataClientErrors:
         )
 
         error_acc.add.assert_called_once()
-        msg = error_acc.add.call_args.args[0][0]
-        assert 'worker 5' in msg
+        message, detail = error_acc.add.call_args.args[0][0]
+        assert 'worker 5' in message
+        assert 'Traceback' in detail, "InternalServerError is not one we explain away"
 
     def test_unhandled_client_error_prints_to_stderr(self, monkeypatch, capsys):
         """Line 145: unhandled error printed to stderr."""
@@ -831,6 +833,8 @@ class TestUpdateDataErrorAccumulation:
         rl = _make_rl_worker(table)
         monkeypatch.setattr(update_module, 'RateLimiterWorker', MagicMock(return_value=rl))
         monkeypatch.setattr(update_module, 'get_error_message', lambda e: f'wrapped:{e}')
+        # shared.errors is a Mock in tests/server, so patch where worker_errors reads it.
+        monkeypatch.setattr(worker_errors, 'get_error_message', str)
 
         error_acc = MagicMock()
         update_module._update_data(
@@ -841,8 +845,10 @@ class TestUpdateDataErrorAccumulation:
         error_acc.add.assert_called_once()
         appended = error_acc.add.call_args.args[0]
         assert isinstance(appended, list) and len(appended) == 1
-        assert 'worker 7' in appended[0]
-        assert 'wrapped:' in appended[0]
+        message, detail = appended[0]
+        assert 'worker 7' in message
+        assert 'network fail' in message
+        assert 'Traceback' in detail, "a RuntimeError from scan is not one we understand"
 
     def test_system_exit_from_throttle_captured(self, monkeypatch):
         """Lines 137-138 + 152: exit() raises SystemExit caught by outer except."""

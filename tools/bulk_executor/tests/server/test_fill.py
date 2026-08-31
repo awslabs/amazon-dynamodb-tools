@@ -888,8 +888,10 @@ class TestFillDataErrorHandling:
         error_acc.add.assert_called_once()
         msg = error_acc.add.call_args.args[0]
         assert isinstance(msg, list) and len(msg) == 1
-        assert 'Schema validation error' in msg[0]
-        assert "ValidationException happened" in msg[0]
+        message, detail = msg[0]
+        assert 'Schema validation error' in message
+        assert "ValidationException happened" in message
+        assert detail is None, "a validation rejection needs no traceback"
 
     def test_other_client_error_adds_generic_error(self, monkeypatch):
         """Lines 174-175: non-throttle, non-validation → generic error message."""
@@ -916,7 +918,7 @@ class TestFillDataErrorHandling:
 
         error_acc.add.assert_called_once()
         msg = error_acc.add.call_args.args[0]
-        assert 'Error during writing' in msg[0]
+        assert 'Error during writing' in msg[0][0]
 
     def test_rate_limiter_shutdown_in_finally(self, monkeypatch):
         """Lines 176-177: rate_limiter_worker.shutdown() always called."""
@@ -1112,7 +1114,10 @@ class TestFillWorkerRecordsNonClientErrors:
                                MagicMock(), error_acc, MagicMock(), ['pk'])
 
         assert len(errors) == 1, f"expected one recorded error, got {errors}"
-        assert 'Error in worker' in errors[0]
+        message, detail = errors[0]
+        assert 'Error in worker' in message
+        assert "KeyError" in message, "the type, since a KeyError message is just the key"
+        assert 'Traceback' in detail, "a generator producing the wrong shape is not ours to explain"
         rl_instance.shutdown.assert_called_once()
 
     def test_client_error_still_takes_the_specific_path(self, monkeypatch):
@@ -1132,4 +1137,4 @@ class TestFillWorkerRecordsNonClientErrors:
                                MagicMock(), error_acc, MagicMock(), ['pk'])
 
         assert len(errors) == 1
-        assert 'Schema validation error' in errors[0], errors
+        assert 'Schema validation error' in errors[0][0], errors

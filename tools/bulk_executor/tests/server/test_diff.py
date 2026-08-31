@@ -866,7 +866,8 @@ class TestDiffSegment:
 
         assert (count, preview) == (0, []), "an errored segment contributes nothing"
         assert len(errors.value) == 1
-        assert 'Error in worker 0' in errors.value[0], errors.value
+        message, _detail = errors.value[0]
+        assert 'Error in worker 0' in message, errors.value
         assert mock_rl_instance.shutdown.call_count == 2
 
 

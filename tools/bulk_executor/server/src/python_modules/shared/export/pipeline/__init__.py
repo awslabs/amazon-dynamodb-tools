@@ -3,6 +3,7 @@ import time
 from ...bulk_executor_error import BulkExecutorError
 from ...logger import log
 from ...errors import ListAccumulator
+from ...worker_errors import record_understood_failure, record_worker_failure
 from ...table_info import get_dynamodb_throughput_configs
 from ...rate_limiter import RateLimiterAggregator, RateLimiterSharedConfig
 
@@ -41,7 +42,7 @@ def _apply_transform_and_resolve(spark_context, records_rdd, export_load_type, p
             try:
                 result = transform_fn(record)
             except Exception as e:
-                error_accumulator.add([f"Transform function raised an exception: {e}"])
+                record_worker_failure(error_accumulator, e, "Transform function raised an exception", understood=False)
                 return []
 
             if not isinstance(result, list):
@@ -69,16 +70,16 @@ def _apply_transform_and_resolve(spark_context, records_rdd, export_load_type, p
         if item["operation"] == Operation.PUT:
             missing = expected_keys - item["data"].keys()
             if missing:
-                error_accumulator.add([f"Item missing key attributes after resolve: {missing}"])
+                record_understood_failure(error_accumulator, f"Item missing key attributes after resolve: {missing}")
                 return None
         elif item["operation"] == Operation.DELETE:
             missing = expected_keys - item["data"].keys()
             if missing:
-                error_accumulator.add([f"DELETE item missing key attributes: {missing}"])
+                record_understood_failure(error_accumulator, f"DELETE item missing key attributes: {missing}")
                 return None
             extra = item["data"].keys() - expected_keys
             if extra:
-                error_accumulator.add([f"DELETE item has non-key attributes: {extra}"])
+                record_understood_failure(error_accumulator, f"DELETE item has non-key attributes: {extra}")
                 return None
         return item
 
