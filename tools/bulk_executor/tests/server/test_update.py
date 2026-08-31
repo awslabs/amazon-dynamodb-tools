@@ -655,8 +655,10 @@ class TestUpdateDataClientErrors:
             'UpdateItem'
         )
 
-    def test_throttle_exception_exits(self, monkeypatch):
-        """Lines 137-138: ProvisionedThroughputExceededException calls exit()."""
+    def test_throttle_exception_is_recorded_as_understood(self, monkeypatch):
+        """Persistent throttling is a problem we can state in a sentence, and it must not
+        escape the worker: exit() raised SystemExit, which the worker's `except Exception`
+        cannot catch, so it cost four Spark retries before aborting the job."""
         table = _make_table_with_scan([{'Items': [{'id': 1}]}])
         table.update_item = MagicMock(
             side_effect=self._make_client_error('ProvisionedThroughputExceededException')
@@ -667,15 +669,22 @@ class TestUpdateDataClientErrors:
                             lambda e: e.response['Error']['Code'])
         monkeypatch.setattr(update_module, 'get_error_message', lambda e: str(e))
 
+        errors = []
         error_acc = MagicMock()
-        with pytest.raises(SystemExit):
-            update_module._update_data(
-                {}, 'tbl', lambda item: {'Key': item}, 0, 1,
-                MagicMock(), MagicMock(), MagicMock(), error_acc, MagicMock()
-            )
+        error_acc.add = MagicMock(side_effect=errors.extend)
 
-    def test_validation_exception_exits(self, monkeypatch):
-        """Lines 139-140: ValidationException calls exit() with message."""
+        # Must not raise.
+        update_module._update_data(
+            {}, 'tbl', lambda item: {'Key': item}, 0, 1,
+            MagicMock(), MagicMock(), MagicMock(), error_acc, MagicMock()
+        )
+
+        message, detail = errors[0]
+        assert 'Throttling observed despite massive retries' in message
+        assert detail is None, "throttling needs no traceback"
+
+    def test_validation_exception_is_recorded_as_understood(self, monkeypatch):
+        """A generator producing items the table's schema rejects, same treatment."""
         table = _make_table_with_scan([{'Items': [{'id': 1}]}])
         table.update_item = MagicMock(
             side_effect=self._make_client_error('ValidationException', 'bad schema')
@@ -686,12 +695,18 @@ class TestUpdateDataClientErrors:
                             lambda e: e.response['Error']['Code'])
         monkeypatch.setattr(update_module, 'get_error_message', lambda e: 'bad schema')
 
+        errors = []
         error_acc = MagicMock()
-        with pytest.raises(SystemExit):
-            update_module._update_data(
-                {}, 'tbl', lambda item: {'Key': item}, 0, 1,
-                MagicMock(), MagicMock(), MagicMock(), error_acc, MagicMock()
-            )
+        error_acc.add = MagicMock(side_effect=errors.extend)
+
+        update_module._update_data(
+            {}, 'tbl', lambda item: {'Key': item}, 0, 1,
+            MagicMock(), MagicMock(), MagicMock(), error_acc, MagicMock()
+        )
+
+        message, detail = errors[0]
+        assert 'Validation exception' in message and 'bad schema' in message
+        assert detail is None, "the generator's items are the problem, not our frames"
 
     def test_conditional_check_failed_increments_failed_count(self, monkeypatch):
         """Lines 141-143: ConditionalCheckFailedException prints and increments failed_count."""
@@ -850,8 +865,9 @@ class TestUpdateDataErrorAccumulation:
         assert 'network fail' in message
         assert 'Traceback' in detail, "a RuntimeError from scan is not one we understand"
 
-    def test_system_exit_from_throttle_captured(self, monkeypatch):
-        """Lines 137-138 + 152: exit() raises SystemExit caught by outer except."""
+    def test_throttle_does_not_escape_the_worker(self, monkeypatch):
+        """The regression this guards: exit() raises SystemExit, a BaseException, so the
+        worker's `except Exception` never saw it and Spark retried the task four times."""
         table = _make_table_with_scan([{'Items': [{'id': 1}]}])
         table.update_item = MagicMock(
             side_effect=botocore.exceptions.ClientError(
@@ -866,12 +882,12 @@ class TestUpdateDataErrorAccumulation:
         monkeypatch.setattr(update_module, 'get_error_message', lambda e: str(e))
 
         error_acc = MagicMock()
-        # SystemExit is a BaseException — the except Exception won't catch it
-        with pytest.raises(SystemExit):
-            update_module._update_data(
-                {}, 'tbl', lambda item: {'Key': item}, 0, 1,
-                MagicMock(), MagicMock(), MagicMock(), error_acc, MagicMock()
-            )
+        update_module._update_data(
+            {}, 'tbl', lambda item: {'Key': item}, 0, 1,
+            MagicMock(), MagicMock(), MagicMock(), error_acc, MagicMock()
+        )
+
+        error_acc.add.assert_called_once(), "recorded rather than raised"
 
 
 class TestUpdateDataShutdown:

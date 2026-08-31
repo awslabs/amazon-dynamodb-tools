@@ -54,6 +54,15 @@ TERMINAL_JOB_STATES = set([
     TIMEOUT_STATE
 ])
 
+# Markers the job prints when it has already told the user what went wrong: a
+# BulkExecutorError sentence, or a worker traceback that names the offending line.
+# Either way Glue's exception analysis adds nothing but volume afterwards.
+# The second must match worker_errors.UNEXPECTED_FAILURE_BANNER.
+JOB_EXPLAINED_THE_FAILURE = (
+    'BulkExecutorError',
+    'A worker failed in a way we did not expect. Traceback from the worker:',
+)
+
 # Timing constants
 WAIT_TIME_SECONDS = 0.5 # Time to wait before checking job run state again (in seconds)
 
@@ -119,9 +128,12 @@ class BulkDynamoDbRunner:
         elif any(key in log_message for key in utils.LOG_PATTERN_IGNORE_LIST):
             return # Skip known noisy log patterns
 
-        # When a BulkExecutorError has been seen, suppress subsequent Glue exception analysis noise
-        # This allows us to show the end user the core underlying error/exception message without it being drowned in a sea of "red" Glue errors
-        if 'BulkExecutorError' in log_message:
+        # Once the job has explained the failure itself, suppress the Glue exception
+        # analysis noise that follows. This allows us to show the end user the core
+        # underlying error/exception message without it being drowned in a sea of "red"
+        # Glue errors -- including, for an unexpected failure, a Glue traceback of our
+        # own plumbing on top of the worker traceback that names the actual line.
+        if any(marker in log_message for marker in JOB_EXPLAINED_THE_FAILURE):
             self._suppress_glue_noise = True
         if self._suppress_glue_noise and ('GlueExceptionAnalysisListener' in log_message or 'Error Category:' in log_message):
             return

@@ -375,6 +375,24 @@ class TestPrettyPrintLogEvent:
         bulk_runner._pretty_print_log_event(ev)
         assert bulk_runner._suppress_glue_noise is True
 
+    def test_worker_traceback_banner_sets_suppress_flag(self, bulk_runner, monkeypatch):
+        """An unexpected worker failure explains itself with the worker's traceback, so
+        Glue's analysis of our own plumbing adds nothing after it."""
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
+        ev = _make_event(
+            message='A worker failed in a way we did not expect. Traceback from the worker:')
+        bulk_runner._pretty_print_log_event(ev)
+        assert bulk_runner._suppress_glue_noise is True
+
+    def test_ordinary_message_does_not_set_suppress_flag(self, bulk_runner, monkeypatch):
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
+        bulk_runner._pretty_print_log_event(_make_event(message='Total records filled: 30'))
+        assert bulk_runner._suppress_glue_noise is False
+
     def test_glue_exception_listener_suppressed_after_bulk_error(self, bulk_runner, capsys, monkeypatch):
         monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])

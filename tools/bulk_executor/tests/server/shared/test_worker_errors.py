@@ -6,10 +6,11 @@ BulkExecutorError passthrough, everything else unexpected), record_worker_failur
 record_understood_failure, and raise_first_worker_error (nothing recorded, understood,
 unexpected, and the bare-string fallback).
 
-The visible contract these protect: an understood failure is one sentence with no
-traceback, an unexpected one prints the worker's traceback to the console first, and
-either way the raise is a BulkExecutorError so the Glue job's failure reason -- the
-last line the user sees -- stays to one line.
+The visible contract these protect: an understood failure raises BulkExecutorError, so
+root.py exits with one sentence and no traceback; an unexpected one stays an ordinary
+exception and prints the worker's traceback first, because the frames that name the bug
+are the worker's. Either way the failure reason -- the last line the user sees -- is one
+line.
 """
 
 import botocore.exceptions
@@ -18,6 +19,7 @@ import pytest
 from python_modules.shared import worker_errors
 from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.worker_errors import (
+    UNEXPECTED_FAILURE_BANNER,
     classify_failure,
     raise_first_worker_error,
     record_understood_failure,
@@ -145,18 +147,20 @@ class TestRaiseFirstWorkerError:
 
         assert capsys.readouterr().out == '', "an understood failure needs no traceback"
 
-    def test_unexpected_failure_prints_the_traceback_then_raises_one_line(self, capsys):
+    def test_unexpected_failure_stays_an_exception_and_prints_the_traceback(self, capsys):
         acc = FakeAccumulator()
         try:
             raise KeyError('pk')
         except KeyError as e:
             record_worker_failure(acc, e, 'Error in worker 3')
 
-        with pytest.raises(BulkExecutorError) as raised:
+        with pytest.raises(Exception) as raised:
             raise_first_worker_error(acc)
 
+        assert not isinstance(raised.value, BulkExecutorError), \
+            "BulkExecutorError means we understood it; this one we did not"
         out = capsys.readouterr().out
-        assert 'did not expect' in out and 'Traceback' in out
+        assert UNEXPECTED_FAILURE_BANNER in out and 'Traceback' in out
         assert 'Traceback' not in str(raised.value), \
             "the Glue failure reason is the last line the user sees; keep it to one"
 
@@ -169,13 +173,14 @@ class TestRaiseFirstWorkerError:
             except KeyError as e:
                 record_worker_failure(acc, e, f'Error in worker {segment}')
 
-        with pytest.raises(BulkExecutorError, match='Error in worker 0'):
+        with pytest.raises(Exception, match='Error in worker 0'):
             raise_first_worker_error(acc)
 
         assert capsys.readouterr().out.count('most recent call last') == 1
 
     def test_a_bare_string_still_surfaces(self):
-        """Not recorded through the helpers: raise it rather than lose it."""
+        """Not recorded through the helpers: raise it rather than lose it. There is no
+        traceback to show, so it takes the polite path."""
         acc = FakeAccumulator()
         acc.add(['something went wrong'])
 

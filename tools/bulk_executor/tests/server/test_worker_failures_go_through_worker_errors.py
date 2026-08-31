@@ -87,3 +87,18 @@ def test_the_seam_is_actually_used():
                  if "raise_first_worker_error(" in path.read_text() and path.name != _SEAM]
     assert len(surfacing) >= 5, (
         f"expected several verbs to surface worker failures, found {surfacing}")
+
+
+def test_the_client_watches_for_the_banner_the_job_prints():
+    """The client suppresses Glue's exception-analysis noise once the job has explained
+    itself. That handshake is two string literals in two trees: if they drift, an
+    unexpected failure gets the worker traceback *and* a Glue traceback of our plumbing
+    on top of it, which is exactly what the banner exists to prevent."""
+    server = (_SERVER_SRC / "python_modules" / "shared" / "worker_errors.py").read_text()
+    banner = re.search(r'UNEXPECTED_FAILURE_BANNER = "([^"]+)"', server)
+    assert banner, "worker_errors.py no longer defines UNEXPECTED_FAILURE_BANNER"
+
+    client = (_REPO / "client" / "src" / "runner.py").read_text()
+    assert banner.group(1) in client, (
+        f"client/src/runner.py does not watch for {banner.group(1)!r}; "
+        "JOB_EXPLAINED_THE_FAILURE has drifted from worker_errors.py")

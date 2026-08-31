@@ -5,19 +5,19 @@ aborts the job, and reaches the driver as a Py4J wrapper with the cause buried. 
 worker records on an accumulator and returns, and the driver surfaces the first
 entry.
 
-Whether we *understood* the failure decides what the console shows:
+Whether we *understood* the failure decides what the user gets:
 
-- understood -- a permission denial, throttling, a schema/validation rejection, a
-  missing table: the user can act on it and there is nothing to debug, so the one
-  sentence is the whole report.
+- understood -- a permission denial, throttling, a validation rejection, a generated
+  item missing the table's key. The user can act on it and there is nothing to debug,
+  so the driver raises BulkExecutorError: root.py exits with the sentence, and nobody
+  needs to know an exception was involved.
 - unexpected -- a bug in our code, or a user-supplied generator or transform doing
-  something we cannot anticipate. The traceback is the value, so the driver prints
-  it: on the console, where the user already is, rather than leaving them to find an
-  executor log. Once, from the first recorded failure, however many workers hit it.
+  something we cannot anticipate. This one stays an exception, because that is what it
+  is. The driver prints the worker's traceback first: the frames that name the bug are
+  the worker's, and Glue's own traceback would only show our plumbing.
 
-Both then exit through BulkExecutorError, so the job fails with a one-line reason.
-That line is the Glue job's ErrorMessage and the last thing the user sees, so the
-traceback goes above it and never into it.
+Either way the job fails and the failure reason is one line describing the problem.
+The traceback goes above that line, never into it.
 """
 
 import traceback
@@ -50,6 +50,11 @@ _UNDERSTOOD_PHRASES = (
     'AccessDenied',
     'security token included in the request is expired',
 )
+
+# Printed immediately before an unexpected failure's traceback. The client watches for
+# it to suppress Glue's exception-analysis blob, so the two have to agree -- a guard
+# test checks that they do.
+UNEXPECTED_FAILURE_BANNER = "A worker failed in a way we did not expect. Traceback from the worker:"
 
 
 def classify_failure(exception):
@@ -100,7 +105,10 @@ def raise_first_worker_error(error_accumulator):
     message, detail = entry if isinstance(entry, tuple) else (str(entry), None)
 
     if detail:
-        print("A worker failed in a way we did not expect. Traceback from the worker:")
+        print(UNEXPECTED_FAILURE_BANNER)
         print(detail)
+        # Left as an exception, because that is what an unexpected failure is. root.py
+        # re-raises it, and Glue records `message` as the job's one-line reason.
+        raise Exception(message) from None
 
     raise BulkExecutorError(message) from None

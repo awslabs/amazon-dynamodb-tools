@@ -13,6 +13,7 @@ from pyspark.context import SparkContext
 
 # Custom Library Imports
 sys.path.append('/server/src')
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.errors import *
 from python_modules.shared.failure_reporter import BoundedFailureReporter
 from python_modules.shared.logger import log
@@ -140,9 +141,12 @@ def _update_data(monitor_options, table_name, generate, segment, total_segments,
                 except botocore.exceptions.ClientError as e:
                     error_code = get_error_code(e)
                     if error_code == DYNAMO_DB_THROTTLE_EXCEPTION:
-                        exit("Throttling observed despite massive retries")
+                        # BulkExecutorError, not exit(): SystemExit is a BaseException,
+                        # so it would slip past the worker's except below and cost four
+                        # Spark retries before aborting the job.
+                        raise BulkExecutorError("Throttling observed despite massive retries") from None
                     elif error_code == DYNAMO_DB_VALIDATION_EXCEPTION:
-                        exit(f"Validation exception (usually caused by the generator producing items incompatible with the table schema): {get_error_message(e)}")
+                        raise BulkExecutorError(f"Validation exception (usually caused by the generator producing items incompatible with the table schema): {get_error_message(e)}") from None
                     elif error_code == DYNAMO_DB_CONDITIONAL_CHECK_FAILED:
                         # A condition that does not match is a normal outcome of what the
                         # user asked for, and the driver already prints the total below as

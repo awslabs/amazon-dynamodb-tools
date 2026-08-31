@@ -66,16 +66,24 @@ two, and the split is what the user experiences:
   **console**, once, from the first recorded failure however many workers hit it.
   Nobody should have to open CloudWatch to find it.
 
-Either way the raise is `BulkExecutorError`, so `root.py` calls `sys.exit(str(e))` and
-the job's `ErrorMessage` — the last line the user sees, and what the Glue console shows
-as the failure reason — stays to one line. The traceback goes above it, never into it.
-Re-raising a plain exception instead gets the traceback *and* a `GlueExceptionAnalysis`
-blob wrapped around the message.
+The exception type carries the classification, and only understood failures are
+`BulkExecutorError`: `root.py` turns that into `sys.exit(str(e))`, so the user gets the
+sentence and never learns an exception was involved. An unexpected failure stays an
+ordinary exception, because that is what it is — but the driver prints the worker's
+traceback *first*, because the frames that name the bug are the worker's and Glue's own
+traceback shows only our plumbing. `client/src/runner.py` then suppresses Glue's
+exception-analysis blob, keyed on either marker (`BulkExecutorError`, or
+`worker_errors.UNEXPECTED_FAILURE_BANNER` — a guard test checks the two trees agree).
 
-Measured on a denied `diff`: **82 lines with a traceback** when the driver re-raised,
-**52 lines and no traceback** through the seam. The message text was byte-identical.
-This reads as fine in review and passes a unit test asserting on the message, so check
-the path, not just the text.
+Either way the job fails and the failure reason is one line describing the problem. The
+traceback goes above that line, never into it.
+
+Do not "fix" a noisy failure by wrapping it in `BulkExecutorError`. That was tried in
+the PR that wrote this rule: it removed the traceback from denials (right) and from
+genuine bugs (wrong), and it made the type stop meaning anything. Measured on a denied
+`diff`: **82 lines with a traceback** re-raising, **52 lines and none** as a
+`BulkExecutorError`. The message text was byte-identical, so review and a
+message-asserting unit test both miss it — check the path, not just the text.
 
 Code we do not own is the case worth looking for: a user's faker generator or transform
 should report with its traceback even when the exception type looks recognisable, which
@@ -144,15 +152,24 @@ the test have burned time here:
   visible in testing, which makes an iteration loop painful. Note that bootstrap
   leaves a custom role untouched (#330), so what you grant is what the job gets.
 - **A denial is only half the test.** It exercises the understood path. To see the
-  unexpected path, break something we do not own — a `fill` generator whose items do
-  not match the table's key schema, or a transform that raises — and confirm the
-  traceback reaches the console *and* the closing line is still one sentence.
+  unexpected path, break something we do not own — a generator or transform that
+  *raises*. Note that a generated item merely missing the table's key attributes is
+  now understood and reported as a sentence, so it no longer reaches this path; and a
+  generator that raises on *every* call dies on the driver instead, inside `fill`'s
+  10-call size peek, which is a different (unhandled) shape. A generator that raises
+  after ~20 calls, run with `--numitems 30`, exercises the worker path.
 - **Two unit-test traps that made green tests meaningless here.** `pytest.ini` sets
   `testpaths = tests/client tests/server`, so a guard dropped in `tests/` is collected
   by nothing — put source guards under `tests/server/`. And `tests/server/conftest.py`
   mocks `python_modules.shared.errors`, so `get_error_message` returns a `Mock`; a test
   asserting on message text has to patch it on `worker_errors`, not on the verb's
   module.
+- **`exit()` inside a worker does not do what it looks like.** `SystemExit` is a
+  `BaseException`, so the worker's `except Exception` never sees it: the task fails, gets
+  four Spark retries, aborts the job, and arrives as a Py4J wrapper. `update` had two of
+  these (throttling, `ValidationException`) long after the other verbs were fixed; they
+  now raise `BulkExecutorError`, which the worker handler *does* catch and record. Grep
+  for `exit(` in worker code as part of this rule.
 
 Judge the result on three things, not one: the **line count** (a conforming denial is
 tens of lines, not hundreds), whether any of `Traceback`, `py4j`,
