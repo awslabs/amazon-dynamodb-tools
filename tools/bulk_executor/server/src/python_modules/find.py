@@ -185,7 +185,7 @@ def run(job, spark_context, glue_context, parsed_args):
             keys = get_table_keys(DYNAMO_DB_TABLE_NAME)
 
             def delete_partition(monitor_options, partition, shared_config,
-                                 failure_accumulator):
+                                 failure_accumulator, delete_error_accumulator):
                 # Failures are counted into the accumulator so the driver can tell the
                 # user how many there were, and only the first few are logged per
                 # partition. This runs in a worker, so nothing printed here reaches the
@@ -223,6 +223,10 @@ def run(job, spark_context, glue_context, parsed_args):
                                 # The key, not the item: an item can be 400 KB, and a
                                 # systemic failure would log one per row.
                                 failures.report(key if key else record[:200], e)
+                except Exception as e:
+                    # batch_writer buffers 25 items and flushes on exit, so a denied or
+                    # throttled write raises here, outside the per-item handler above.
+                    delete_error_accumulator.add([f"Error during delete: {get_error_message(e)}"])
                 finally:
                     rate_limiter_worker.shutdown()
 
@@ -249,12 +253,18 @@ def run(job, spark_context, glue_context, parsed_args):
 
             monitor_options = get_dynamodb_throughput_configs(parsed_args, DYNAMO_DB_TABLE_NAME, modes=["write"], format="monitor")
             delete_failure_accumulator = spark_context.accumulator(0)
+            delete_error_accumulator = spark_context.accumulator([], ListAccumulator())
             try:
                 records.toJSON().foreachPartition(
-                    lambda partition: delete_partition(monitor_options, partition, rate_limiter_shared_config, delete_failure_accumulator)
+                    lambda partition: delete_partition(monitor_options, partition, rate_limiter_shared_config, delete_failure_accumulator, delete_error_accumulator)
                 )
             finally:
                 rate_limiter_aggregator.shutdown()
+
+            # A batch-level failure means the delete did not do what was asked, so it
+            # is fatal rather than a count to report.
+            if delete_error_accumulator.value:
+                raise Exception(delete_error_accumulator.value[0]) from None
 
             # Report failures rather than claiming every matched item was deleted. The
             # per-item detail is in the executor logs, which the console never shows.

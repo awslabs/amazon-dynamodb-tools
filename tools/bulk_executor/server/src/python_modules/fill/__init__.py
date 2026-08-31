@@ -177,6 +177,10 @@ def _fill_data(monitor_options, table_name, num_items, generate, total_inserted_
             error_accumulator.add([f"Schema validation error: {msg}"])
         else:
             error_accumulator.add([f"Error during writing: {get_error_message(e)}"])
+    except Exception as e:
+        # Anything the ClientError handler above doesn't cover, e.g. a generator
+        # returning items that don't match the table's key schema (KeyError).
+        error_accumulator.add([f"Error in worker: {get_error_message(e)}"])
     finally:
         rate_limiter_worker.shutdown()
 

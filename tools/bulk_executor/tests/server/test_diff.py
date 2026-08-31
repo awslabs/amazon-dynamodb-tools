@@ -25,6 +25,16 @@ sys.modules.setdefault('pyspark.sql.functions', _pyspark_sql_functions)
 
 from python_modules import diff as diff_module
 
+class _FakeAccumulator:
+    """Stands in for a Spark accumulator: workers only ever call add()."""
+
+    def __init__(self):
+        self.value = []
+
+    def add(self, v):
+        self.value.extend(v)
+
+
 if not hasattr(diff_module, 'get_error_message'):
     diff_module.get_error_message = lambda e: str(e)
 
@@ -391,7 +401,7 @@ class TestDiffSegment:
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
             0, 1, False, True, 'job1', None,
-            self._make_schema_broadcast(), self._make_rate_limiter_config()
+            self._make_schema_broadcast(), self._make_rate_limiter_config(), _FakeAccumulator()
         )
         assert result == []
 
@@ -440,7 +450,7 @@ class TestDiffSegment:
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
             0, 1, False, True, 'job1', None,
-            self._make_schema_broadcast(), self._make_rate_limiter_config()
+            self._make_schema_broadcast(), self._make_rate_limiter_config(), _FakeAccumulator()
         )
         assert len(result) == 1
         assert result[0].startswith('-')
@@ -485,7 +495,7 @@ class TestDiffSegment:
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
             0, 1, False, True, 'job1', None,
-            self._make_schema_broadcast(), self._make_rate_limiter_config()
+            self._make_schema_broadcast(), self._make_rate_limiter_config(), _FakeAccumulator()
         )
         assert len(result) == 1
         assert result[0].startswith('+')
@@ -535,7 +545,7 @@ class TestDiffSegment:
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
             0, 1, False, True, 'job1', None,
-            self._make_schema_broadcast(), self._make_rate_limiter_config()
+            self._make_schema_broadcast(), self._make_rate_limiter_config(), _FakeAccumulator()
         )
         assert len(result) == 1
         assert result[0].startswith('*')
@@ -585,7 +595,7 @@ class TestDiffSegment:
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
             0, 1, False, False, 'job1', None,
-            self._make_schema_broadcast(), self._make_rate_limiter_config()
+            self._make_schema_broadcast(), self._make_rate_limiter_config(), _FakeAccumulator()
         )
         assert len(result) == 2
         assert result[0].startswith('-')
@@ -642,7 +652,7 @@ class TestDiffSegment:
             self._make_monitor_options(), self._make_monitor_options(),
             0, 1, False, True, 'job1', None,
             self._make_schema_broadcast(pk1='pk', sk1='sk', pk2='pk', sk2='sk'),
-            self._make_rate_limiter_config()
+            self._make_rate_limiter_config(), _FakeAccumulator()
         )
         assert any(r.startswith('-') for r in result)
 
@@ -697,7 +707,7 @@ class TestDiffSegment:
             self._make_monitor_options(), self._make_monitor_options(),
             0, 1, False, True, 'job1', None,
             self._make_schema_broadcast(pk1='pk', sk1='sk', pk2='pk', sk2='sk'),
-            self._make_rate_limiter_config()
+            self._make_rate_limiter_config(), _FakeAccumulator()
         )
         plus_lines = [r for r in result if r.startswith('+')]
         assert len(plus_lines) == 1
@@ -747,7 +757,7 @@ class TestDiffSegment:
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
             5, 10, False, True, 'job123', 'my-bucket',
-            self._make_schema_broadcast(), self._make_rate_limiter_config()
+            self._make_schema_broadcast(), self._make_rate_limiter_config(), _FakeAccumulator()
         )
         assert count == 1
         assert len(preview) == 1
@@ -796,7 +806,7 @@ class TestDiffSegment:
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
             0, 1, False, True, 'job1', None,
-            self._make_schema_broadcast(), self._make_rate_limiter_config()
+            self._make_schema_broadcast(), self._make_rate_limiter_config(), _FakeAccumulator()
         )
         assert count == num_items
         assert len(preview) == diff_module.CONSOLE_PREVIEW_LIMIT
@@ -826,27 +836,37 @@ class TestDiffSegment:
             'table1', 'table2',
             self._make_monitor_options(), self._make_monitor_options(),
             0, 1, False, True, 'job1', None,
-            self._make_schema_broadcast(), self._make_rate_limiter_config()
+            self._make_schema_broadcast(), self._make_rate_limiter_config(), _FakeAccumulator()
         )
         assert mock_rl_instance.shutdown.call_count == 2
 
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
-    def test_rate_limiter_shutdown_on_exception(self, mock_stream_cls, mock_rl):
-        """Rate limiter workers are shut down even when an exception occurs."""
+    def test_worker_records_the_error_instead_of_escaping(self, mock_stream_cls, mock_rl):
+        """A failure is recorded on the accumulator, not raised out of the worker.
+
+        Letting it escape cost four Spark task retries, aborted the job, and reached
+        the driver as a Py4J wrapper -- 668 log lines whose closing line never named
+        the cause. copy and scancount already record-and-return; diff now matches
+        (issue #327). Rate limiter workers must still be shut down either way.
+        """
         mock_rl_instance = MagicMock()
         mock_rl_instance.get_session.return_value = MagicMock()
         mock_rl.return_value = mock_rl_instance
 
         mock_stream_cls.side_effect = RuntimeError("stream creation failed")
+        errors = _FakeAccumulator()
 
-        with pytest.raises(RuntimeError):
-            diff_module.diff_segment(
-                'table1', 'table2',
-                self._make_monitor_options(), self._make_monitor_options(),
-                0, 1, False, True, 'job1', None,
-                self._make_schema_broadcast(), self._make_rate_limiter_config()
-            )
+        count, preview = diff_module.diff_segment(
+            'table1', 'table2',
+            self._make_monitor_options(), self._make_monitor_options(),
+            0, 1, False, True, 'job1', None,
+            self._make_schema_broadcast(), self._make_rate_limiter_config(), errors
+        )
+
+        assert (count, preview) == (0, []), "an errored segment contributes nothing"
+        assert len(errors.value) == 1
+        assert 'Error in worker 0' in errors.value[0], errors.value
         assert mock_rl_instance.shutdown.call_count == 2
 
 
@@ -910,11 +930,41 @@ class TestRun:
 
         return client_mock
 
+    def test_run_raises_the_first_worker_error(self, monkeypatch):
+        """The driver must surface what a worker recorded (issue #327).
+
+        Without this the run would print a diff summary as if nothing went wrong,
+        even though a segment had failed -- e.g. a table the role cannot Scan.
+        copy and scancount already report this way.
+        """
+        self._setup_run_mocks(monkeypatch)
+        args = self._base_args()
+
+        recorded = ['Error in worker 3: User: arn:aws:sts::1:assumed-role/r/s is not '
+                    'authorized to perform: dynamodb:Scan on resource: ...']
+        spark_context = MagicMock()
+        # A list-seeded accumulator is the error accumulator; hand back one that
+        # already holds what a failing worker would have recorded.
+        spark_context.accumulator = MagicMock(
+            side_effect=lambda init, *_: MagicMock(value=recorded if isinstance(init, list) else init))
+        rdd = MagicMock()
+        spark_context.parallelize.return_value = rdd
+        rdd.map.return_value.collect.return_value = [(0, [])]
+
+        with pytest.raises(Exception) as exc:
+            diff_module.run(MagicMock(), spark_context, MagicMock(), args)
+
+        assert 'Error in worker 3' in str(exc.value)
+        assert 'dynamodb:Scan' in str(exc.value)
+
     def test_no_diffs_prints_no_differences(self, monkeypatch, capsys):
         self._setup_run_mocks(monkeypatch)
         args = self._base_args()
 
         spark_context = MagicMock()
+        # accumulator() must yield .value == the seed, like test_copy does,
+        # or run()'s `if error_accumulator.value` sees a truthy MagicMock.
+        spark_context.accumulator = MagicMock(side_effect=lambda init, *_: MagicMock(value=init))
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
         # Each segment reports (count, preview).
@@ -931,6 +981,9 @@ class TestRun:
         args = self._base_args()
 
         spark_context = MagicMock()
+        # accumulator() must yield .value == the seed, like test_copy does,
+        # or run()'s `if error_accumulator.value` sees a truthy MagicMock.
+        spark_context.accumulator = MagicMock(side_effect=lambda init, *_: MagicMock(value=init))
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
         diffs = ['- a', '- b', '- c']
@@ -949,6 +1002,9 @@ class TestRun:
         args = self._base_args()
 
         spark_context = MagicMock()
+        # accumulator() must yield .value == the seed, like test_copy does,
+        # or run()'s `if error_accumulator.value` sees a truthy MagicMock.
+        spark_context.accumulator = MagicMock(side_effect=lambda init, *_: MagicMock(value=init))
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
         # One segment with 150 diffs; it already trims its own preview to the cap.
@@ -968,6 +1024,9 @@ class TestRun:
         args = self._base_args()
 
         spark_context = MagicMock()
+        # accumulator() must yield .value == the seed, like test_copy does,
+        # or run()'s `if error_accumulator.value` sees a truthy MagicMock.
+        spark_context.accumulator = MagicMock(side_effect=lambda init, *_: MagicMock(value=init))
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
         rdd.map.return_value.collect.return_value = [
@@ -994,6 +1053,9 @@ class TestRun:
         args['sample_fraction'] = '0.1'
 
         spark_context = MagicMock()
+        # accumulator() must yield .value == the seed, like test_copy does,
+        # or run()'s `if error_accumulator.value` sees a truthy MagicMock.
+        spark_context.accumulator = MagicMock(side_effect=lambda init, *_: MagicMock(value=init))
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
         rdd.map.return_value.collect.return_value = [(0, []) for _ in range(10)]
@@ -1012,6 +1074,9 @@ class TestRun:
         args = self._base_args()
 
         spark_context = MagicMock()
+        # accumulator() must yield .value == the seed, like test_copy does,
+        # or run()'s `if error_accumulator.value` sees a truthy MagicMock.
+        spark_context.accumulator = MagicMock(side_effect=lambda init, *_: MagicMock(value=init))
         spark_context.parallelize.side_effect = RuntimeError("spark error")
 
         with pytest.raises(Exception, match="Error in parallel execution"):
@@ -1022,6 +1087,9 @@ class TestRun:
         args = self._base_args()
 
         spark_context = MagicMock()
+        # accumulator() must yield .value == the seed, like test_copy does,
+        # or run()'s `if error_accumulator.value` sees a truthy MagicMock.
+        spark_context.accumulator = MagicMock(side_effect=lambda init, *_: MagicMock(value=init))
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
         rdd.map.return_value.collect.side_effect = RuntimeError("worker error")
@@ -1037,6 +1105,9 @@ class TestRun:
         monkeypatch.setattr(diff_module, 'RateLimiterAggregator', MagicMock(return_value=agg))
 
         spark_context = MagicMock()
+        # accumulator() must yield .value == the seed, like test_copy does,
+        # or run()'s `if error_accumulator.value` sees a truthy MagicMock.
+        spark_context.accumulator = MagicMock(side_effect=lambda init, *_: MagicMock(value=init))
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
         rdd.map.return_value.collect.return_value = [(0, [])]
@@ -1052,6 +1123,9 @@ class TestRun:
         monkeypatch.setattr(diff_module, 'RateLimiterAggregator', MagicMock(return_value=agg))
 
         spark_context = MagicMock()
+        # accumulator() must yield .value == the seed, like test_copy does,
+        # or run()'s `if error_accumulator.value` sees a truthy MagicMock.
+        spark_context.accumulator = MagicMock(side_effect=lambda init, *_: MagicMock(value=init))
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
         rdd.map.return_value.collect.side_effect = RuntimeError("fail")
@@ -1074,6 +1148,9 @@ class TestRun:
         args = self._base_args()
 
         spark_context = MagicMock()
+        # accumulator() must yield .value == the seed, like test_copy does,
+        # or run()'s `if error_accumulator.value` sees a truthy MagicMock.
+        spark_context.accumulator = MagicMock(side_effect=lambda init, *_: MagicMock(value=init))
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
         rdd.map.return_value.collect.return_value = [(0, [])]
@@ -1101,6 +1178,9 @@ class TestRun:
 
         args = self._base_args()
         spark_context = MagicMock()
+        # accumulator() must yield .value == the seed, like test_copy does,
+        # or run()'s `if error_accumulator.value` sees a truthy MagicMock.
+        spark_context.accumulator = MagicMock(side_effect=lambda init, *_: MagicMock(value=init))
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
         rdd.map.return_value.collect.return_value = [(0, [])]
@@ -1115,6 +1195,9 @@ class TestRun:
         args['format'] = 'full'
 
         spark_context = MagicMock()
+        # accumulator() must yield .value == the seed, like test_copy does,
+        # or run()'s `if error_accumulator.value` sees a truthy MagicMock.
+        spark_context.accumulator = MagicMock(side_effect=lambda init, *_: MagicMock(value=init))
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
         rdd.map.return_value.collect.return_value = [(0, [])]
@@ -1127,6 +1210,9 @@ class TestRun:
         del args['splits']
 
         spark_context = MagicMock()
+        # accumulator() must yield .value == the seed, like test_copy does,
+        # or run()'s `if error_accumulator.value` sees a truthy MagicMock.
+        spark_context.accumulator = MagicMock(side_effect=lambda init, *_: MagicMock(value=init))
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
         rdd.map.return_value.collect.return_value = [(0, []) for _ in range(400)]
@@ -1208,7 +1294,8 @@ class TestDiffSegmentAlignment:
             'table1', 'table2',
             {}, {},
             0, 1, False, True, 'job1', None,
-            self._make_schema_broadcast(), MagicMock()
+            self._make_schema_broadcast(), MagicMock(),
+            _FakeAccumulator(),
         )
         minus_lines = [r for r in result if r.startswith('-')]
         plus_lines = [r for r in result if r.startswith('+')]
@@ -1275,7 +1362,8 @@ class TestDiffSegmentSortKeyEdges:
         _, result = diff_module.diff_segment(
             'table1', 'table2', {}, {},
             0, 1, False, True, 'job1', None,
-            self._make_schema_broadcast(), MagicMock()
+            self._make_schema_broadcast(), MagicMock(),
+            _FakeAccumulator(),
         )
         assert len(result) == 1
         assert result[0].startswith('*')
@@ -1324,7 +1412,8 @@ class TestDiffSegmentSortKeyEdges:
         _, result = diff_module.diff_segment(
             'table1', 'table2', {}, {},
             0, 1, False, False, 'job1', None,
-            self._make_schema_broadcast(), MagicMock()
+            self._make_schema_broadcast(), MagicMock(),
+            _FakeAccumulator(),
         )
         assert len(result) == 2
         assert result[0].startswith('-')
@@ -1379,7 +1468,8 @@ class TestDiffSegmentSortKeyEdges:
         _, result = diff_module.diff_segment(
             'table1', 'table2', {}, {},
             0, 1, False, True, 'job1', None,
-            self._make_schema_broadcast(), MagicMock()
+            self._make_schema_broadcast(), MagicMock(),
+            _FakeAccumulator(),
         )
         minus_lines = [r for r in result if r.startswith('-')]
         plus_lines = [r for r in result if r.startswith('+')]
@@ -1434,7 +1524,8 @@ class TestDiffSegmentSortKeyEdges:
         _, result = diff_module.diff_segment(
             'table1', 'table2', {}, {},
             0, 1, False, True, 'job1', None,
-            self._make_schema_broadcast(), MagicMock()
+            self._make_schema_broadcast(), MagicMock(),
+            _FakeAccumulator(),
         )
         plus_lines = [r for r in result if r.startswith('+')]
         assert len(plus_lines) == 2
@@ -1487,7 +1578,8 @@ class TestDiffSegmentSortKeyEdges:
         _, result = diff_module.diff_segment(
             'table1', 'table2', {}, {},
             0, 1, False, True, 'job1', None,
-            self._make_schema_broadcast(), MagicMock()
+            self._make_schema_broadcast(), MagicMock(),
+            _FakeAccumulator(),
         )
         minus_lines = [r for r in result if r.startswith('-')]
         assert len(minus_lines) == 2
@@ -1630,7 +1722,8 @@ class TestCrossRegionDiff:
         arn2 = 'arn:aws:dynamodb:eu-west-1:123456789012:table/t2'
         diff_module.diff_segment(
             arn1, arn2, {}, {}, 0, 1, False, True, 'job1', None,
-            self._schema_broadcast(), MagicMock()
+            self._schema_broadcast(), MagicMock(),
+            _FakeAccumulator(),
         )
 
         for c in mock_rl.call_args_list:
@@ -1651,7 +1744,8 @@ class TestCrossRegionDiff:
 
         diff_module.diff_segment(
             'table1', 'table2', {}, {}, 0, 1, False, True, 'job1', None,
-            self._schema_broadcast(), MagicMock()
+            self._schema_broadcast(), MagicMock(),
+            _FakeAccumulator(),
         )
 
         for c in mock_rl.call_args_list:
@@ -1674,7 +1768,8 @@ class TestCrossRegionDiff:
         arn1 = 'arn:aws:dynamodb:ap-southeast-1:123456789012:table/t1'
         diff_module.diff_segment(
             arn1, 'plain-table', {}, {}, 0, 1, False, True, 'job1', None,
-            self._schema_broadcast(), MagicMock()
+            self._schema_broadcast(), MagicMock(),
+            _FakeAccumulator(),
         )
 
         calls = mock_stream_cls.call_args_list
@@ -1732,6 +1827,9 @@ class TestCrossRegionDiff:
         monkeypatch.setattr(diff_module, 'RateLimiterAggregator', agg_cls)
         monkeypatch.setattr(diff_module, 'get_dynamodb_throughput_configs', MagicMock(return_value={}))
         spark_context = MagicMock()
+        # accumulator() must yield .value == the seed, like test_copy does,
+        # or run()'s `if error_accumulator.value` sees a truthy MagicMock.
+        spark_context.accumulator = MagicMock(side_effect=lambda init, *_: MagicMock(value=init))
         rdd = MagicMock()
         spark_context.parallelize.return_value = rdd
         rdd.map.return_value.collect.return_value = [(0, [])]

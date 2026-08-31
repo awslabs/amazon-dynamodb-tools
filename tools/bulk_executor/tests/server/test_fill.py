@@ -1073,3 +1073,63 @@ class TestModuleConstants:
     def test_validation_exception_constant(self):
         """Line 28: DYNAMO_DB_VALIDATION_EXCEPTION."""
         assert fill_module.DYNAMO_DB_VALIDATION_EXCEPTION == 'ValidationException'
+
+
+class TestFillWorkerRecordsNonClientErrors:
+    """A worker must not let a non-ClientError escape (issue #327).
+
+    _fill_data's handler caught only botocore ClientError, so anything else --
+    notably a generator returning items whose keys don't match the table schema,
+    which raises KeyError inside batch_writer -- escaped the worker. That cost
+    four Spark task retries, aborted the job, and reached the driver as a Py4J
+    wrapper: 625 log lines whose closing line was a joined Java traceback with no
+    usable cause. Measured while testing authorization failures, where a KeyError
+    from a mismatched generator masked the denial entirely.
+    """
+
+    def _wire(self, monkeypatch):
+        rl_instance = MagicMock()
+        session = MagicMock()
+        rl_instance.get_session.return_value = session
+        table = MagicMock()
+        bw = MagicMock()
+        bw.__enter__ = MagicMock(return_value=bw)
+        bw.__exit__ = MagicMock(return_value=False)
+        table.batch_writer.return_value = bw
+        session.resource.return_value.Table.return_value = table
+        monkeypatch.setattr(fill_module, 'RateLimiterWorker', MagicMock(return_value=rl_instance))
+        return rl_instance, bw
+
+    def test_key_error_is_recorded_not_raised(self, monkeypatch):
+        rl_instance, bw = self._wire(monkeypatch)
+        bw.put_item = MagicMock(side_effect=KeyError('pk'))
+        errors = []
+        error_acc = MagicMock()
+        error_acc.add = MagicMock(side_effect=errors.extend)
+
+        # Must not raise.
+        fill_module._fill_data({}, 'tbl', 1, MagicMock(return_value=[{'wrongkey': 'x'}]),
+                               MagicMock(), error_acc, MagicMock(), ['pk'])
+
+        assert len(errors) == 1, f"expected one recorded error, got {errors}"
+        assert 'Error in worker' in errors[0]
+        rl_instance.shutdown.assert_called_once()
+
+    def test_client_error_still_takes_the_specific_path(self, monkeypatch):
+        """The pre-existing ClientError handling must be unchanged."""
+        import botocore.exceptions
+        rl_instance, bw = self._wire(monkeypatch)
+        err = botocore.exceptions.ClientError(
+            {'Error': {'Code': 'ValidationException',
+                       'Message': 'The provided key element does not match the schema'}},
+            'BatchWriteItem')
+        bw.put_item = MagicMock(side_effect=err)
+        errors = []
+        error_acc = MagicMock()
+        error_acc.add = MagicMock(side_effect=errors.extend)
+
+        fill_module._fill_data({}, 'tbl', 1, MagicMock(return_value=[{'pk': 'x'}]),
+                               MagicMock(), error_acc, MagicMock(), ['pk'])
+
+        assert len(errors) == 1
+        assert 'Schema validation error' in errors[0], errors
