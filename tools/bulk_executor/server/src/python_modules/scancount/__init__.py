@@ -22,6 +22,7 @@ class DecimalEncoder(json.JSONDecoder):
 
 # Custom Library Imports
 sys.path.append('/server/src')
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.errors import *
 from python_modules.shared.pricing import PricingUtility
 from python_modules.shared.rate_limiter import (
@@ -113,7 +114,7 @@ def run(job, spark_context, glue_context, parsed_args):
         rate_limiter_aggregator.shutdown()
     if error_accumulator.value:
         first_error = error_accumulator.value[0]
-        raise Exception(first_error) from None
+        raise BulkExecutorError(first_error) from None
 
     scanned_count = sum(count for _, count in segment_counts)
 

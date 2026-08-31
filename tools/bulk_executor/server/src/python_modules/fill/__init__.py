@@ -9,6 +9,7 @@ from awsglue.context import GlueContext
 from awsglue.job import Job
 from botocore.config import Config
 from pyspark.context import SparkContext
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.errors import *
 from python_modules.shared.pricing import PricingUtility
 from python_modules.shared.table_info import get_and_print_dynamodb_table_info
@@ -123,7 +124,7 @@ def run(job, spark_context, glue_context, parsed_args):
         rate_limiter_aggregator.shutdown()
     if error_accumulator.value:
         first_error = error_accumulator.value[0]
-        raise Exception(first_error) from None
+        raise BulkExecutorError(first_error) from None
 
     # Print the total records inserted using the accumulator after all tasks complete
     log.info(f"Total records filled: {total_inserted_accumulator.value:,}")

@@ -50,6 +50,25 @@ Do **not** work from a hard-coded list.
 - For each, locate the `try` and confirm its `except` clauses, then confirm the
   matching driver-side check.
 
+## The exception type decides whether there is a traceback
+
+Recording and surfacing is not enough: **the driver must raise
+`BulkExecutorError`**, which `root.py` turns into `sys.exit(str(e))`. Anything else
+is re-raised, so the user gets a Python traceback and a `GlueExceptionAnalysis` blob
+on top of the message.
+
+Measured on a denied `diff`: **82 lines with a traceback** when the driver raised a
+plain `Exception`, **52 lines and no traceback** once it raised `BulkExecutorError`.
+The message text was byte-identical in both. This is the kind of difference that
+reads as fine in review, passes a unit test asserting on the message, and is only
+visible in real output — so check the type, not just the text.
+
+A deterministic guard now covers the raise sites
+(`tests/test_accumulator_errors_are_bulk_executor_errors.py`), which is worth knowing
+because it found a seventh site nobody had noticed:
+`shared/export/pipeline/writer.py`. Do not treat the guard as replacing this rule —
+it checks the raise type, not whether a handler exists or is broad enough.
+
 ## Two traps worth checking explicitly
 
 - **`batch_writer` flushes on `with` exit.** A per-item `try` inside the loop does
@@ -91,11 +110,32 @@ Two things that look like compliance and are not:
 - `foreachPartition` has no return value, so an accumulator is the only channel;
   points 1, 2 and 4 still apply.
 
+## Verifying against real AWS
+
+Reading the code cannot tell you what the user sees, and two things about *setting up*
+the test have burned time here:
+
+- **A no-access role does not exercise write paths.** With no `Scan` permission, a
+  verb that reads before writing (`find --delete`, `copy`) fails on the *read* first
+  and never reaches the write. Exercising a denied write needs a role that **can read
+  and cannot write** — which is also the realistic case, since that is what
+  `--XRole READ-ONLY` produces.
+- **Custom IAM roles are the fast lever.** Identity-based policies take effect
+  immediately; a DynamoDB resource-based policy took **5-10 minutes** to become
+  visible in testing, which makes an iteration loop painful. Note that bootstrap
+  leaves a custom role untouched (#330), so what you grant is what the job gets.
+
+Judge the result on three things, not one: the **line count** (a conforming denial is
+tens of lines, not hundreds), whether any of `Traceback`, `py4j`,
+`GlueExceptionAnalysis` or `at org.apache.spark` appears at all, and the **closing
+line**.
+
 ## How to report
 
 For each worker entry point, state one of:
 
-- `conforms — <function>: except Exception -> <accumulator>, driver raises at <line>`
+- `conforms — <function>: except Exception -> <accumulator>, driver raises
+  BulkExecutorError at <line>`
 - a **finding**: name the function, say which point fails (no handler / handler too
   narrow / records but the driver never checks / raises instead of returning), and
   give the shape of the consequence (log volume, closing line).
@@ -112,8 +152,11 @@ State what you verified even when clean, so a pass is trustworthy.
 
 - Conforms: `copy` (`_copy_data`), `update` (`_update_data`), `scancount`
   (`_count_data`), `diff` (`diff_segment`), `fill` (`_fill_data`), `find --delete`
-  (`delete_partition`). The last three were fixed in the PR that added this rule;
-  the first three were the pattern it copies.
+  (`delete_partition`), and `shared/export/pipeline/writer.py`. The last three verbs
+  were fixed in the PR that added this rule; the first three were the pattern it
+  copies. All seven now raise `BulkExecutorError` — verified live for `diff`, `fill`
+  and `find --delete`: 41-52 lines, no traceback, closing line naming the principal,
+  action and resource.
 - **Does not conform to invariant 2, tracked as #332:** `find`, `count` and `sql`.
   A table the role cannot `Scan` gives 314-324 lines closing on
   `Error Category: UNCLASSIFIED_ERROR; Failed Line Number: 1362; An error occurred
@@ -121,10 +164,9 @@ State what you verified even when clean, so a pass is trustworthy.
   there, but it arrives as an unhandled Py4J exception. Compare the worker-side
   verbs, which now close on `Error during delete: User ... is not authorized to
   perform: dynamodb:BatchWriteItem` in 26-82 lines.
-- Not yet audited: `load`, `load_export`, `revert_export`, and
-  `shared/export/pipeline`. The export pipeline does use an `error_accumulator` for
-  transform and key-resolution failures, but whether every worker entry point in
-  those paths is covered has not been checked — treat them as unknown, not as
-  passing.
+- Partly audited: `load`, `load_export`, `revert_export`. Their shared write path
+  (`shared/export/pipeline/writer.py`) is now correct, but whether every worker entry
+  point in those paths records rather than escapes has not been checked — treat the
+  verbs as unknown, not as passing.
 - There is deliberately **no** `root.py` catch-all yet (it is option 1 in #332), so
   this rule is the only thing standing between a new verb and a 900-line failure.

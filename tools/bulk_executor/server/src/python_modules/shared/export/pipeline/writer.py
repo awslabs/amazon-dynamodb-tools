@@ -1,5 +1,6 @@
 from ...logger import log
 from ..writers.writer_factory import WriterFactory
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 
 
 def write(spark_context, items_rdd, export_load_type, table_name, rate_limiter_shared_config, monitor_options, error_accumulator, debug_accumulator):
@@ -34,6 +35,6 @@ def write(spark_context, items_rdd, export_load_type, table_name, rate_limiter_s
 
     if error_accumulator.value:
         first_error = error_accumulator.value[0]
-        raise Exception(first_error) from None
+        raise BulkExecutorError(first_error) from None
 
     return written_items_accumulator

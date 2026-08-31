@@ -13,6 +13,7 @@ from pyspark.context import SparkContext
 
 # Custom Library Imports
 sys.path.append('/server/src')
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.errors import *
 from python_modules.shared.failure_reporter import BoundedFailureReporter
 from python_modules.shared.logger import log
@@ -87,7 +88,7 @@ def run(job, spark_context, glue_context, parsed_args):
         rate_limiter_aggregator.shutdown()
     if error_accumulator.value:
         first_error = error_accumulator.value[0]
-        raise Exception(first_error) from None
+        raise BulkExecutorError(first_error) from None
 
     # Print the total records inserted using the accumulator after all tasks complete
     #print(f"Total records scanned and possibly updated: {updated_accumulator.value:,}")

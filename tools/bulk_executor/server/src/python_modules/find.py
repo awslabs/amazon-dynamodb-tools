@@ -264,7 +264,7 @@ def run(job, spark_context, glue_context, parsed_args):
             # A batch-level failure means the delete did not do what was asked, so it
             # is fatal rather than a count to report.
             if delete_error_accumulator.value:
-                raise Exception(delete_error_accumulator.value[0]) from None
+                raise BulkExecutorError(delete_error_accumulator.value[0]) from None
 
             # Report failures rather than claiming every matched item was deleted. The
             # per-item detail is in the executor logs, which the console never shows.

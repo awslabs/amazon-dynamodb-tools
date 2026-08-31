@@ -8,6 +8,7 @@ from boto3 import Session
 from botocore.config import Config
 
 sys.path.append('/server/src')
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.errors import ListAccumulator, get_error_message
 from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info,
@@ -397,7 +398,7 @@ def run(job, spark_context, glue_context, parsed_args):
         rate_limiter_aggregator.shutdown()
 
     if error_accumulator.value:
-        raise Exception(error_accumulator.value[0]) from None
+        raise BulkExecutorError(error_accumulator.value[0]) from None
 
     total = sum(count for count, _ in rdd2)
 

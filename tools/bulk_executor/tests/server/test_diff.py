@@ -1854,3 +1854,32 @@ class TestCrossRegionDiff:
 
         agg_cls.assert_called_once()
         assert 'region_name' not in agg_cls.call_args.kwargs
+
+
+class TestDriverRaisesBulkExecutorError:
+    """The driver must raise BulkExecutorError, not a plain Exception.
+
+    root.py catches BulkExecutorError and calls sys.exit(str(e)), which Glue records
+    as the job's ErrorMessage and the client prints as its closing line. A plain
+    Exception is re-raised instead, so the user gets a Python traceback and a
+    GlueExceptionAnalysis blob on top of the message: measured at 82 lines with a
+    traceback, against 52 lines and none once this raised BulkExecutorError.
+    """
+
+    def test_diff_run_raises_bulk_executor_error(self, monkeypatch):
+        from python_modules.shared.bulk_executor_error import BulkExecutorError
+        run_mocks = TestRun()
+        run_mocks._setup_run_mocks(monkeypatch)
+        args = TestRun()._base_args()
+
+        recorded = ['Error in worker 0: not authorized to perform: dynamodb:Scan']
+        spark_context = MagicMock()
+        spark_context.accumulator = MagicMock(
+            side_effect=lambda init, *_: MagicMock(value=recorded if isinstance(init, list) else init))
+        rdd = MagicMock()
+        spark_context.parallelize.return_value = rdd
+        rdd.map.return_value.collect.return_value = [(0, [])]
+
+        with pytest.raises(BulkExecutorError) as exc:
+            diff_module.run(MagicMock(), spark_context, MagicMock(), args)
+        assert 'dynamodb:Scan' in str(exc.value)
