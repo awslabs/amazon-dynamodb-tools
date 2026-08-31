@@ -1197,3 +1197,79 @@ class TestBootstrapInit:
         assert instance.s3_client is clients.s3_client
         assert instance.glue_client is clients.glue_client
         assert instance.logs_client is clients.logs_client
+
+
+class TestCustomRolesAreNotModified:
+    """A role the operator supplied belongs to the operator (regression from #326).
+
+    #326 made provisioning unconditional so a bootstrap-generated role is always
+    brought up to what the current version needs. Applied to a *custom* role that
+    silently widened it: a role deliberately built with describe-only DynamoDB
+    access came back from bootstrap holding AWSGlueServiceRole and
+    AmazonDynamoDBReadOnlyAccess plus three inline policies, so a role built to
+    have no table access could read every table in the account. Caught while using
+    such a role to test error handling -- the denial never happened because
+    bootstrap had granted the access.
+    """
+
+    def _custom(self, bootstrap):
+        bootstrap._prompt_for_role = MagicMock()
+        bootstrap._is_existing_role = MagicMock(return_value=True)
+        bootstrap._validated_custom_roles = {'MyOwnRole'}
+        return {'XRole': 'MyOwnRole'}
+
+    def test_no_policies_are_attached_to_a_custom_role(self, bootstrap):
+        bootstrap._add_glue_job_role(self._custom(bootstrap))
+        bootstrap.iam_client.attach_role_policy.assert_not_called()
+        bootstrap.iam_client.put_role_policy.assert_not_called()
+
+    def test_trust_policy_of_a_custom_role_is_untouched(self, bootstrap):
+        bootstrap._add_glue_job_role(self._custom(bootstrap))
+        bootstrap.iam_client.update_assume_role_policy.assert_not_called()
+        bootstrap.iam_client.create_role.assert_not_called()
+
+    def test_generated_roles_are_still_provisioned(self, bootstrap):
+        """The #326 behaviour must survive for roles bootstrap owns."""
+        from infrastructure.constants import ROLE_TYPE_READ_ONLY
+
+        class EntityAlreadyExistsException(Exception):
+            pass
+        bootstrap.iam_client.exceptions.EntityAlreadyExistsException = (
+            EntityAlreadyExistsException
+        )
+        bootstrap.iam_client.create_role.side_effect = EntityAlreadyExistsException()
+        bootstrap._prompt_for_role = MagicMock()
+
+        bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_ONLY})
+
+        bootstrap.iam_client.attach_role_policy.assert_called()
+        bootstrap.iam_client.put_role_policy.assert_called()
+
+    def test_operator_path_never_reaches_provisioning(self, bootstrap):
+        """Structural: the two paths share nothing.
+
+        Asserting on the seam rather than on its symptoms -- if a future edit lets
+        the operator path fall through again, this fails even if that edit happens
+        to attach nothing on the day.
+        """
+        bootstrap._provision_generated_role = MagicMock()
+        bootstrap._add_glue_job_role(self._custom(bootstrap))
+        bootstrap._provision_generated_role.assert_not_called()
+
+    def test_generated_path_delegates_to_provisioning(self, bootstrap):
+        from infrastructure.constants import ROLE_TYPE_READ_WRITE
+        bootstrap._prompt_for_role = MagicMock()
+        bootstrap._provision_generated_role = MagicMock()
+
+        bootstrap._add_glue_job_role({'XRole': ROLE_TYPE_READ_WRITE})
+
+        bootstrap._provision_generated_role.assert_called_once()
+        role_name = bootstrap._provision_generated_role.call_args.args[0]
+        assert 'DdbReadWrite' in role_name, role_name
+
+    def test_is_custom_role_classification(self, bootstrap):
+        from infrastructure.constants import ROLE_TYPE_READ_ONLY, ROLE_TYPE_READ_WRITE
+        assert bootstrap._is_custom_role({'XRole': 'SomeRole'}) is True
+        assert bootstrap._is_custom_role({'XRole': ROLE_TYPE_READ_ONLY}) is False
+        assert bootstrap._is_custom_role({'XRole': ROLE_TYPE_READ_WRITE}) is False
+        assert bootstrap._is_custom_role({}) is False, "no --XRole means we generate one"

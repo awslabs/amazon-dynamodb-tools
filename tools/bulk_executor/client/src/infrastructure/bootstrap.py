@@ -117,11 +117,30 @@ class BootstrapInfrastructure:
         role_id = READ_WRITE_ROLE_ID if is_write_access else READ_ONLY_ROLE_ID
         return f"{GLUE_JOB_ROOT_ROLE_NAME}-{role_id}-{self.aws_region}" # region definition for separate region specific permissioning
 
+    def _is_custom_role(self, args):
+        """True when the operator supplied their own role name via --XRole."""
+        role_param = args.get('XRole', '')
+        return bool(role_param) and role_param not in READ_WRITE_ROLE_TYPES
+
     def _add_glue_job_role(self, args):
+        """Use the role the operator gave us, or provision one of ours."""
         log.info("Adding Glue Job role...")
         self._prompt_for_role(args)
         role_name = self._get_role_name(args)
 
+        if self._is_custom_role(args):
+            # _get_role_name has already validated it; it is not ours to change.
+            log.info(f"Using custom Glue Job Role '{role_name}'")
+            return
+
+        self._provision_generated_role(role_name, args)
+
+    def _provision_generated_role(self, role_name, args):
+        """Create the role, or bring an existing one up to current needs.
+
+        Every call here is idempotent, so a generated role ends up matching what
+        this version expects after any bootstrap (#326).
+        """
         trust_policy = {
             "Version": "2012-10-17",
             "Statement": [
