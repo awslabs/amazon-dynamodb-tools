@@ -1078,15 +1078,13 @@ class TestModuleConstants:
 
 
 class TestFillWorkerRecordsNonClientErrors:
-    """A worker must not let a non-ClientError escape (issue #327).
+    """A worker must not let a non-ClientError escape (issue #327), and what it
+    records depends on whether the failure is one we can explain.
 
-    _fill_data's handler caught only botocore ClientError, so anything else --
-    notably a generator returning items whose keys don't match the table schema,
-    which raises KeyError inside batch_writer -- escaped the worker. That cost
-    four Spark task retries, aborted the job, and reached the driver as a Py4J
-    wrapper: 625 log lines whose closing line was a joined Java traceback with no
-    usable cause. Measured while testing authorization failures, where a KeyError
-    from a mismatched generator masked the denial entirely.
+    A generated item that doesn't carry the table's key attributes is the common
+    case -- boto3 raises a bare KeyError from batch_writer's de-duplication, which
+    says nothing about what went wrong -- so it is detected before the write and
+    named. Anything else a user's generator raises gets its traceback.
     """
 
     def _wire(self, monkeypatch):
@@ -1102,22 +1100,43 @@ class TestFillWorkerRecordsNonClientErrors:
         monkeypatch.setattr(fill_module, 'RateLimiterWorker', MagicMock(return_value=rl_instance))
         return rl_instance, bw
 
-    def test_key_error_is_recorded_not_raised(self, monkeypatch):
+    def test_item_missing_a_key_attribute_is_reported_politely(self, monkeypatch):
+        """A generator that doesn't match the key schema is an ordinary mistake, so
+        name what is missing rather than dumping boto3's bare KeyError."""
         rl_instance, bw = self._wire(monkeypatch)
-        bw.put_item = MagicMock(side_effect=KeyError('pk'))
         errors = []
         error_acc = MagicMock()
         error_acc.add = MagicMock(side_effect=errors.extend)
 
         # Must not raise.
-        fill_module._fill_data({}, 'tbl', 1, MagicMock(return_value=[{'wrongkey': 'x'}]),
+        fill_module._fill_data({}, 'tbl', 1,
+                               MagicMock(return_value=[{'wrongkey': 'x', 'payload': 'y'}]),
+                               MagicMock(), error_acc, MagicMock(), ['pk'])
+
+        assert len(errors) == 1, f"expected one recorded error, got {errors}"
+        message, detail = errors[0]
+        assert "missing the table's key attribute(s) ['pk']" in message
+        assert "the item has ['payload', 'wrongkey']" in message, "say what it did produce"
+        assert "'tbl'" in message, "name the table whose schema it has to match"
+        assert detail is None, "an expected mistake needs no traceback"
+        bw.put_item.assert_not_called(), "don't write an item we know DynamoDB will reject"
+        rl_instance.shutdown.assert_called_once()
+
+    def test_generator_raising_is_reported_with_a_traceback(self, monkeypatch):
+        """Anything else out of a user's generator is not something we can explain."""
+        rl_instance, bw = self._wire(monkeypatch)
+        errors = []
+        error_acc = MagicMock()
+        error_acc.add = MagicMock(side_effect=errors.extend)
+
+        fill_module._fill_data({}, 'tbl', 1, MagicMock(side_effect=RuntimeError('faker blew up')),
                                MagicMock(), error_acc, MagicMock(), ['pk'])
 
         assert len(errors) == 1, f"expected one recorded error, got {errors}"
         message, detail = errors[0]
         assert 'Error in worker' in message
-        assert "KeyError" in message, "the type, since a KeyError message is just the key"
-        assert 'Traceback' in detail, "a generator producing the wrong shape is not ours to explain"
+        assert 'RuntimeError' in message, "the type, since a bare message can be cryptic"
+        assert 'Traceback' in detail
         rl_instance.shutdown.assert_called_once()
 
     def test_client_error_still_takes_the_specific_path(self, monkeypatch):
