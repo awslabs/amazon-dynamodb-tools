@@ -195,12 +195,31 @@ class BootstrapInfrastructure:
             self._role_created_this_run = role_name
         except self.iam_client.exceptions.EntityAlreadyExistsException as e:
             log.info(f"Found Bulk Executor Glue Job Role: {role_name}")
-            if not self._needs_role_refresh():
-                return
-            # The role already exists, so create_role (which sets the trust
-            # policy) was skipped. Re-apply the trust policy on refresh so the
-            # role ends up with the same AssumeRolePolicyDocument a fresh
-            # bootstrap would create, not the one baked in when it was first made.
+            log.debug(f"Applying the current policy set to {role_name}")
+            # Deliberately falls through to the policy work below: a
+            # bootstrap-generated role is brought up to what *this* version wants
+            # on every bootstrap, not only when __version__ changed.
+            #
+            # This used to be gated on _needs_role_refresh(), which compared the
+            # deployed Glue job's version against the local one. That answered "is
+            # the job stale?" when the question is "is this role provisioned the way
+            # this version expects?", and it missed two real cases (issue #326):
+            #
+            #   - Re-bootstrapping with a different --XRole. Each role type is its
+            #     own role (...-DdbReadOnly-... vs ...-DdbReadWrite-...), so the one
+            #     you switch to may never have been touched since a version bump
+            #     repaired the other -- yet version parity now holds, so it was
+            #     skipped forever.
+            #   - A role left half-provisioned by anything at all. CloudTrail showed
+            #     an interrupted e2e security run creating the role and stopping
+            #     after the two managed-policy attaches, so it sat with no inline
+            #     policies. Every verb then died in the cost estimate with
+            #     AccessDenied on pricing:GetProducts, and re-bootstrapping could not
+            #     fix it because the version matched.
+            #
+            # Every call below is idempotent, so doing them unconditionally is both
+            # cheap and self-repairing. The trust policy is re-applied here because
+            # create_role -- which would have set it -- was skipped.
             try:
                 self.iam_client.update_assume_role_policy(
                     RoleName=role_name,
@@ -258,22 +277,6 @@ class BootstrapInfrastructure:
         except Exception as e:
             log.error(f'Unexpected error: {e}')
             exit(1)
-
-    def _needs_role_refresh(self):
-        job_details = self._get_glue_job_details()
-        if not job_details:
-            return True
-        deployed_version = job_details['Job']['DefaultArguments'].get('--bulk-dynamodb-version')
-        if not deployed_version:
-            return True
-        if deployed_version != VERSION:
-            log.info(
-                f"Version mismatch (deployed Glue job is v{deployed_version}, "
-                f"local is v{VERSION}); refreshing the role's IAM policies to "
-                f"match the version being bootstrapped."
-            )
-            return True
-        return False
 
     def _is_existing_role(self, role_name):
         try:

@@ -175,12 +175,12 @@ _NEGATIVE_TEST_SKIP_ACTIONS = {
         "required on the re-bootstrap path."
     ),
     "iam:UpdateAssumeRolePolicy": (
-        "role-refresh only: reached in _add_glue_job_role's "
-        "EntityAlreadyExistsException handler, gated on _needs_role_refresh, where "
-        "create_role was skipped so the trust policy is re-applied separately. "
-        "Teardown deletes the role, so each run starts roleless and takes "
-        "create_role, which sets the trust policy itself. Required on the refresh "
-        "path, which fires after any __version__ bump."
+        "existing-role only: reached in _add_glue_job_role's "
+        "EntityAlreadyExistsException handler, where create_role was skipped so the "
+        "trust policy is re-applied separately. Teardown deletes the role, so each "
+        "run starts roleless and takes create_role, which sets the trust policy "
+        "itself. Required whenever the role already exists -- which since #326 is "
+        "every re-bootstrap, not just after a __version__ bump."
     ),
     "iam:GetRole": (
         "custom-role only: called from _is_existing_role, whose callers both sit "
