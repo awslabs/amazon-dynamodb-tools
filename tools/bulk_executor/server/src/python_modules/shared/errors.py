@@ -47,13 +47,35 @@ def get_error_message(e):
         except json.JSONDecodeError:
             pass  # fallback
 
-    # Look for DynamoDB exception message
+    # Look for DynamoDB exception message (AWS SDK v1, which Glue 4 and earlier used)
     dynamo_match = re.search(
         r'com\.amazonaws\.services\.dynamodbv2\.model\.AmazonDynamoDBException:\s*(.*?)\s*\(Service:',
         msg
     )
     if dynamo_match:
         return dynamo_match.group(1).strip()
+
+    # A Java exception relayed through Py4J. str() on one of these is the entire Java
+    # stack -- hundreds of frames -- with the sentence that matters on the second line:
+    #
+    #   py4j.protocol.Py4JJavaError: An error occurred while calling o304.load.
+    #   : software.amazon.awssdk.services.dynamodb.model.DynamoDbException: User: ...
+    #           is not authorized to perform: dynamodb:Scan on resource: ...
+    #           at software.amazon.awssdk...(DynamoDbException.java:113)
+    #
+    # Take the innermost cause's message: for a wrapped failure the outer layer is
+    # usually Spark boilerplate ("Job aborted due to stage failure") and the cause is
+    # the AWS sentence the user needs. The message can wrap onto continuation lines, so
+    # keep going until a stack frame or a new exception header.
+    java_causes = re.findall(
+        r'^(?:: |Caused by: )(?:[\w$]+\.)+([\w$]*(?:Exception|Error)): '
+        r'(.*(?:\n(?!\s*(?:at |\.\.\. )|: |Caused by: ).*)*)',
+        msg, re.MULTILINE)
+    if java_causes:
+        _cls, detail = java_causes[-1]
+        detail = ' '.join(detail.split())
+        if detail:
+            return detail
 
     # ParseException handling
     if hasattr(e, 'desc'):  # ParseException

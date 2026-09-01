@@ -55,12 +55,16 @@ TERMINAL_JOB_STATES = set([
 ])
 
 # Markers the job prints when it has already told the user what went wrong: a
-# BulkExecutorError sentence, or a worker traceback that names the offending line.
-# Either way Glue's exception analysis adds nothing but volume afterwards.
-# The second must match worker_errors.UNEXPECTED_FAILURE_BANNER.
+# BulkExecutorError sentence, or a traceback that names the offending line -- from a
+# worker or from the driver. Either way Glue's exception analysis adds nothing but volume
+# afterwards, and for a driver-side failure it also restates the same error through Py4J.
+# The last two must match worker_errors.UNEXPECTED_FAILURE_BANNER and
+# driver_errors.UNEXPECTED_FAILURE_BANNER (a guard test checks both).
 JOB_EXPLAINED_THE_FAILURE = (
     'BulkExecutorError',
     'A worker failed in a way we did not expect. Traceback from the worker:',
+    'The job failed in a way we did not expect. Traceback:',
+    'Bulk Executor failure: ',
 )
 
 # Timing constants

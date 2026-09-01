@@ -81,20 +81,36 @@ def run(job, spark_context, glue_context, parsed_args):
     if not check_s3_file_exists(s3_path):
         raise BulkExecutorError(f"The S3 path '{s3_path}' doesn't exist or is not accessible")
 
-    dynamicFrame = read_data(glue_context, s3_path, parsed_args)
-
+    # Inside the same handler as the count below: some formats fail here instead. Parquet
+    # reads its footer while the frame is being created, so `--format parquet` at a CSV
+    # file raises from read_data, while a JSON or CSV mismatch only surfaces at count().
+    # Measured before this was wrapped: the Parquet case reported as an unexpected failure
+    # ("Py4JJavaError: ... is not a Parquet file") rather than as the user's own mistake.
     count = 0
     try:
+        dynamicFrame = read_data(glue_context, s3_path, parsed_args)
         count = dynamicFrame.count()
         if count == 0:
-            log.error("No data found, please check your data source") # Should perhaps check that the path exists
+            # Logged as a warning, not an error: this run goes on to succeed, and an ERROR
+            # line above "Job completed successfully" is a contradiction the reader has to
+            # resolve. An empty drop is also a legitimate input -- the export pipeline
+            # treats a 0-item export the same way. Whether a source that holds bytes but
+            # yields no rows should fail instead is a separate question (#340).
+            log.warning(
+                f"Read 0 items from '{s3_path}' as {parsed_args.get('format')!r} -- "
+                f"nothing was loaded. If that is unexpected, check --format and the path.")
             return
         log.info(f"\nPreparing to load {count} items")
         log.info("Schema is:")
         dynamicFrame.printSchema()
 
     except Exception as e:
-        raise Exception(f"Failed to create DynamicFrame {e}")
+        # This is where Spark actually reads the source, so it fires on the everyday
+        # mistakes: --format json pointed at CSV, malformed JSON, an unreadable Parquet
+        # file. (A path that does not exist is caught earlier, before the job starts.)
+        raise BulkExecutorError(
+            f"Could not read the source at '{s3_path}' as {parsed_args.get('format')!r}: "
+            f"{get_error_message(e)}") from None
 
     if parsed_args.get('removeEmptyStringAttributes') is not None:
         log.debug(f"removeEmptyStringAttributes parameter was provided")
@@ -114,7 +130,9 @@ def run(job, spark_context, glue_context, parsed_args):
             glue_context, df, table_name, parsed_args, write_rate=write_rate)
         log.info(f"Wrote {count} items to '{table_name}'")
     except Exception as e:
-        raise Exception(f"Error in writing to table: {get_error_message(e)}") from None
+        # The connector write: a read-only role or persistent throttling lands here, and
+        # get_error_message unwraps the Py4J stack to AWS's own sentence.
+        raise BulkExecutorError(f"Error in writing to table: {get_error_message(e)}") from None
 
 def check_s3_file_exists(s3_uri):
     """

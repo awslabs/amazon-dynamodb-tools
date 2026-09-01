@@ -345,6 +345,77 @@ class TestPrettyPrintLogEvent:
         assert captured.out == ''
         assert captured.err == ''
 
+    def test_driver_failure_marker_suppresses_the_glue_blob(self, bulk_runner, capsys, monkeypatch):
+        """#332: an understood driver-side failure prints one sentence, and Glue's
+        exception-analysis blob that sometimes follows a clean sys.exit is dropped.
+
+        Glue emits that blob unpredictably -- observed after a denied `find` but not after a
+        denied `count` in the same batch -- so this is asserted here rather than trusted to
+        show up in a live run."""
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
+
+        denial = _make_event(message=(
+            "Bulk Executor failure: User: arn:aws:sts::1:assumed-role/R/GlueJobRunnerSession is not "
+            "authorized to perform: dynamodb:Scan on resource: table/t"
+        ))
+        bulk_runner._pretty_print_log_event(denial)
+        first = capsys.readouterr().out
+        assert 'not authorized to perform' in first, "the sentence itself must print"
+
+        blob = _make_event(message=(
+            "2026-09-01 08:49:19 ERROR GlueExceptionAnalysisListener:9 - "
+            "[Glue Exception Analysis] {\"Failure Reason\": \"Traceback (most recent call last)...\"}"
+        ))
+        bulk_runner._pretty_print_log_event(blob)
+        assert capsys.readouterr().out == '', "Glue's restatement adds nothing after it"
+
+    def test_suppresses_sparks_own_query_analysis_dump(self, bulk_runner, capsys):
+        """#332: Spark logs an analysis failure itself, at ERROR, as one JSON event holding
+        the message plus ~90 Java frames and the query plan -- before our handler turns it
+        into "SQL query error: ...". Measured on a mistyped column: 90 of 148 lines.
+
+        The message below is the head of the verbatim CloudWatch event (10,850 chars, a
+        single event, so one anchor drops all of it).
+        """
+        ev = _make_event(message="{\"ts\": \"2026-09-01 09:31:40.589\", \"level\": \"ERROR\", \"logger\": \"SQLQueryContextLogger\", \"msg\": \"[UNRESOLVED_COLUMN.WITH_SUGGESTION] A column, variable, or function parameter with name `nosuchcolumn` cannot be resolved. Did you mean one of the following? [`payload`, `sk`, `pk`]. SQLSTATE: 42703\", \"context\": {\"errorClass\": \"UNRESOLVED_COLUMN.WITH_SUGGESTION\"}, \"exception\": {\"class\": \"Py4JJavaError\", ")
+        bulk_runner._pretty_print_log_event(ev)
+        captured = capsys.readouterr()
+        assert captured.out == '' and captured.err == ''
+
+    def test_our_own_sql_query_error_still_prints(self, bulk_runner, capsys):
+        """Guard: the anchor is Spark's logger name, not the error text, so the sentence the
+        verb produces is unaffected."""
+        ev = _make_event(message=(
+            "2026-09-01 09:31:41,173 ERROR - BulkExecutorError: SQL query error: "
+            "[UNRESOLVED_COLUMN.WITH_SUGGESTION] A column with name `nosuchcolumn` cannot be resolved"
+        ))
+        bulk_runner._pretty_print_log_event(ev)
+        captured = capsys.readouterr()
+        assert 'UNRESOLVED_COLUMN' in captured.out + captured.err
+
+    def test_sparks_own_failure_wording_does_not_trip_the_marker(self, bulk_runner, monkeypatch):
+        """The client matches markers as substrings, so a generic word would misfire. Spark
+        has plenty of "...Failure" shapes; none of them may be mistaken for the job saying
+        it has explained itself, or Glue's diagnostics get suppressed for a failure nobody
+        described."""
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
+
+        for spark_line in (
+            "ERROR TaskSetManager: Lost task 3.0 in stage 2.0: ExecutorLostFailure: "
+            "executor 7 exited unrelated to the running tasks",
+            "WARN TaskSetManager: Lost task 1.0: FetchFailure: shuffle block missing",
+            'ERROR GlueExceptionAnalysisListener:9 - {"Failure Reason": "boom"}',
+            "ERROR DAGScheduler: Job aborted due to stage failure: Task 0 failed 4 times",
+        ):
+            bulk_runner._suppress_glue_noise = False
+            bulk_runner._pretty_print_log_event(_make_event(message=spark_line))
+            assert bulk_runner._suppress_glue_noise is False, (
+                f"{spark_line[:60]!r} must not read as the job explaining itself"
+            )
+
     def test_real_worker_traceback_still_prints(self, bulk_runner, capsys):
         """Guard for #334: the anchor is Glue's reporter, not the frames. An unexpected
         worker failure prints its traceback through the same path and must survive."""

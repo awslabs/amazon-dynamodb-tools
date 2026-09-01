@@ -424,9 +424,11 @@ class TestRunLimitHandling:
                                                                      mock_table_info,
                                                                      mock_spark_session, mock_get_error_message,
                                                                      glue_context, base_args):
-        """A valid integer limit that then fails in Spark is a runtime error, not a
-        bad-parameter error: it flows to the outer 'SQL query error' handler rather
-        than being mislabeled 'Invalid limit'."""
+        """A valid integer limit that then fails in Spark still reports as a query error
+        rather than being mislabeled 'Invalid limit'.
+
+        Since #332 both are BulkExecutorError -- a query is the user's to fix either way,
+        so neither deserves a stack trace. The distinction that matters is the message."""
         base_args['limit'] = '5'
         result = MagicMock()
         result.limit.side_effect = RuntimeError("spark limit failure")
@@ -434,10 +436,11 @@ class TestRunLimitHandling:
         df = MagicMock()
         glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
 
-        with pytest.raises(Exception, match="SQL query error") as exc:
+        with pytest.raises(sql_module.BulkExecutorError, match="SQL query error") as exc:
             sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
-        # It is NOT a clean user-parameter error.
-        assert not isinstance(exc.value, sql_module.BulkExecutorError)
+        assert "Invalid 'limit'" not in str(exc.value), (
+            "a Spark-side failure must not be reported as a bad --limit"
+        )
         mock_get_error_message.assert_called()
 
 

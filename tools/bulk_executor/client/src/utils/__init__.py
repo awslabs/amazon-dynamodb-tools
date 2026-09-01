@@ -38,6 +38,13 @@ LOG_PATTERN_IGNORE_LIST = [
     # aws-glue-di-package.jar or metrics-core. Remove once AWS fixes the image.
     # Issue #334.
     r"Exception thrown from AWSDILyraMetricsReporter#report",
+    # Spark reports a query-analysis failure itself, at ERROR, before our handler sees it:
+    # one ~10 KB JSON event carrying the message we go on to print cleanly, plus ~90 Java
+    # frames and the unresolved query plan. Measured on `sql` with a mistyped column: 90 of
+    # the run's 148 lines. Anchored on the logger name inside that JSON, so it drops the
+    # whole event rather than leaving orphaned frames. The message still reaches the user
+    # through the verb's own "SQL query error: ..." line. Issue #332.
+    r'"logger": "SQLQueryContextLogger"',
 ]
 
 # Intentional nuanced configs:

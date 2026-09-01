@@ -7,6 +7,7 @@ from awsglue.context import GlueContext
 from awsglue.job import Job
 from awsglue.transforms import *
 from pyspark.context import SparkContext
+from python_modules.shared import driver_errors
 from python_modules.shared.bulk_executor_error import BulkExecutorError
 
 
@@ -103,11 +104,21 @@ else:
         action_script_function = getattr(module, action_script_function_name)
         try:
             action_script_function(job, spark_context, glue_context, parsed_args)  # Run the function
-        except BulkExecutorError as e:
-            log.error(f"BulkExecutorError: {e}")
-            sys.exit(str(e))
-        except Exception as e:
-            raise # Just let it propagate
+        except BaseException as e:
+            # Everything a verb can fail with lands here, and shared/driver_errors.py
+            # decides what the user sees: a denial or other understood failure exits with
+            # one sentence, anything else prints its traceback first and then exits with a
+            # one-line reason. Exiting rather than re-raising is the point -- a re-raise
+            # hands the user Glue's exception-analysis blob plus Py4J's restatement of the
+            # same error, with AWS's actual sentence buried inside a Java stack (#332).
+            #
+            # BaseException rather than Exception so nothing escapes by inheriting from
+            # the wrong base -- but SystemExit passes straight through: a helper that
+            # already called exit() has said its piece, and re-reporting it would relabel
+            # a deliberate exit as a surprise.
+            if isinstance(e, SystemExit):
+                raise
+            driver_errors.surface(e)
     else:
         raise Exception(f"Could not find the function '{action_script_function_name}' within the module '{module_name}'.")
 
