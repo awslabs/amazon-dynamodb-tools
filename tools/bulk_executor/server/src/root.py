@@ -112,9 +112,10 @@ else:
             # hands the user Glue's exception-analysis blob plus Py4J's restatement of the
             # same error, with AWS's actual sentence buried inside a Java stack (#332).
             #
-            # BaseException, not Exception: a worker calling exit() reaches the driver as a
-            # SystemExit, and Py4J wraps KeyboardInterrupt-style aborts too. sys.exit from
-            # driver_errors.surface() raises SystemExit itself, so let that through.
+            # BaseException rather than Exception so nothing escapes by inheriting from
+            # the wrong base -- but SystemExit passes straight through: a helper that
+            # already called exit() has said its piece, and re-reporting it would relabel
+            # a deliberate exit as a surprise.
             if isinstance(e, SystemExit):
                 raise
             driver_errors.surface(e)

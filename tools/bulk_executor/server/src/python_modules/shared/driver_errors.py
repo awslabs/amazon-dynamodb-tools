@@ -27,6 +27,13 @@ from python_modules.shared.worker_errors import classify_failure
 
 UNEXPECTED_FAILURE_BANNER = "The job failed in a way we did not expect. Traceback:"
 
+# Printed in front of an understood failure's sentence. Two jobs: it tells the reader this
+# is the explanation rather than one more log line, and the client watches for it to
+# suppress Glue's exception-analysis blob. Glue emits that blob for a clean sys.exit only
+# sometimes -- observed on a denied `find` but not a denied `count` in the same batch -- so
+# the marker has to be there every time, not only when a BulkExecutorError was involved.
+EXPLAINED_FAILURE_PREFIX = "Failure: "
+
 # Cap on what we hand to sys.exit(): Glue records it as the job's ErrorMessage and the
 # client prints it as its closing line. AWS's authorization sentences run ~400 chars,
 # which is worth keeping whole; a Java stack that slipped through is not.
@@ -62,7 +69,9 @@ def surface(exception):
 
     reason = _one_line(reason)
     if isinstance(exception, BulkExecutorError):
+        # Keep the name users have seen since before any of this, and the client's
+        # long-standing suppression marker.
         log.error(f"BulkExecutorError: {reason}")
     else:
-        log.error(reason)
+        log.error(f"{EXPLAINED_FAILURE_PREFIX}{reason}")
     sys.exit(reason)

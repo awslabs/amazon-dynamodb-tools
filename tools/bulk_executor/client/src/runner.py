@@ -64,6 +64,7 @@ JOB_EXPLAINED_THE_FAILURE = (
     'BulkExecutorError',
     'A worker failed in a way we did not expect. Traceback from the worker:',
     'The job failed in a way we did not expect. Traceback:',
+    'Failure: ',
 )
 
 # Timing constants

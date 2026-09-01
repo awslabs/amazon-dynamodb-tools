@@ -345,6 +345,31 @@ class TestPrettyPrintLogEvent:
         assert captured.out == ''
         assert captured.err == ''
 
+    def test_driver_failure_marker_suppresses_the_glue_blob(self, bulk_runner, capsys, monkeypatch):
+        """#332: an understood driver-side failure prints one sentence, and Glue's
+        exception-analysis blob that sometimes follows a clean sys.exit is dropped.
+
+        Glue emits that blob unpredictably -- observed after a denied `find` but not after a
+        denied `count` in the same batch -- so this is asserted here rather than trusted to
+        show up in a live run."""
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
+
+        denial = _make_event(message=(
+            "Failure: User: arn:aws:sts::1:assumed-role/R/GlueJobRunnerSession is not "
+            "authorized to perform: dynamodb:Scan on resource: table/t"
+        ))
+        bulk_runner._pretty_print_log_event(denial)
+        first = capsys.readouterr().out
+        assert 'not authorized to perform' in first, "the sentence itself must print"
+
+        blob = _make_event(message=(
+            "2026-09-01 08:49:19 ERROR GlueExceptionAnalysisListener:9 - "
+            "[Glue Exception Analysis] {\"Failure Reason\": \"Traceback (most recent call last)...\"}"
+        ))
+        bulk_runner._pretty_print_log_event(blob)
+        assert capsys.readouterr().out == '', "Glue's restatement adds nothing after it"
+
     def test_real_worker_traceback_still_prints(self, bulk_runner, capsys):
         """Guard for #334: the anchor is Glue's reporter, not the frames. An unexpected
         worker failure prints its traceback through the same path and must survive."""

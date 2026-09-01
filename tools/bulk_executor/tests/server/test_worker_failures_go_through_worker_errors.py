@@ -91,18 +91,23 @@ def test_the_seam_is_actually_used():
         f"expected several verbs to surface worker failures, found {surfacing}")
 
 
-@pytest.mark.parametrize("module", ["worker_errors.py", "driver_errors.py"])
-def test_the_client_watches_for_the_banners_the_job_prints(module):
+@pytest.mark.parametrize("constant", [
+    ("worker_errors.py", "UNEXPECTED_FAILURE_BANNER"),
+    ("driver_errors.py", "UNEXPECTED_FAILURE_BANNER"),
+    ("driver_errors.py", "EXPLAINED_FAILURE_PREFIX"),
+])
+def test_the_client_watches_for_every_marker_the_job_prints(constant):
     """The client suppresses Glue's exception-analysis noise once the job has explained
     itself. That handshake is string literals in two trees: if they drift, an unexpected
     failure gets our traceback *and* Glue's blob on top of it, which is exactly what the
     banner exists to prevent. Both sides print one -- a worker failure and a driver
     failure -- so both are checked."""
+    module, name = constant
     server = (_SERVER_SRC / "python_modules" / "shared" / module).read_text()
-    banner = re.search(r'UNEXPECTED_FAILURE_BANNER = "([^"]+)"', server)
-    assert banner, f"{module} no longer defines UNEXPECTED_FAILURE_BANNER"
+    marker = re.search(rf'{name} = "([^"]+)"', server)
+    assert marker, f"{module} no longer defines {name}"
 
     client = (_REPO / "client" / "src" / "runner.py").read_text()
-    assert banner.group(1) in client, (
-        f"client/src/runner.py does not watch for {banner.group(1)!r}; "
-        f"JOB_EXPLAINED_THE_FAILURE has drifted from {module}")
+    assert marker.group(1) in client, (
+        f"client/src/runner.py does not watch for {marker.group(1)!r}; "
+        f"JOB_EXPLAINED_THE_FAILURE has drifted from {module}.{name}")
