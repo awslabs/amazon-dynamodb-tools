@@ -630,6 +630,19 @@ class TestRootGenericExceptionPropagation:
             "an unexpected failure prints its traceback where the user will see it"
         )
 
+    def test_a_verbs_own_exit_passes_straight_through(self, monkeypatch, capsys):
+        """A helper that already called exit() has said its piece. Re-reporting it would
+        relabel a deliberate exit as a surprise and print a traceback for it."""
+        run_mock = MagicMock(side_effect=SystemExit("PITR must be enabled first"))
+        verb = _make_verb_module("copy", run_callable=run_mock)
+        with pytest.raises(SystemExit) as exc_info:
+            _load_root(monkeypatch,
+                       ["root.py", "--XAction", "copy"],
+                       verb_module=verb, verb_name="copy")
+
+        assert str(exc_info.value) == "PITR must be enabled first", "unchanged, not re-wrapped"
+        assert "did not expect" not in capsys.readouterr().out
+
     def test_generic_exception_skips_commit_and_stop(self, monkeypatch):
         """A failed job must not be committed -- that is what makes Glue mark it FAILED."""
         run_mock = MagicMock(side_effect=ValueError("nope"))

@@ -10,19 +10,31 @@ shared/errors.py is replaced by a Mock for the whole server suite, so these test
 from disk. That is deliberate: the extraction is the behaviour under test.
 """
 
-import importlib.util
-from pathlib import Path
+import importlib
 
 import pytest
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def errors():
-    path = Path(__file__).resolve().parents[3] / "server/src/python_modules/shared/errors.py"
-    spec = importlib.util.spec_from_file_location("_real_errors_extraction_test", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    """Import the real module under its own name, with conftest's Mock put back after.
+
+    Loading it from a file path under a different module name also works, but coverage
+    does not credit the execution, so the extraction below would read as untested and
+    invite someone to delete it."""
+    import sys
+
+    saved = {name: sys.modules[name] for name in
+             ('python_modules.shared.errors', 'shared.errors') if name in sys.modules}
+    for name in saved:
+        del sys.modules[name]
+    try:
+        yield importlib.import_module('python_modules.shared.errors')
+    finally:
+        for name in list(sys.modules):
+            if name in ('python_modules.shared.errors', 'shared.errors'):
+                del sys.modules[name]
+        sys.modules.update(saved)
 
 
 DENIAL_V2 = """An error occurred while calling o304.load.
@@ -75,6 +87,33 @@ class TestJavaErrorUnwrapping:
         v1 = ("com.amazonaws.services.dynamodbv2.model.AmazonDynamoDBException: "
               "Requested resource not found (Service: AmazonDynamoDBv2; Status Code: 400)")
         assert errors.get_error_message(Exception(v1)) == "Requested resource not found"
+
+    def test_spark_parse_exception_splits_off_the_sql(self, errors):
+        """Spark's ParseException carries the offending SQL after a marker line; the
+        function pulls it onto one line. Pre-existing behaviour, untested until this
+        file had a way to import the module."""
+        class ParseError(Exception):
+            desc = "Syntax error at or near 'FRM'\n== SQL ==\nSELECT * FRM t\n       ^^^"
+
+        assert errors.get_error_message(ParseError()) == (
+            "Syntax error at or near 'FRM' | SQL: SELECT * FRM t | ^^^"
+        )
+
+    def test_parse_exception_without_a_sql_section(self, errors):
+        class ParseError(Exception):
+            desc = "  Syntax error, nothing more  "
+
+        assert errors.get_error_message(ParseError()) == "Syntax error, nothing more"
+
+    def test_exception_with_a_message_attribute(self, errors):
+        """Some Py4J/Java wrappers expose .message rather than a useful str()."""
+        class WithMessage(Exception):
+            message = "  the useful part  "
+
+            def __str__(self):
+                return "an unhelpful repr"
+
+        assert errors.get_error_message(WithMessage()) == "the useful part"
 
     def test_a_plain_exception_is_unchanged(self, errors):
         assert errors.get_error_message(ValueError("just a message")) == "just a message"
