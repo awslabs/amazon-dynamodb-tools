@@ -111,11 +111,23 @@ class FileLoader:
         try:
             response = self._s3_client.get_object(Bucket=bucket, Key=key)
         except ClientError as e:
-            if e.response['Error']['Code'] == 'NoSuchKey':
+            code = e.response['Error']['Code']
+            if code == 'NoSuchKey':
                 raise BulkExecutorError(
                     f"File not found: s3://{bucket}/{key}. "
                     f"If you moved or copied the export data, ensure the path depth relative to the bucket root was preserved. "
                     f"The manifest files reference data file locations relative to the bucket root path."
+                ) from e
+            if code in ('AccessDenied', 'AllAccessDisabled', '403'):
+                # Pointing at an export the Glue job's role cannot read is an ordinary
+                # mistake -- the managed AWSGlueServiceRole policy only covers buckets
+                # named aws-glue-*, so any other export bucket needs a grant. Observed
+                # while testing: this arrived as a botocore traceback plus a Glue blob.
+                raise BulkExecutorError(
+                    f"Access denied reading s3://{bucket}/{key}. The Glue job's role "
+                    f"needs s3:GetObject on the export, and s3:ListBucket on "
+                    f"'{bucket}'. Note the AWS-managed AWSGlueServiceRole policy only "
+                    f"grants buckets named 'aws-glue-*'."
                 ) from e
             raise
         return response['Body'].read()
