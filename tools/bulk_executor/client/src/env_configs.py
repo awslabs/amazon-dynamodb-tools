@@ -1,3 +1,5 @@
+import os
+
 import boto3
 import botocore
 
@@ -51,7 +53,12 @@ class EnvConfigs:
 
     def _get_aws_region(self, args):
         try:
-            default_region = boto3.Session().region_name
+            # botocore resolves AWS_DEFAULT_REGION and the config file, but not
+            # AWS_REGION, so Session().region_name alone disagrees with the AWS CLI:
+            # with AWS_REGION=us-west-2 and a config file naming us-east-1, `aws` targets
+            # us-west-2 and we targeted us-east-1. Match the CLI's precedence --
+            # AWS_REGION, then AWS_DEFAULT_REGION, then the config file.
+            default_region = os.environ.get('AWS_REGION') or boto3.Session().region_name
             region = args.get('XRegion') or default_region
             if not region:
                 log.debug("AWS region not configured.  Set AWS_DEFAULT_REGION, --XRegion, or ~/.aws/config")

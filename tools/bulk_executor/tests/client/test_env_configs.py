@@ -6,7 +6,8 @@ Covers `client/src/env_configs.py`:
   configuration banner print
 - _get_aws_account_id: success path, ClientError branch (print + exit)
 - _get_aws_session_role: success path, ClientError branch (print + exit)
-- _get_aws_region: XRegion override, default boto3 region fallback,
+- _get_aws_region: XRegion override, AWS_REGION env (which botocore itself ignores),
+  its precedence against --XRegion and the config file, default boto3 region fallback,
   empty/None region branch (print + exit), ClientError branch
 
 Style notes:
@@ -177,6 +178,53 @@ class TestGetAwsRegion:
 
         instance = env_configs.EnvConfigs.__new__(env_configs.EnvConfigs)
         assert instance._get_aws_region({'XRegion': 'us-west-2'}) == 'us-west-2'
+
+    def test_aws_region_env_is_honoured(self, monkeypatch):
+        """botocore resolves AWS_DEFAULT_REGION and the config file but not AWS_REGION,
+        so without this the tool silently targets a different region than the AWS CLI in
+        the same shell: `aws configure list` reports the AWS_REGION value while we
+        reported the config file's."""
+        session = MagicMock(region_name=None)  # no config file, no AWS_DEFAULT_REGION
+        boto3_mock = MagicMock()
+        boto3_mock.Session.return_value = session
+        monkeypatch.setattr(env_configs, 'boto3', boto3_mock)
+        monkeypatch.setenv('AWS_REGION', 'eu-west-3')
+
+        instance = env_configs.EnvConfigs.__new__(env_configs.EnvConfigs)
+        assert instance._get_aws_region({}) == 'eu-west-3'
+
+    def test_aws_region_env_beats_the_config_file(self, monkeypatch):
+        """The AWS CLI's precedence: env before config file."""
+        session = MagicMock(region_name='us-east-1')  # what the config file says
+        boto3_mock = MagicMock()
+        boto3_mock.Session.return_value = session
+        monkeypatch.setattr(env_configs, 'boto3', boto3_mock)
+        monkeypatch.setenv('AWS_REGION', 'us-west-2')
+
+        instance = env_configs.EnvConfigs.__new__(env_configs.EnvConfigs)
+        assert instance._get_aws_region({}) == 'us-west-2'
+
+    def test_x_region_beats_the_aws_region_env(self, monkeypatch):
+        """--XRegion is the most explicit thing the user can say."""
+        session = MagicMock(region_name='us-east-1')
+        boto3_mock = MagicMock()
+        boto3_mock.Session.return_value = session
+        monkeypatch.setattr(env_configs, 'boto3', boto3_mock)
+        monkeypatch.setenv('AWS_REGION', 'us-west-2')
+
+        instance = env_configs.EnvConfigs.__new__(env_configs.EnvConfigs)
+        assert instance._get_aws_region({'XRegion': 'ap-south-1'}) == 'ap-south-1'
+
+    def test_aws_default_region_still_resolves_through_the_session(self, monkeypatch):
+        """AWS_DEFAULT_REGION is botocore's own variable, so Session() reports it."""
+        session = MagicMock(region_name='ap-northeast-1')
+        boto3_mock = MagicMock()
+        boto3_mock.Session.return_value = session
+        monkeypatch.setattr(env_configs, 'boto3', boto3_mock)
+        monkeypatch.delenv('AWS_REGION', raising=False)
+
+        instance = env_configs.EnvConfigs.__new__(env_configs.EnvConfigs)
+        assert instance._get_aws_region({}) == 'ap-northeast-1'
 
     def test_falls_back_to_default_session_region(self, monkeypatch):
         """Line 55: when XRegion absent, uses boto3.Session().region_name."""
