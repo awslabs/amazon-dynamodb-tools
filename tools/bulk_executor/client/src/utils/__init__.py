@@ -1,6 +1,5 @@
 import argparse
 import json
-import os
 import re
 import sys
 from typing import Optional
@@ -149,7 +148,13 @@ def validate_tables(env_configs, parser, *tables, index=None, pitr_enabled=False
     reference_table = None
 
     for table_name in tables:
-        region = _region_from_table_ref(table_name) or _default_region() # each table might be in a diff region
+        # The run's own region, not the shell's default: --XRegion decides where the Glue
+        # job runs, so it has to decide which table we validate too. A full ARN still
+        # wins, since a cross-region source and target legitimately differ (#333).
+        # No fallback on purpose: EnvConfigs exits when it cannot resolve a region, so a
+        # missing one here means the caller passed something that is not an EnvConfigs --
+        # and guessing at that point is how #333 happened in the first place.
+        region = _region_from_table_ref(table_name) or env_configs.aws_region
         clients = Clients(region)
         dynamodb_client = clients.dynamodb_client
 
@@ -280,13 +285,6 @@ def validate_s3_export_path(s3_path):
 
 
 # The below is also in the server codebase
-
-def _default_region():
-    return (
-        boto3.Session().region_name
-        or os.environ.get("AWS_REGION")
-        or os.environ.get("AWS_DEFAULT_REGION")
-    )
 
 def _parse_arn(arn: str) -> dict:
     """
