@@ -58,8 +58,23 @@ class EnvConfigs:
             # with AWS_REGION=us-west-2 and a config file naming us-east-1, `aws` targets
             # us-west-2 and we targeted us-east-1. Match the CLI's precedence --
             # AWS_REGION, then AWS_DEFAULT_REGION, then the config file.
-            default_region = os.environ.get('AWS_REGION') or boto3.Session().region_name
-            region = args.get('XRegion') or default_region
+            aws_region_env = os.environ.get('AWS_REGION')
+            boto3_region = boto3.Session().region_name
+            default_region = aws_region_env or boto3_region
+            explicit_region = args.get('XRegion')
+            region = explicit_region or default_region
+
+            # Nobody said which region, and the two conventions disagree: say so rather
+            # than pick silently. Only when both have an answer -- if boto3 has none there
+            # is no competing choice to report, and --XRegion settles it outright.
+            if (not explicit_region and aws_region_env and boto3_region
+                    and aws_region_env != boto3_region):
+                log.warning(
+                    f"Ambiguous region: AWS_REGION says '{aws_region_env}' but boto3 "
+                    f"would use '{boto3_region}' (AWS_DEFAULT_REGION or ~/.aws/config). "
+                    f"Using '{aws_region_env}', as the AWS CLI does. Pass --XRegion to "
+                    f"choose explicitly.")
+
             if not region:
                 log.debug("AWS region not configured.  Set AWS_DEFAULT_REGION, --XRegion, or ~/.aws/config")
                 print('Unable to locate AWS Region. You can configure credentials by running "aws configure".') # Print Message Intentional to align w/ standard SDK messaging

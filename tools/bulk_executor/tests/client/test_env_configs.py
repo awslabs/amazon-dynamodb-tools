@@ -7,7 +7,8 @@ Covers `client/src/env_configs.py`:
 - _get_aws_account_id: success path, ClientError branch (print + exit)
 - _get_aws_session_role: success path, ClientError branch (print + exit)
 - _get_aws_region: XRegion override, AWS_REGION env (which botocore itself ignores),
-  its precedence against --XRegion and the config file, default boto3 region fallback,
+  its precedence against --XRegion and the config file, the ambiguity warning when
+  AWS_REGION and boto3 disagree on an implicit region, default boto3 region fallback,
   empty/None region branch (print + exit), ClientError branch
 
 Style notes:
@@ -21,6 +22,8 @@ Style notes:
 from unittest.mock import MagicMock, patch
 
 import botocore.exceptions
+import logging
+
 import pytest
 
 import env_configs
@@ -225,6 +228,65 @@ class TestGetAwsRegion:
 
         instance = env_configs.EnvConfigs.__new__(env_configs.EnvConfigs)
         assert instance._get_aws_region({}) == 'ap-northeast-1'
+
+    def test_warns_when_the_two_conventions_disagree(self, monkeypatch, caplog):
+        """No --XRegion and the conventions disagree: name both, say which one we took,
+        and how to settle it. Silence here means `aws dynamodb ...` and `bulk ...` quietly
+        hit different regions from the same shell."""
+        session = MagicMock(region_name='us-east-1')  # AWS_DEFAULT_REGION or config file
+        boto3_mock = MagicMock()
+        boto3_mock.Session.return_value = session
+        monkeypatch.setattr(env_configs, 'boto3', boto3_mock)
+        monkeypatch.setenv('AWS_REGION', 'us-west-2')
+
+        instance = env_configs.EnvConfigs.__new__(env_configs.EnvConfigs)
+        with caplog.at_level(logging.WARNING):
+            assert instance._get_aws_region({}) == 'us-west-2'
+
+        warning = ' '.join(r.message for r in caplog.records if r.levelname == 'WARNING')
+        assert 'us-west-2' in warning and 'us-east-1' in warning, "name both candidates"
+        assert '--XRegion' in warning, "say how to settle it"
+
+    def test_no_warning_when_the_conventions_agree(self, monkeypatch, caplog):
+        session = MagicMock(region_name='us-west-2')
+        boto3_mock = MagicMock()
+        boto3_mock.Session.return_value = session
+        monkeypatch.setattr(env_configs, 'boto3', boto3_mock)
+        monkeypatch.setenv('AWS_REGION', 'us-west-2')
+
+        instance = env_configs.EnvConfigs.__new__(env_configs.EnvConfigs)
+        with caplog.at_level(logging.WARNING):
+            assert instance._get_aws_region({}) == 'us-west-2'
+
+        assert not [r for r in caplog.records if r.levelname == 'WARNING']
+
+    def test_no_warning_when_x_region_settles_it(self, monkeypatch, caplog):
+        """An explicit --XRegion is not ambiguous, however the environment is set."""
+        session = MagicMock(region_name='us-east-1')
+        boto3_mock = MagicMock()
+        boto3_mock.Session.return_value = session
+        monkeypatch.setattr(env_configs, 'boto3', boto3_mock)
+        monkeypatch.setenv('AWS_REGION', 'us-west-2')
+
+        instance = env_configs.EnvConfigs.__new__(env_configs.EnvConfigs)
+        with caplog.at_level(logging.WARNING):
+            assert instance._get_aws_region({'XRegion': 'eu-west-2'}) == 'eu-west-2'
+
+        assert not [r for r in caplog.records if r.levelname == 'WARNING']
+
+    def test_no_warning_when_boto3_has_no_answer(self, monkeypatch, caplog):
+        """AWS_REGION alone is not a disagreement -- boto3 offers no competing region."""
+        session = MagicMock(region_name=None)
+        boto3_mock = MagicMock()
+        boto3_mock.Session.return_value = session
+        monkeypatch.setattr(env_configs, 'boto3', boto3_mock)
+        monkeypatch.setenv('AWS_REGION', 'eu-west-3')
+
+        instance = env_configs.EnvConfigs.__new__(env_configs.EnvConfigs)
+        with caplog.at_level(logging.WARNING):
+            assert instance._get_aws_region({}) == 'eu-west-3'
+
+        assert not [r for r in caplog.records if r.levelname == 'WARNING']
 
     def test_falls_back_to_default_session_region(self, monkeypatch):
         """Line 55: when XRegion absent, uses boto3.Session().region_name."""
