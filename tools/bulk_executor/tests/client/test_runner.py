@@ -237,6 +237,10 @@ def _make_event(message='hello\n', log_group=None, stream='stream-x', timestamp=
     }
 
 
+# Verbatim CloudWatch event from a successful `copy` (issue #334): Glue's metrics
+# reporter logging its own suppressed exception, header plus 18 frames in one event.
+GLUE_METRICS_REPORTER_EVENT = "2026-09-01 04:33:39 ERROR ScheduledReporter:208 - Exception thrown from AWSDILyraMetricsReporter#report. Exception was suppressed.\njava.util.ConcurrentModificationException: null\n\tat java.base/java.util.ArrayList.sort(ArrayList.java:1723) ~[?:?]\n\tat org.apache.spark.metrics.source.AutoDebuggingStageSkewness.getCurrentSkewness(AWSDILyraSource.scala:113) ~[aws-glue-di-package.jar:4.1.1-amzn-0]\n\tat org.apache.spark.metrics.source.AutoDebuggingStageSkewness.$anonfun$getValue$1(AWSDILyraSource.scala:145) ~[aws-glue-di-package.jar:4.1.1-amzn-0]\n\tat org.apache.spark.metrics.source.AutoDebuggingStageSkewness.$anonfun$getValue$1$adapted(AWSDILyraSource.scala:145) ~[aws-glue-di-package.jar:4.1.1-amzn-0]\n\tat java.base/java.util.concurrent.ConcurrentHashMap$KeySetView.forEach(ConcurrentHashMap.java:4706) ~[?:?]\n\tat org.apache.spark.metrics.source.AutoDebuggingStageSkewness.getValue(AWSDILyraSource.scala:145) ~[aws-glue-di-package.jar:4.1.1-amzn-0]\n\tat org.apache.spark.metrics.source.AutoDebuggingStageSkewness.getValue(AWSDILyraSource.scala:77) ~[aws-glue-di-package.jar:4.1.1-amzn-0]\n\tat org.apache.spark.metrics.sink.AWSDILyraMetricsReporter.reportGauge(AWSDILyraMetricsReporter.java:135) ~[aws-glue-di-package.jar:?]\n\tat org.apache.spark.metrics.sink.AWSDILyraMetricsReporter.report(AWSDILyraMetricsReporter.java:80) ~[aws-glue-di-package.jar:?]\n\tat com.codahale.metrics.ScheduledReporter.report(ScheduledReporter.java:280) ~[metrics-core-4.2.37.jar:4.2.37]\n\tat com.codahale.metrics.ScheduledReporter.lambda$start$0(ScheduledReporter.java:206) ~[metrics-core-4.2.37.jar:4.2.37]\n\tat java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539) [?:?]\n\tat java.base/java.util.concurrent.FutureTask.runAndReset(FutureTask.java:305) [?:?]\n\tat java.base/java.util.concurrent.ScheduledThreadPoolExecutor$ScheduledFutureTask.run(ScheduledThreadPoolExecutor.java:305) [?:?]\n\tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136) [?:?]\n\tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635) [?:?]\n\tat java.base/java.lang.Thread.run(Thread.java:840) [?:?]\n"
+
 class TestPrettyPrintLogEvent:
     """Tests for log event routing and color decoration (lines 88-135)."""
 
@@ -320,6 +324,71 @@ class TestPrettyPrintLogEvent:
         # would alarm users far more than the warning it belongs to.
         assert captured.out == ''
         assert captured.err == ''
+
+    def test_suppresses_glue_metrics_reporter_stack(self, bulk_runner, capsys):
+        """Issue #334: the real ignore list drops the Java stack Glue's own metrics
+        reporter emits on a successful run.
+
+        The message below is verbatim from CloudWatch (/aws-glue/jobs/output) for a
+        `copy` that succeeded and reported `Total records copied: 3`. Glue's
+        ScheduledReporter logs a ConcurrentModificationException at ERROR and says in the
+        same line that it suppressed it; the header and all 18 frames arrive as ONE event
+        with embedded newlines, so one anchor drops the lot. Every frame is
+        aws-glue-di-package.jar or metrics-core -- none of it is ours, and it lands right
+        before the result line where the user is looking.
+        """
+        ev = _make_event(message=GLUE_METRICS_REPORTER_EVENT)
+        bulk_runner._pretty_print_log_event(ev)
+        captured = capsys.readouterr()
+        # Neither the header nor a single frame leaks: 18 orphaned "at org.apache.spark"
+        # lines with nothing above them would be worse than the original noise.
+        assert captured.out == ''
+        assert captured.err == ''
+
+    def test_real_worker_traceback_still_prints(self, bulk_runner, capsys):
+        """Guard for #334: the anchor is Glue's reporter, not the frames. An unexpected
+        worker failure prints its traceback through the same path and must survive."""
+        ev = _make_event(message=(
+            "A worker failed in a way we did not expect. Traceback from the worker:\n"
+            "Traceback (most recent call last):\n"
+            '  File "/tmp/python_modules.zip/python_modules/fill/__init__.py", line 159\n'
+            "RuntimeError: faker did something silly\n"
+        ))
+        bulk_runner._pretty_print_log_event(ev)
+        combined = capsys.readouterr()
+        assert 'faker did something silly' in (combined.out + combined.err)
+
+    def test_driver_side_denial_stack_still_prints(self, bulk_runner, capsys):
+        """Guard for #334: anchoring on the frames instead of the reporter would have
+        swallowed this. Verbatim shape from a denied `count` (issue #332): the message the
+        user needs is wrapped in Spark frames that look exactly like the noise."""
+        ev = _make_event(message=(
+            "py4j.protocol.Py4JJavaError: An error occurred while calling o304.load.\n"
+            ": software.amazon.awssdk.services.dynamodb.model.DynamoDbException: User: "
+            "arn:aws:sts::1:assumed-role/Role/Session is not authorized to perform: "
+            "dynamodb:Scan\n"
+            "\tat org.apache.spark.sql.execution.datasources.v2.DataSourceV2Utils$."
+            "getTableFromProvider(DataSourceV2Utils.scala:105)\n"
+            "\tat org.apache.spark.sql.execution.datasources.v2.DataSourceV2Utils$."
+            "loadV2Source(DataSourceV2Utils.scala:157)\n"
+        ))
+        bulk_runner._pretty_print_log_event(ev)
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+        assert 'not authorized to perform' in combined or 'o304.load' in combined, \
+            "a denial arriving inside Spark frames must still reach the user"
+
+    def test_concurrent_modification_from_elsewhere_still_prints(self, bulk_runner, capsys):
+        """Guard for #334: anchoring on the exception type would hide a real one. Only
+        Glue's reporter announcing its own suppressed failure is noise."""
+        ev = _make_event(message=(
+            "2026-09-01 04:33:39 ERROR SomethingOfOurs:12 - write failed\n"
+            "java.util.ConcurrentModificationException: null\n"
+            "\tat java.base/java.util.ArrayList.sort(ArrayList.java:1723) ~[?:?]\n"
+        ))
+        bulk_runner._pretty_print_log_event(ev)
+        captured = capsys.readouterr()
+        assert 'ConcurrentModificationException' in captured.out + captured.err
 
     def test_real_stage_failure_still_prints(self, bulk_runner, capsys):
         """Guard for #292: suppressing the echoed regex must not shadow a
