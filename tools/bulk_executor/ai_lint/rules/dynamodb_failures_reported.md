@@ -72,6 +72,13 @@ two, and the split is what the user experiences:
   recognises the condition. This is the check to make when reading a handler: **does the
   verb actually anticipate what it is quietly calling understood?**
 
+  **Look hardest at verbs that take user input into a worker.** `scancount`'s
+  `--filter-expression` is only checkable by DynamoDB, in the worker, so the rejection is
+  a typo the verb has to expect: it catches `ValidationException` around the scan and
+  names the parameter. Narrowing the shared code list without that branch would have
+  handed the user a traceback for their own typo — caught before merge, but only by
+  asking which verbs pass user input past the client.
+
   The clearest form is a verb detecting the mistake itself: `fill` checks each
   generated item against the table's key names *before* writing, so the common mistake
   reads `Generated item is missing the table's key attribute(s) ['id']; the item has

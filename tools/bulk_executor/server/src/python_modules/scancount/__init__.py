@@ -34,6 +34,7 @@ from python_modules.shared.table_info import (
     get_dynamodb_throughput_configs)
 from python_modules.shared.worker_errors import (
     raise_first_worker_error,
+    record_understood_failure,
     record_worker_failure
 )
 
@@ -282,6 +283,19 @@ def _count_data(monitor_options, table_name, index_name, filter_expression,
             if "LastEvaluatedKey" not in response:
                 break
             scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+    except botocore.exceptions.ClientError as e:
+        if get_error_code(e) == DYNAMO_DB_VALIDATION_EXCEPTION:
+            # The user's own FilterExpression is rejected here, in a worker: the client
+            # can only check that #name/:value substitutions have their maps, not that
+            # the expression itself is valid, so DynamoDB is the first thing to see it.
+            # A typo is not a bug of ours to dump frames for.
+            record_understood_failure(
+                error_accumulator,
+                "Invalid scan request, most likely --filter-expression or its "
+                f"--expression-names/--expression-values: {get_error_message(e)}")
+        else:
+            record_worker_failure(error_accumulator, e, f"Error in worker {segment}")
+        # Let control drop down to exit
     except Exception as e:
         record_worker_failure(error_accumulator, e, f"Error in worker {segment}")
         # Let control drop down to exit
