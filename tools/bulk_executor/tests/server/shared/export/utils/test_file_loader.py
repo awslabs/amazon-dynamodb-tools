@@ -2,6 +2,7 @@
 
 import pytest
 from unittest.mock import Mock, patch, mock_open
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.export.utils.file_loader import FileLoader
 
 
@@ -45,15 +46,15 @@ class TestFileLoader:
         loader = FileLoader()
         
         # Test with local path
-        with pytest.raises(ValueError, match="Invalid S3 path"):
+        with pytest.raises(BulkExecutorError, match="Invalid S3 path"):
             loader.parse_s3_path('/local/path/file.json')
         
         # Test with empty path after s3://
-        with pytest.raises(ValueError, match="Invalid S3 path format"):
+        with pytest.raises(BulkExecutorError, match="Invalid S3 path format"):
             loader.parse_s3_path('s3://')
         
         # Test with malformed path
-        with pytest.raises(ValueError, match="Invalid S3 path"):
+        with pytest.raises(BulkExecutorError, match="Invalid S3 path"):
             loader.parse_s3_path('http://bucket/key')
     
     def test_join_path_with_s3_paths(self):

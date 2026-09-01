@@ -4,6 +4,8 @@ import os
 from typing import Optional, Tuple
 import boto3
 
+from ...bulk_executor_error import BulkExecutorError
+
 class FileLoader:
     """Unified file loader for S3 and local filesystem."""
     
@@ -39,10 +41,10 @@ class FileLoader:
             Tuple of (bucket, key)
             
         Raises:
-            ValueError: If path is not a valid S3 path
+            BulkExecutorError: If path is not a valid S3 path
         """
         if not self.is_s3_path(s3_path):
-            raise ValueError(f"Invalid S3 path: {s3_path}")
+            raise BulkExecutorError(f"Invalid S3 path: {s3_path}")
         
         # Remove 's3://' prefix
         path_without_prefix = s3_path[5:]
@@ -50,7 +52,7 @@ class FileLoader:
         # Split into bucket and key
         parts = path_without_prefix.split('/', 1)
         if len(parts) < 1 or not parts[0]:
-            raise ValueError(f"Invalid S3 path format: {s3_path}")
+            raise BulkExecutorError(f"Invalid S3 path format: {s3_path}")
         
         bucket = parts[0]
         key = parts[1] if len(parts) > 1 else ''
@@ -110,7 +112,6 @@ class FileLoader:
             response = self._s3_client.get_object(Bucket=bucket, Key=key)
         except ClientError as e:
             if e.response['Error']['Code'] == 'NoSuchKey':
-                from python_modules.shared.bulk_executor_error import BulkExecutorError
                 raise BulkExecutorError(
                     f"File not found: s3://{bucket}/{key}. "
                     f"If you moved or copied the export data, ensure the path depth relative to the bucket root was preserved. "
