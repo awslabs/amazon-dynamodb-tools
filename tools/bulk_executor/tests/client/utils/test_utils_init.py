@@ -21,7 +21,6 @@ own __init__ module:
   PITR disabled exit, PITR cross-account validation warning skip,
   PITR ClientError other → exit, schema mismatch exit, schema match
   with GSI/LSI add/remove/diff warnings, multi-table OK
-- _default_region(): boto3 session region, env var fallback
 - _parse_arn(): valid ARN parse, malformed → ValueError
 - _region_from_table_ref(): None/empty input, non-arn, non-dynamodb service,
   non-table resource, valid table ARN region extraction
@@ -47,7 +46,6 @@ from botocore.exceptions import ClientError
 
 import utils as utils_module
 from utils import (
-    _default_region,
     _get_table_info,
     _parse_arn,
     _region_from_table_ref,
@@ -374,9 +372,12 @@ def patched_clients(monkeypatch):
         return by_region[region]
 
     monkeypatch.setattr(utils_module, 'Clients', factory)
-    # Make _default_region deterministic across tests
-    monkeypatch.setattr(utils_module, '_default_region', lambda: 'us-east-1')
     return by_region
+
+
+def _env(region='us-east-1'):
+    """Stand-in for EnvConfigs: validate_tables only needs the run's region."""
+    return MagicMock(aws_region=region)
 
 
 def _table_info(name, key_schema=None, attrs=None, gsis=None, lsis=None):
@@ -451,18 +452,6 @@ class TestValidateTablesRegion:
         by_arn.dynamodb_client.describe_table.assert_called_once_with(TableName=arn)
         assert 'eu-west-2' not in patched_clients
 
-    def test_falls_back_to_the_default_region_without_one(self, patched_clients):
-        """Callers that pass no region at all keep working."""
-        fallback = MagicMock()
-        fallback.dynamodb_client = MagicMock()
-        fallback.dynamodb_client.describe_table.return_value = {'Table': _table_info('t1')}
-        patched_clients['us-east-1'] = fallback
-
-        validate_tables(MagicMock(aws_region=None), MagicMock(), 't1')
-
-        fallback.dynamodb_client.describe_table.assert_called_once_with(TableName='t1')
-
-
 class TestValidateTables:
     """Tests for validate_tables (lines 137-248)."""
 
@@ -477,7 +466,7 @@ class TestValidateTables:
 
         parser = MagicMock()
         with pytest.raises(SystemExit, match="does not exist"):
-            validate_tables({}, parser, 'missing-table')
+            validate_tables(_env(), parser, 'missing-table')
 
     def test_missing_index_exits(self, patched_clients):
         client = MagicMock()
@@ -489,7 +478,7 @@ class TestValidateTables:
 
         parser = MagicMock()
         with pytest.raises(SystemExit, match="Index 'missing-gsi'"):
-            validate_tables({}, parser, 't1', index='missing-gsi')
+            validate_tables(_env(), parser, 't1', index='missing-gsi')
 
     def test_existing_index_passes(self, patched_clients):
         client = MagicMock()
@@ -500,7 +489,7 @@ class TestValidateTables:
         patched_clients['us-east-1'] = client
 
         # Should not raise
-        validate_tables({}, MagicMock(), 't1', index='gsi-a')
+        validate_tables(_env(), MagicMock(), 't1', index='gsi-a')
 
     def test_pitr_enabled_passes(self, patched_clients):
         client = MagicMock()
@@ -516,7 +505,7 @@ class TestValidateTables:
         }
         patched_clients['us-east-1'] = client
 
-        validate_tables({}, MagicMock(), 't1', pitr_enabled=True)
+        validate_tables(_env(), MagicMock(), 't1', pitr_enabled=True)
 
     def test_pitr_disabled_exits(self, patched_clients):
         client = MagicMock()
@@ -533,7 +522,7 @@ class TestValidateTables:
         patched_clients['us-east-1'] = client
 
         with pytest.raises(SystemExit, match="point in time recovery"):
-            validate_tables({}, MagicMock(), 't1', pitr_enabled=True)
+            validate_tables(_env(), MagicMock(), 't1', pitr_enabled=True)
 
     def test_pitr_cross_account_warning_skip(self, patched_clients, capsys):
         """ValidationException w/ cross-account message → warn + skip, no exit."""
@@ -552,7 +541,7 @@ class TestValidateTables:
         )
         patched_clients['us-east-1'] = client
 
-        validate_tables({}, MagicMock(), 't1', pitr_enabled=True)
+        validate_tables(_env(), MagicMock(), 't1', pitr_enabled=True)
         out = capsys.readouterr().out
         assert "Skipping PITR check" in out
 
@@ -568,7 +557,7 @@ class TestValidateTables:
         patched_clients['us-east-1'] = client
 
         with pytest.raises(SystemExit, match="Could not check PITR"):
-            validate_tables({}, MagicMock(), 't1', pitr_enabled=True)
+            validate_tables(_env(), MagicMock(), 't1', pitr_enabled=True)
 
     def test_schemas_match_happy_path(self, patched_clients):
         """Two tables with identical key schema and identical GSIs/LSIs: no warnings, no exits."""
@@ -595,7 +584,7 @@ class TestValidateTables:
         client.dynamodb_client.describe_table.side_effect = describe
         patched_clients['us-east-1'] = client
 
-        validate_tables({}, MagicMock(), 't1', 't2', schemas_match=True)
+        validate_tables(_env(), MagicMock(), 't1', 't2', schemas_match=True)
 
     def test_schemas_match_key_schema_mismatch_exits(self, patched_clients):
         """Different key schema between tables → exit with mismatch message."""
@@ -618,7 +607,7 @@ class TestValidateTables:
         patched_clients['us-east-1'] = client
 
         with pytest.raises(SystemExit, match="Primary key schema mismatch"):
-            validate_tables({}, MagicMock(), 't1', 't2', schemas_match=True)
+            validate_tables(_env(), MagicMock(), 't1', 't2', schemas_match=True)
 
     def test_schemas_match_gsi_lsi_warnings(self, patched_clients, capsys):
         """Different GSI/LSI sets between tables emit warnings, no exit."""
@@ -653,7 +642,7 @@ class TestValidateTables:
         client.dynamodb_client.describe_table.side_effect = describe
         patched_clients['us-east-1'] = client
 
-        validate_tables({}, MagicMock(), 't1', 't2', schemas_match=True)
+        validate_tables(_env(), MagicMock(), 't1', 't2', schemas_match=True)
         captured = capsys.readouterr()
         # Warnings go to stderr (warn() helper)
         assert "GSI 'only-in-a' is in 't1' but missing from 't2'" in captured.err
@@ -671,60 +660,9 @@ class TestValidateTables:
         patched_clients['eu-west-2'] = client
 
         arn = 'arn:aws:dynamodb:eu-west-2:111122223333:table/MyTable'
-        validate_tables({}, MagicMock(), arn)
+        validate_tables(_env(), MagicMock(), arn)
         # Ensure region-specific client got the call
         client.dynamodb_client.describe_table.assert_called_once_with(TableName=arn)
-
-
-# --- _default_region --------------------------------------------------------
-
-class TestDefaultRegion:
-    """Tests for _default_region (lines 274-279)."""
-
-    def test_uses_session_region(self, monkeypatch):
-        """Boto session reports a region → use it."""
-        session = MagicMock()
-        session.region_name = 'us-east-1'
-        boto3_mock = MagicMock()
-        boto3_mock.Session.return_value = session
-        monkeypatch.setattr(utils_module, 'boto3', boto3_mock)
-        # Clear envs so we can't accidentally hit the fallback
-        monkeypatch.delenv('AWS_REGION', raising=False)
-        monkeypatch.delenv('AWS_DEFAULT_REGION', raising=False)
-        assert _default_region() == 'us-east-1'
-
-    def test_falls_back_to_aws_region_env(self, monkeypatch):
-        """Session region missing → AWS_REGION env."""
-        session = MagicMock()
-        session.region_name = None
-        boto3_mock = MagicMock()
-        boto3_mock.Session.return_value = session
-        monkeypatch.setattr(utils_module, 'boto3', boto3_mock)
-        monkeypatch.setenv('AWS_REGION', 'us-west-2')
-        monkeypatch.delenv('AWS_DEFAULT_REGION', raising=False)
-        assert _default_region() == 'us-west-2'
-
-    def test_falls_back_to_aws_default_region_env(self, monkeypatch):
-        """Session region + AWS_REGION missing → AWS_DEFAULT_REGION env."""
-        session = MagicMock()
-        session.region_name = None
-        boto3_mock = MagicMock()
-        boto3_mock.Session.return_value = session
-        monkeypatch.setattr(utils_module, 'boto3', boto3_mock)
-        monkeypatch.delenv('AWS_REGION', raising=False)
-        monkeypatch.setenv('AWS_DEFAULT_REGION', 'ap-south-1')
-        assert _default_region() == 'ap-south-1'
-
-    def test_returns_none_when_nothing_configured(self, monkeypatch):
-        """All sources empty → returns None."""
-        session = MagicMock()
-        session.region_name = None
-        boto3_mock = MagicMock()
-        boto3_mock.Session.return_value = session
-        monkeypatch.setattr(utils_module, 'boto3', boto3_mock)
-        monkeypatch.delenv('AWS_REGION', raising=False)
-        monkeypatch.delenv('AWS_DEFAULT_REGION', raising=False)
-        assert _default_region() is None
 
 
 # --- _parse_arn -------------------------------------------------------------
