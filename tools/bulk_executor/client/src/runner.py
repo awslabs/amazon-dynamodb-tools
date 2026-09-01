@@ -75,6 +75,10 @@ class BulkDynamoDbRunner:
         self.aws_region = env_configs.aws_region
         self.aws_account_id = env_configs.aws_account_id
         self._suppress_glue_noise = False
+        # Counted rather than silently dropped: see utils.COUNTED_NOISE_PATTERNS. Written
+        # from the live-tail threads, read once at the end, so it takes the lock.
+        self._suppressed_noise = {}
+        self._suppressed_noise_lock = threading.Lock()
 
         clients = Clients(self.aws_region)
         self.dynamodb_client = clients.dynamodb_client
@@ -131,6 +135,17 @@ class BulkDynamoDbRunner:
             return # Only watch error log for special substrings indicating the run should terminate early, not to print to the user. Review these in CloudWatch for debugging.
         elif any(key in log_message for key in utils.LOG_PATTERN_IGNORE_LIST):
             return # Skip known noisy log patterns
+
+        noise_label = next((label for pattern, label in utils.COUNTED_NOISE_PATTERNS
+                            if pattern in log_message), None)
+        if noise_label:
+            # Known Glue/Spark noise. Hidden so a successful run does not print red, but
+            # counted so the closing summary can say something was withheld -- silently
+            # eating error-shaped output would leave anyone debugging a real problem
+            # misled about what the run actually said.
+            with self._suppressed_noise_lock:
+                self._suppressed_noise[noise_label] = self._suppressed_noise.get(noise_label, 0) + 1
+            return
 
         # Once the job has explained the failure itself, suppress the Glue exception
         # analysis noise that follows. This allows us to show the end user the core
@@ -395,6 +410,27 @@ class BulkDynamoDbRunner:
             log.error(f'Error getting job run ErrorMessage! {e}')
             exit(f"Error getting job run ErrorMessage {e}")
 
+    def _report_suppressed_noise(self):
+        """Say what was withheld, once, just above the closing line.
+
+        Deliberately a warning rather than an error: the run may well have succeeded, and
+        these messages are Glue's or Spark's. The point is that a user who suspects
+        something went wrong learns the console was not the whole story.
+        """
+        with self._suppressed_noise_lock:
+            counts = dict(self._suppressed_noise)
+        if not counts:
+            return
+
+        total = sum(counts.values())
+        detail = ', '.join(f"{count} x {label}" for label, count in
+                           sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+        log.warning(
+            f"{total} known Glue/Spark {'message' if total == 1 else 'messages'} "
+            f"({detail}) {'was' if total == 1 else 'were'} not displayed. They are noise "
+            f"on a healthy run; if this job looks wrong, the full output is in CloudWatch "
+            f"under /aws-glue/jobs/output.")
+
     def _get_job_run_dpu(self, job_run_id, args):
         try:
             waitForDPU = args.get("XWaitForDPU")
@@ -619,6 +655,8 @@ You can run the script with the --XWaitForDPU parameter in order to print the us
 
         dpu_seconds = self._get_job_run_dpu(job_run_id, args)
         dpu_hours = dpu_seconds / 3600
+
+        self._report_suppressed_noise()
 
         # Usually this is 0.0 unless we've waited for DPUs to arrive
         if dpu_hours > 0.0:

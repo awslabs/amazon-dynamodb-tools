@@ -416,6 +416,112 @@ class TestPrettyPrintLogEvent:
                 f"{spark_line[:60]!r} must not read as the job explaining itself"
             )
 
+    def test_the_summary_is_wired_into_the_closing_sequence(self, bulk_runner, caplog, monkeypatch):
+        """Counting is useless if nobody reports it. Drives _execute_job to its end and
+        asserts the summary lands with the closing lines, above the outcome."""
+        import logging
+
+        monkeypatch.setattr(bulk_runner, '_start_glue_job', lambda *a: 'jr_test')
+        monkeypatch.setattr(bulk_runner, '_watch_glue_job', lambda *a: None)
+        monkeypatch.setattr(bulk_runner, '_watch_for_interrupt', lambda *a: None)
+        monkeypatch.setattr(bulk_runner, '_get_job_run_state', lambda *a: 'SUCCEEDED')
+        monkeypatch.setattr(bulk_runner, '_get_job_run_error_message', lambda *a: None)
+        monkeypatch.setattr(bulk_runner, '_get_job_run_dpu', lambda *a, **kw: 0)
+        bulk_runner._suppressed_noise = {'executors released mid-run': 3}
+
+        with caplog.at_level(logging.INFO):
+            bulk_runner._execute_job({}, {})
+
+        messages = [r.message for r in caplog.records]
+        summary = next((i for i, m in enumerate(messages)
+                        if 'not displayed' in m), None)
+        outcome = next((i for i, m in enumerate(messages)
+                        if m.startswith('Job completed successfully')), None)
+        assert summary is not None, "the run must admit what it withheld"
+        assert outcome is not None, "sanity: the closing line was reached"
+        assert summary < outcome, "the admission belongs above the outcome, not after it"
+
+    def test_counted_noise_is_hidden_but_tallied(self, bulk_runner, capsys, monkeypatch):
+        """Known Glue/Spark noise is suppressed so a healthy run prints no red, and counted
+        so the closing summary can admit something was withheld."""
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
+
+        for message in (
+            "ERROR TransportRequestHandler: Error sending result StreamResponse{...}",
+            "ERROR TransportRequestHandler: Error sending result StreamResponse{...}",
+            "ERROR ScheduledReporter:208 - Exception thrown from AWSDILyraMetricsReporter#report.",
+            "ERROR TaskSchedulerImpl:267 - Lost executor 11 on 172.36.43.99: Remote RPC "
+            "client disassociated. Likely due to containers exceeding thresholds, or "
+            "network issues. Check driver logs for WARN messages.",
+        ):
+            bulk_runner._pretty_print_log_event(_make_event(message=message))
+
+        assert capsys.readouterr().out == '', "none of it reaches the console"
+        assert bulk_runner._suppressed_noise == {
+            'Netty stream-response errors': 2,
+            'Glue metrics-reporter exceptions': 1,
+            'executors released mid-run': 1,
+        }
+
+    def test_summary_names_what_was_withheld(self, bulk_runner, caplog):
+        import logging
+
+        bulk_runner._suppressed_noise = {'executors released mid-run': 21,
+                                        'Netty stream-response errors': 1}
+        with caplog.at_level(logging.WARNING):
+            bulk_runner._report_suppressed_noise()
+
+        line = ' '.join(r.message for r in caplog.records)
+        assert line.startswith('22 known Glue/Spark messages'), "lead with the total"
+        assert '21 x executors released mid-run' in line, "biggest count first"
+        assert '1 x Netty stream-response errors' in line
+        assert 'CloudWatch' in line and '/aws-glue/jobs/output' in line, "say where to look"
+        assert [r.levelname for r in caplog.records] == ['WARNING'], (
+            "the run may have succeeded; this is not itself an error"
+        )
+
+    def test_summary_uses_singular_for_one(self, bulk_runner, caplog):
+        import logging
+
+        bulk_runner._suppressed_noise = {'Glue metrics-reporter exceptions': 1}
+        with caplog.at_level(logging.WARNING):
+            bulk_runner._report_suppressed_noise()
+
+        assert '1 known Glue/Spark message' in caplog.records[0].message
+        assert 'was not displayed' in caplog.records[0].message
+
+    def test_no_summary_when_nothing_was_suppressed(self, bulk_runner, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            bulk_runner._report_suppressed_noise()
+
+        assert caplog.records == [], "silence when there is nothing to admit"
+
+    def test_evidence_of_lost_work_is_never_suppressed(self, bulk_runner, capsys, monkeypatch):
+        """The line about an executor going away is noise; the lines about work actually
+        being lost are how a dying cluster announces itself (#302). Those must print and
+        must not be counted, or suppressing the symptom would hide the diagnosis."""
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
+
+        for message in (
+            "WARN TaskSetManager: Lost task 12.0 in stage 4.0 (TID 913) (executor 7 "
+            "exited caused by one of the running tasks) Reason: Container killed",
+            "ERROR TaskSetManager: Task 3 in stage 2.0 failed 4 times; aborting job",
+            "ERROR DAGScheduler: Job aborted due to stage failure: Task 0 failed 4 times",
+            "ExecutorLostFailure (executor 5 exited caused by one of the running tasks)",
+            "Container killed by YARN for exceeding memory limits",
+        ):
+            bulk_runner._pretty_print_log_event(_make_event(message=message))
+            printed = capsys.readouterr()
+            assert (printed.out + printed.err).strip(), f"must reach the user: {message[:50]}"
+
+        assert bulk_runner._suppressed_noise == {}, "none of these are noise"
+
     def test_real_worker_traceback_still_prints(self, bulk_runner, capsys):
         """Guard for #334: the anchor is Glue's reporter, not the frames. An unexpected
         worker failure prints its traceback through the same path and must survive."""

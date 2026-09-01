@@ -14,13 +14,46 @@ from utils.logger import ColorCodes, log
 SUPPORTED_EXECUTION_CLASSES = ['STANDARD', 'FLEX']
 SUPPORTED_WORKER_TYPES = ['G.1X', 'G.2X', 'G.4X', 'G.8X', 'G.12X', 'G.16X', 'R.1X', 'R.2X', 'R.4X', 'R.8X']
 
+# Suppressed *and counted*, with a one-line summary before the closing line. These are
+# error-shaped: they print red or carry a stack, they are Glue's or Spark's rather than
+# ours, and they appear on runs that succeed -- so hiding them silently would mean a user
+# chasing a real problem never learns the tool withheld anything. The label is what the
+# summary calls them, so write it for someone who has to decide whether to go and look.
+#
+# Nothing whose absence could disguise lost work belongs here. Task-level failures
+# (`Lost task`, `ExecutorLostFailure`), stage failures and job aborts are deliberately
+# absent: they are how a genuinely dying cluster announces itself.
+COUNTED_NOISE_PATTERNS = [
+    # Benign Netty noise: the driver fails to stream a JAR/result to an executor whose
+    # channel already closed. Prints red but does not affect processing -- seen on tiny
+    # jobs (e.g. a diff of two small tables). Issue #247.
+    (r"Error sending result StreamResponse", "Netty stream-response errors"),
+    # Glue's own metrics reporter races on the map behind its stage-skewness gauge, logs
+    # the ConcurrentModificationException at ERROR, and says in the same line that it
+    # suppressed it. One event carrying the header and all 18 frames. Issue #334.
+    (r"Exception thrown from AWSDILyraMetricsReporter#report",
+     "Glue metrics-reporter exceptions"),
+    # Spark reports a query-analysis failure itself, before our handler turns it into
+    # "SQL query error: ...", as one ~10 KB JSON event with ~90 Java frames and the
+    # unresolved query plan. Issue #332.
+    (r'"logger": "SQLQueryContextLogger"', "Spark query-analysis dumps"),
+    # An executor going away logs at ERROR whether it was decommissioned or killed, and
+    # the message's own advice ("containers exceeding thresholds, or network issues")
+    # points at a resource problem that usually did not happen: measured on the max_rate
+    # run, 21 of these landed in the same second after the write ramped down, with zero
+    # lost tasks and all 18M items verified. The consequences of a real executor death
+    # are separate messages and are not filtered. Issue #302.
+    (r"Remote RPC client disassociated", "executors released mid-run"),
+]
+
+# Suppressed silently. Routine chatter that is not error-shaped or fires on every single
+# run, so counting it would put the noise back in a different form.
 LOG_PATTERN_IGNORE_LIST = [
     r"Running autoDebugger shutdown hook.",
     r"Error while invoking RpcHandler#receive() for one-way message.",
     # Benign Netty noise: the driver fails to stream a JAR/result to an executor
     # whose channel already closed. Prints red (contains ERROR) but does not affect
     # processing -- seen on tiny jobs (e.g. a diff of two small tables). Issue #247.
-    r"Error sending result StreamResponse",
     # Glue 6.0 ships an invalid escape sequence in its own job wrapper
     # (pythonrunner/runscript.py), which Python 3.13 surfaces as a visible
     # SyntaxWarning on every single run -- 26/26 job runs in testing. It arrives
@@ -37,14 +70,12 @@ LOG_PATTERN_IGNORE_LIST = [
     # single anchor drops the whole thing. Nothing in it is ours: every frame is
     # aws-glue-di-package.jar or metrics-core. Remove once AWS fixes the image.
     # Issue #334.
-    r"Exception thrown from AWSDILyraMetricsReporter#report",
     # Spark reports a query-analysis failure itself, at ERROR, before our handler sees it:
     # one ~10 KB JSON event carrying the message we go on to print cleanly, plus ~90 Java
     # frames and the unresolved query plan. Measured on `sql` with a mistyped column: 90 of
     # the run's 148 lines. Anchored on the logger name inside that JSON, so it drops the
     # whole event rather than leaving orphaned frames. The message still reaches the user
     # through the verb's own "SQL query error: ..." line. Issue #332.
-    r'"logger": "SQLQueryContextLogger"',
 ]
 
 # Intentional nuanced configs:
