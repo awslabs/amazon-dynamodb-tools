@@ -2,7 +2,47 @@
 
 import pytest
 from unittest.mock import Mock, patch, mock_open
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.export.utils.file_loader import FileLoader
+
+
+
+class TestFileLoaderS3Errors:
+    """How _read_from_s3 reports S3 failures the user can act on.
+
+    Observed live while verifying #258: pointing load-export at an export in a bucket the
+    Glue job's role cannot read produced a botocore traceback and a Glue exception-analysis
+    blob. It is an ordinary mistake -- the managed AWSGlueServiceRole policy only grants
+    buckets named aws-glue-* -- so it belongs on the polite path.
+    """
+
+    def _loader_raising(self, code):
+        from botocore.exceptions import ClientError
+        client = Mock()
+        client.get_object.side_effect = ClientError(
+            {'Error': {'Code': code, 'Message': 'nope'}}, 'GetObject')
+        return FileLoader(s3_client=client)
+
+    def test_access_denied_is_understood(self):
+        loader = self._loader_raising('AccessDenied')
+        with pytest.raises(BulkExecutorError) as raised:
+            loader.read_file('s3://someone-elses-bucket/AWSDynamoDB/x/manifest-summary.json')
+        message = str(raised.value)
+        assert 'Access denied' in message
+        assert 's3:GetObject' in message and 's3:ListBucket' in message, "say what to grant"
+        assert 'aws-glue-*' in message, "name the trap in the managed policy"
+
+    def test_missing_key_is_understood(self):
+        loader = self._loader_raising('NoSuchKey')
+        with pytest.raises(BulkExecutorError, match='File not found'):
+            loader.read_file('s3://b/AWSDynamoDB/x/manifest-summary.json')
+
+    def test_other_client_errors_are_left_alone(self):
+        """An error nobody anticipated keeps its type, so it gets a traceback."""
+        from botocore.exceptions import ClientError
+        loader = self._loader_raising('InternalError')
+        with pytest.raises(ClientError):
+            loader.read_file('s3://b/AWSDynamoDB/x/manifest-summary.json')
 
 
 class TestFileLoader:
@@ -45,15 +85,15 @@ class TestFileLoader:
         loader = FileLoader()
         
         # Test with local path
-        with pytest.raises(ValueError, match="Invalid S3 path"):
+        with pytest.raises(BulkExecutorError, match="Invalid S3 path"):
             loader.parse_s3_path('/local/path/file.json')
         
         # Test with empty path after s3://
-        with pytest.raises(ValueError, match="Invalid S3 path format"):
+        with pytest.raises(BulkExecutorError, match="Invalid S3 path format"):
             loader.parse_s3_path('s3://')
         
         # Test with malformed path
-        with pytest.raises(ValueError, match="Invalid S3 path"):
+        with pytest.raises(BulkExecutorError, match="Invalid S3 path"):
             loader.parse_s3_path('http://bucket/key')
     
     def test_join_path_with_s3_paths(self):
@@ -158,17 +198,17 @@ class TestFileLoader:
         with pytest.raises(BulkExecutorError, match="File not found.*ensure the path depth"):
             loader.read_file('s3://my-bucket/wrong/path/manifest-files.json')
 
-    def test_read_file_non_nosuchkey_client_error_propagates(self):
-        """ClientError with code != NoSuchKey is re-raised unchanged (line 119).
+    def test_read_file_unanticipated_client_error_propagates(self):
+        """A ClientError we do not claim to understand is re-raised unchanged.
 
-        The NoSuchKey path wraps the error in BulkExecutorError; other codes
-        (e.g. AccessDenied) bypass the wrapping and bubble up as-is so the
-        caller sees the real boto3 error.
+        NoSuchKey and AccessDenied are wrapped as BulkExecutorError, because both are
+        ordinary mistakes with a sentence worth reading (see TestFileLoaderS3Errors).
+        Anything else keeps its type, so it reaches the user as a bug with a traceback.
         """
         from botocore.exceptions import ClientError
         mock_s3_client = Mock()
         error_response = {
-            'Error': {'Code': 'AccessDenied', 'Message': 'Access Denied'}
+            'Error': {'Code': 'InternalError', 'Message': 'We encountered an internal error'}
         }
         original_error = ClientError(error_response, 'GetObject')
         mock_s3_client.get_object.side_effect = original_error
@@ -179,7 +219,7 @@ class TestFileLoader:
             loader.read_file('s3://my-bucket/forbidden/key.json')
         # The original ClientError is propagated unchanged.
         assert exc_info.value is original_error
-        assert exc_info.value.response['Error']['Code'] == 'AccessDenied'
+        assert exc_info.value.response['Error']['Code'] == 'InternalError'
 
     def test_read_file_throttling_client_error_propagates(self):
         """A throttling-style ClientError also bypasses the NoSuchKey wrapping."""

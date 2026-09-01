@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import Mock, MagicMock, patch, call
 
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.export.pipeline import run_export_pipeline
 from python_modules.shared.export.pipeline import _apply_transform_and_resolve as _apply_transform_stage
 from python_modules.shared.export.pipeline.validator import validate as _validate
@@ -706,14 +707,49 @@ class TestRunExportPipeline:
     @patch('python_modules.shared.export.pipeline.RateLimiterSharedConfig')
     @patch('python_modules.shared.export.pipeline.get_dynamodb_throughput_configs')
     @patch('python_modules.shared.export.pipeline.validate')
-    def test_validation_raises_value_error_propagates(self, mock_validate, mock_throughput, mock_rl_config, mock_rl_agg,
-                                                       mock_spark_context, parsed_args):
+    def test_validation_value_error_reraised_as_bulk_executor_error(self, mock_validate, mock_throughput, mock_rl_config, mock_rl_agg,
+                                                                     mock_spark_context, parsed_args):
+        """A validator ValueError is surfaced as a clean BulkExecutorError so root.py
+        prints a one-line message instead of a Glue stack trace (issue #254)."""
         mock_spark_context.accumulator = Mock(return_value=Mock(value=[]))
         mock_validate.side_effect = ValueError("bad manifest")
 
-        with pytest.raises(ValueError, match="bad manifest"):
+        with pytest.raises(BulkExecutorError, match="bad manifest") as exc:
             run_export_pipeline(mock_spark_context, parsed_args, transform_package='python_modules.load_export.transform')
+        # Original ValueError preserved as the cause for debugging.
+        assert isinstance(exc.value.__cause__, ValueError)
+        mock_rl_agg.return_value.shutdown.assert_called_once()
 
+    @patch('python_modules.shared.export.pipeline.RateLimiterAggregator')
+    @patch('python_modules.shared.export.pipeline.RateLimiterSharedConfig')
+    @patch('python_modules.shared.export.pipeline.get_dynamodb_throughput_configs')
+    @patch('python_modules.shared.export.pipeline.validate')
+    def test_existing_bulk_executor_error_passes_through(self, mock_validate, mock_throughput, mock_rl_config, mock_rl_agg,
+                                                         mock_spark_context, parsed_args):
+        """A validator that already raises BulkExecutorError is re-raised as-is,
+        not re-wrapped (no BulkExecutorError-inside-BulkExecutorError)."""
+        mock_spark_context.accumulator = Mock(return_value=Mock(value=[]))
+        original = BulkExecutorError("access denied to s3 path")
+        mock_validate.side_effect = original
+
+        with pytest.raises(BulkExecutorError, match="access denied") as exc:
+            run_export_pipeline(mock_spark_context, parsed_args, transform_package='python_modules.load_export.transform')
+        assert exc.value is original
+        mock_rl_agg.return_value.shutdown.assert_called_once()
+
+    @patch('python_modules.shared.export.pipeline.RateLimiterAggregator')
+    @patch('python_modules.shared.export.pipeline.RateLimiterSharedConfig')
+    @patch('python_modules.shared.export.pipeline.get_dynamodb_throughput_configs')
+    def test_malformed_s3_path_reraised_as_bulk_executor_error(self, mock_throughput, mock_rl_config, mock_rl_agg,
+                                                               mock_spark_context, parsed_args):
+        """A malformed --s3-path (ExportPathResolver raise) is now inside the try,
+        so it too becomes a clean BulkExecutorError rather than a raw ValueError."""
+        mock_spark_context.accumulator = Mock(return_value=Mock(value=[]))
+        bad_args = dict(parsed_args)
+        bad_args['s3_path'] = 's3://bucket/no-dynamodb-segment/here'
+
+        with pytest.raises(BulkExecutorError):
+            run_export_pipeline(mock_spark_context, bad_args, transform_package='python_modules.load_export.transform')
         mock_rl_agg.return_value.shutdown.assert_called_once()
 
     @patch('python_modules.shared.export.pipeline.RateLimiterAggregator')

@@ -1,5 +1,6 @@
 """Parser factory for selecting the appropriate DynamoDB export parser."""
 
+from ...bulk_executor_error import BulkExecutorError
 from ..utils.enums import ExportLoadType
 from .full_export_parser import FullExportParser
 from .incremental_export_parser import IncrementalExportParser
@@ -15,4 +16,4 @@ class ParserFactory:
         elif load_type == ExportLoadType.INCREMENTAL:
             return IncrementalExportParser(table_key_schema)
         else:
-            raise ValueError(f"Unsupported load type: {load_type}")
+            raise BulkExecutorError(f"Unsupported load type: {load_type}")
