@@ -59,9 +59,20 @@ Do **not** work from a hard-coded list.
 Recording and surfacing is not enough. `shared/worker_errors.py` splits failures in
 two, and the split is what the user experiences:
 
-- **understood** — a permission denial, throttling, a validation rejection, a missing
-  table (`UNDERSTOOD_ERROR_CODES`, plus AWS's own "is not authorized to perform"
-  wording), or something a verb detected and phrased itself: `fill` checks each
+- **understood** — *the verb expected it and said so*, or the failure is environmental.
+  Only `ENVIRONMENT_ERROR_CODES` (denials, expired credentials, throttling that outlived
+  the SDK's retries) plus AWS's own "is not authorized to perform" wording are classified
+  without a verb's involvement, because those are the operator's to fix whichever verb hit
+  them. **Everything else defaults to unexpected**, including `ValidationException`,
+  `ResourceNotFoundException` and `ConditionalCheckFailedException`: whether one of those
+  is understood is a property of the verb, not the code. A `ValidationException` is a
+  phrasable mistake in `fill` (the generator's items don't fit the schema) and a bug in
+  code that built its own request. A verb that expected it says so —
+  `record_understood_failure`, `understood=True`, or raising `BulkExecutorError` where it
+  recognises the condition. This is the check to make when reading a handler: **does the
+  verb actually anticipate what it is quietly calling understood?**
+
+  The clearest form is a verb detecting the mistake itself: `fill` checks each
   generated item against the table's key names *before* writing, so the common mistake
   reads `Generated item is missing the table's key attribute(s) ['id']; the item has
   ['payload', 'pknum']` instead of boto3's bare `KeyError: 'id'` out of `batch_writer`'s
@@ -220,8 +231,11 @@ Two exceptions to the middle test, or you will chase ghosts:
 
 For each worker entry point, state one of:
 
-- `conforms — <function>: except Exception -> record_worker_failure(<accumulator>),
-  driver calls raise_first_worker_error at <line>`
+- `conforms — <function>: except Exception -> record_worker_failure(<accumulator>);
+  surfaced by raise_first_worker_error in <the driver function that collects it>`
+
+Name functions, not line numbers — anything you cite here is read months later, against
+code that has moved.
 - a **finding**: name the function, say which point fails (no handler / handler too
   narrow / records but the driver never checks / raises instead of returning), and
   give the shape of the consequence (log volume, closing line).

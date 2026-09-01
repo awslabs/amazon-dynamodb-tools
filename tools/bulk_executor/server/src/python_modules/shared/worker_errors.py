@@ -7,10 +7,15 @@ entry.
 
 Whether we *understood* the failure decides what the user gets:
 
-- understood -- a permission denial, throttling, a validation rejection, a generated
-  item missing the table's key. The user can act on it and there is nothing to debug,
-  so the driver raises BulkExecutorError: root.py exits with the sentence, and nobody
-  needs to know an exception was involved.
+- understood -- the verb expected this and phrased it (BulkExecutorError,
+  record_understood_failure, or understood=True), or the failure is environmental:
+  a denial, expired credentials, throttling that outlived the SDK's retries. The user
+  can act on it and there is nothing to debug, so the driver raises BulkExecutorError:
+  root.py exits with the sentence, and nobody needs to know an exception was involved.
+
+  Whether an AWS error code is "understood" is a property of the verb, not the code:
+  ValidationException is a phrasable mistake in `fill` and a bug in code that builds its
+  own request. Only ENVIRONMENT_ERROR_CODES are classified without a verb saying so.
 - unexpected -- a bug in our code, or a user-supplied generator or transform doing
   something we cannot anticipate. This one stays an exception, because that is what it
   is. The driver prints the worker's traceback first: the frames that name the bug are
@@ -25,27 +30,31 @@ import traceback
 from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.errors import get_error_code, get_error_message
 
-# AWS rejections we understand well enough to explain rather than dump. Each is a
-# condition the operator can do something about -- grant a permission, slow down,
-# fix the item shape, point at a table that exists.
-UNDERSTOOD_ERROR_CODES = frozenset({
+# Failures about the caller's environment rather than our code path: whichever verb
+# hits one of these, the operator grants a permission or slows down, and a traceback
+# could not help anyone. These are the only codes classified without a verb's say-so.
+#
+# Deliberately absent: ValidationException, ResourceNotFoundException,
+# ConditionalCheckFailedException, TransactionConflictException,
+# ItemCollectionSizeLimitExceededException, LimitExceededException. Whether those are
+# understood depends entirely on whether the verb expected them -- a ValidationException
+# is a phrasable mistake in `fill` (the generator's items don't fit the schema) and a bug
+# anywhere that builds its own request. A verb that expects one says so, with
+# record_understood_failure() or by raising BulkExecutorError where it recognises the
+# condition; `fill`, `update` and the batch writer all do. Anything nobody expected keeps
+# its traceback, which is the point.
+ENVIRONMENT_ERROR_CODES = frozenset({
     'AccessDeniedException',
     'UnrecognizedClientException',
     'InvalidSignatureException',
     'ProvisionedThroughputExceededException',
     'ThrottlingException',
     'RequestLimitExceeded',
-    'LimitExceededException',
-    'ValidationException',
-    'ResourceNotFoundException',
-    'ConditionalCheckFailedException',
-    'ItemCollectionSizeLimitExceededException',
-    'TransactionConflictException',
 })
 
 # The Java SDK and the Glue connector phrase authorization failures in text rather
 # than in a code we can read, so match on AWS's own wording as a fallback.
-_UNDERSTOOD_PHRASES = (
+_ENVIRONMENT_PHRASES = (
     'is not authorized to perform',
     'AccessDenied',
     'security token included in the request is expired',
@@ -58,14 +67,19 @@ UNEXPECTED_FAILURE_BANNER = "A worker failed in a way we did not expect. Traceba
 
 
 def classify_failure(exception):
-    """Return (understood, message) for an exception caught in a worker."""
+    """Return (understood, message) for an exception caught in a worker.
+
+    Understood without the verb's involvement means environmental (see
+    ENVIRONMENT_ERROR_CODES); everything else defaults to unexpected, so a verb that
+    expected a failure has to say so.
+    """
     if isinstance(exception, BulkExecutorError):
         return True, str(exception)
 
     message = str(get_error_message(exception))
-    if get_error_code(exception) in UNDERSTOOD_ERROR_CODES:
+    if get_error_code(exception) in ENVIRONMENT_ERROR_CODES:
         return True, message
-    if any(phrase in message for phrase in _UNDERSTOOD_PHRASES):
+    if any(phrase in message for phrase in _ENVIRONMENT_PHRASES):
         return True, message
     return False, message
 

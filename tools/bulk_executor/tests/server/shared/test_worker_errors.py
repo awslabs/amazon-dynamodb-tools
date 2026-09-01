@@ -60,8 +60,9 @@ class TestClassifyFailure:
     def test_bulk_executor_error_is_understood(self):
         assert classify_failure(BulkExecutorError('bad --where')) == (True, 'bad --where')
 
-    @pytest.mark.parametrize('code', sorted(worker_errors.UNDERSTOOD_ERROR_CODES))
-    def test_every_listed_aws_code_is_understood(self, code):
+    @pytest.mark.parametrize('code', sorted(worker_errors.ENVIRONMENT_ERROR_CODES))
+    def test_environmental_codes_are_understood_without_a_verb_saying_so(self, code):
+        """A denial or a throttle is the operator's to fix whichever verb hit it."""
         understood, message = classify_failure(_client_error(code, 'denied'))
         assert understood
         assert message == 'denied'
@@ -70,6 +71,24 @@ class TestClassifyFailure:
         understood, message = classify_failure(_client_error('InternalServerError', 'oops'))
         assert not understood
         assert message == 'oops'
+
+    @pytest.mark.parametrize('code', [
+        'ValidationException',
+        'ResourceNotFoundException',
+        'ConditionalCheckFailedException',
+        'TransactionConflictException',
+        'ItemCollectionSizeLimitExceededException',
+        'LimitExceededException',
+    ])
+    def test_verb_dependent_codes_are_unexpected_unless_the_verb_says_otherwise(self, code):
+        """Whether these are understood depends on whether the verb expected them, so the
+        shared classifier must not decide for it. `fill` expects a ValidationException from
+        a bad generator and phrases it; code that builds its own request does not, and a
+        traceback is the only useful report there."""
+        understood, _ = classify_failure(_client_error(code, 'nope'))
+        assert not understood, (
+            f"{code} is understood only where a verb expected it -- it must reach the "
+            "traceback path by default")
 
     def test_authorization_wording_is_understood_without_a_code(self):
         """The Glue connector phrases denials in text rather than in a code."""
