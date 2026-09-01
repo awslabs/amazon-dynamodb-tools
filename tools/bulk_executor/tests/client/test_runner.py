@@ -442,17 +442,18 @@ class TestPrettyPrintLogEvent:
         assert summary < outcome, "the admission belongs above the outcome, not after it"
 
     def test_counted_noise_is_hidden_but_tallied(self, bulk_runner, capsys, monkeypatch):
-        """Known Glue/Spark noise is suppressed so a healthy run prints no red, and counted
-        so the closing summary can admit something was withheld."""
-        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        """Noise we are not certain about is suppressed *and* counted, so the closing
+        summary can admit something was withheld."""
         monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
 
         for message in (
-            "ERROR TransportRequestHandler: Error sending result StreamResponse{...}",
-            "ERROR TransportRequestHandler: Error sending result StreamResponse{...}",
-            "ERROR ScheduledReporter:208 - Exception thrown from AWSDILyraMetricsReporter#report.",
+            '{"ts": "2026-09-01 09:31:40", "level": "ERROR", "logger": '
+            '"SQLQueryContextLogger", "msg": "[UNRESOLVED_COLUMN] ..."}',
             "ERROR TaskSchedulerImpl:267 - Lost executor 11 on 172.36.43.99: Remote RPC "
+            "client disassociated. Likely due to containers exceeding thresholds, or "
+            "network issues. Check driver logs for WARN messages.",
+            "ERROR TaskSchedulerImpl:267 - Lost executor 18 on 172.34.21.25: Remote RPC "
             "client disassociated. Likely due to containers exceeding thresholds, or "
             "network issues. Check driver logs for WARN messages.",
         ):
@@ -460,10 +461,23 @@ class TestPrettyPrintLogEvent:
 
         assert capsys.readouterr().out == '', "none of it reaches the console"
         assert bulk_runner._suppressed_noise == {
-            'Netty stream-response errors': 2,
-            'Glue metrics-reporter exceptions': 1,
-            'executors released mid-run': 1,
+            'Spark query-analysis dumps': 1,
+            'executors released mid-run': 2,
         }
+
+    def test_noise_we_are_sure_about_is_not_counted(self, bulk_runner, capsys):
+        """A heads-up about output that never matters is the noise again in a smaller font.
+        Glue's metrics reporter failing to report, and Netty failing to stream to a closed
+        channel, are suppressed with nothing said."""
+        for message in (
+            "ERROR ScheduledReporter:208 - Exception thrown from AWSDILyraMetricsReporter#report.",
+            "ERROR TransportRequestHandler: Error sending result StreamResponse{...}",
+            "Running autoDebugger shutdown hook.",
+        ):
+            bulk_runner._pretty_print_log_event(_make_event(message=message))
+
+        assert capsys.readouterr().out == '', "still suppressed"
+        assert bulk_runner._suppressed_noise == {}, "and not worth mentioning"
 
     def test_summary_names_what_was_withheld(self, bulk_runner, caplog):
         import logging

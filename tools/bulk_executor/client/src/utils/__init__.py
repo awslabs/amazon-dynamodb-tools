@@ -14,35 +14,32 @@ from utils.logger import ColorCodes, log
 SUPPORTED_EXECUTION_CLASSES = ['STANDARD', 'FLEX']
 SUPPORTED_WORKER_TYPES = ['G.1X', 'G.2X', 'G.4X', 'G.8X', 'G.12X', 'G.16X', 'R.1X', 'R.2X', 'R.4X', 'R.8X']
 
-# Suppressed *and counted*, with a one-line summary before the closing line. These are
-# error-shaped: they print red or carry a stack, they are Glue's or Spark's rather than
-# ours, and they appear on runs that succeed -- so hiding them silently would mean a user
-# chasing a real problem never learns the tool withheld anything. The label is what the
-# summary calls them, so write it for someone who has to decide whether to go and look.
+# Suppressed *and counted*, with a one-line summary before the closing line.
 #
-# Nothing whose absence could disguise lost work belongs here. Task-level failures
-# (`Lost task`, `ExecutorLostFailure`), stage failures and job aborts are deliberately
-# absent: they are how a genuinely dying cluster announces itself.
+# The bar for this list is narrow: only noise where suppression might have gone too far --
+# where the message we hide could, in some run we have not seen, have been the thing worth
+# reading. The count is that admission. Anything we are confident nobody ever needs belongs
+# in LOG_PATTERN_IGNORE_LIST instead, because a heads-up about output that never matters is
+# just the noise again in a smaller font.
+#
+# The label is what the summary calls them, so write it for someone deciding whether to go
+# and look. Nothing whose absence could disguise lost work belongs here either: task-level
+# failures (`Lost task`, `ExecutorLostFailure`), stage failures and job aborts are never
+# filtered, counted or otherwise -- they are how a genuinely dying cluster announces itself.
 COUNTED_NOISE_PATTERNS = [
-    # Benign Netty noise: the driver fails to stream a JAR/result to an executor whose
-    # channel already closed. Prints red but does not affect processing -- seen on tiny
-    # jobs (e.g. a diff of two small tables). Issue #247.
-    (r"Error sending result StreamResponse", "Netty stream-response errors"),
-    # Glue's own metrics reporter races on the map behind its stage-skewness gauge, logs
-    # the ConcurrentModificationException at ERROR, and says in the same line that it
-    # suppressed it. One event carrying the header and all 18 frames. Issue #334.
-    (r"Exception thrown from AWSDILyraMetricsReporter#report",
-     "Glue metrics-reporter exceptions"),
     # Spark reports a query-analysis failure itself, before our handler turns it into
-    # "SQL query error: ...", as one ~10 KB JSON event with ~90 Java frames and the
-    # unresolved query plan. Issue #332.
+    # "SQL query error: ...", as one ~10 KB JSON event. Its `msg` field duplicates what we
+    # print, so the primary message is not lost -- but the same blob carries the unresolved
+    # query plan, and for a join with an ambiguous column that plan is the debugging aid
+    # rather than the sentence. Counted because of the plan. Issue #332.
     (r'"logger": "SQLQueryContextLogger"', "Spark query-analysis dumps"),
-    # An executor going away logs at ERROR whether it was decommissioned or killed, and
-    # the message's own advice ("containers exceeding thresholds, or network issues")
-    # points at a resource problem that usually did not happen: measured on the max_rate
-    # run, 21 of these landed in the same second after the write ramped down, with zero
-    # lost tasks and all 18M items verified. The consequences of a real executor death
-    # are separate messages and are not filtered. Issue #302.
+    # An executor going away logs at ERROR whether it was decommissioned or OOM-killed --
+    # the text is identical, so this line cannot tell them apart. Measured on the max_rate
+    # run: 21 in the same second after the write ramped down, zero lost tasks, all 18M items
+    # verified. The consequences of a real death are separate messages and are not filtered,
+    # so suppression costs a symptom, not a diagnosis. Counted because a pattern of these
+    # without task loss would otherwise be invisible, and that is the early signal for a
+    # memory-default regression. Issue #302.
     (r"Remote RPC client disassociated", "executors released mid-run"),
 ]
 
@@ -51,6 +48,18 @@ COUNTED_NOISE_PATTERNS = [
 LOG_PATTERN_IGNORE_LIST = [
     r"Running autoDebugger shutdown hook.",
     r"Error while invoking RpcHandler#receive() for one-way message.",
+    # Benign Netty noise: the driver fails to stream a JAR/result to an executor whose
+    # channel already closed. Prints red but does not affect processing -- seen on tiny jobs
+    # (e.g. a diff of two small tables). Not counted: it says nothing a user could act on,
+    # and a network fault bad enough to matter shows up as task failures, which are never
+    # filtered. Issue #247.
+    r"Error sending result StreamResponse",
+    # Glue's own metrics reporter races on the map behind its stage-skewness gauge, logs the
+    # ConcurrentModificationException at ERROR, and says in the same line that it suppressed
+    # it. One event, header plus 18 frames. Not counted: the failure is in Glue's telemetry,
+    # never in the job, so there is no run in which its reporting trouble is worth a
+    # heads-up. Issue #334.
+    r"Exception thrown from AWSDILyraMetricsReporter#report",
     # Benign Netty noise: the driver fails to stream a JAR/result to an executor
     # whose channel already closed. Prints red (contains ERROR) but does not affect
     # processing -- seen on tiny jobs (e.g. a diff of two small tables). Issue #247.
