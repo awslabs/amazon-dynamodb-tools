@@ -91,19 +91,33 @@ def run(job, spark_context, glue_context, parsed_args):
         dynamicFrame = read_data(glue_context, s3_path, parsed_args)
         count = dynamicFrame.count()
         if count == 0:
-            # Logged as a warning, not an error: this run goes on to succeed, and an ERROR
-            # line above "Job completed successfully" is a contradiction the reader has to
-            # resolve. An empty drop is also a legitimate input -- the export pipeline
-            # treats a 0-item export the same way. Whether a source that holds bytes but
-            # yields no rows should fail instead is a separate question (#340).
+            # Zero rows means one of two different things, and they deserve different
+            # outcomes (#340). An empty drop is a legitimate input -- the export pipeline
+            # treats a 0-item export the same way -- so it succeeds with a warning rather
+            # than an ERROR line above "Job completed successfully". A source that holds
+            # bytes and yields nothing is the reader failing to understand it, which is the
+            # user's mistake and worth failing on: otherwise a mistyped --format is
+            # indistinguishable from an empty file, and Spark's JSON reader returns no rows
+            # where its Parquet reader would have raised.
+            source_bytes = s3_source_bytes(s3_path)
+            if source_bytes:
+                raise BulkExecutorError(
+                    f"Read 0 items from '{s3_path}', but it holds {source_bytes:,} bytes. "
+                    f"The data is probably not {parsed_args.get('format')!r} -- check "
+                    f"--format. (A header-only CSV also reads as 0 items.)")
             log.warning(
-                f"Read 0 items from '{s3_path}' as {parsed_args.get('format')!r} -- "
-                f"nothing was loaded. If that is unexpected, check --format and the path.")
+                f"Read 0 items from '{s3_path}': the source is empty, so nothing was "
+                f"loaded. Check the path if that is unexpected.")
             return
         log.info(f"\nPreparing to load {count} items")
         log.info("Schema is:")
         dynamicFrame.printSchema()
 
+    except BulkExecutorError:
+        # Already phrased -- the zero-row branch above raises from inside this try, and
+        # wrapping it again produced "Could not read the source ... as 'json': Read 0 items
+        # from ..., but it holds 29 bytes ..." in a live run.
+        raise
     except Exception as e:
         # This is where Spark actually reads the source, so it fires on the everyday
         # mistakes: --format json pointed at CSV, malformed JSON, an unreadable Parquet
@@ -134,6 +148,35 @@ def run(job, spark_context, glue_context, parsed_args):
         # get_error_message unwraps the Py4J stack to AWS's own sentence.
         raise BulkExecutorError(f"Error in writing to table: {get_error_message(e)}") from None
 
+def _split_s3_uri(s3_uri):
+    """Return (bucket, key) for an s3:// URI."""
+    match = re.match(r"s3://([^/]+)/(.*)", s3_uri)
+    if not match:
+        raise BulkExecutorError(f"Invalid S3 URI format: {s3_uri}. Expected format: s3://bucket-name/key")
+    return match.group(1), match.group(2)
+
+
+def s3_source_bytes(s3_uri):
+    """Total bytes behind the path: one object, or every object under a prefix.
+
+    Only called when a read produced no rows, so the happy path pays nothing for it. The
+    number separates "there was nothing to load" from "the reader did not understand what
+    is there", which otherwise look identical (#340).
+    """
+    bucket_name, key = _split_s3_uri(s3_uri)
+    s3 = boto3.client('s3')
+    try:
+        return s3.head_object(Bucket=bucket_name, Key=key)['ContentLength']
+    except ClientError as e:
+        if e.response['Error']['Code'] != '404':
+            raise
+
+    total = 0
+    for page in s3.get_paginator('list_objects_v2').paginate(Bucket=bucket_name, Prefix=key):
+        total += sum(obj['Size'] for obj in page.get('Contents', []))
+    return total
+
+
 def check_s3_file_exists(s3_uri):
     """
     Check if a specific file exists in S3 using an S3 URI
@@ -144,15 +187,7 @@ def check_s3_file_exists(s3_uri):
     Returns:
         bool: True if the file exists, False otherwise
     """
-    # Parse the S3 URI to extract bucket name and key
-    uri_pattern = r"s3://([^/]+)/(.*)"
-    match = re.match(uri_pattern, s3_uri)
-
-    if not match:
-        raise BulkExecutorError(f"Invalid S3 URI format: {s3_uri}. Expected format: s3://bucket-name/key")
-
-    bucket_name = match.group(1)
-    key = match.group(2)
+    bucket_name, key = _split_s3_uri(s3_uri)
 
     # Initialize S3 client
     s3 = boto3.client('s3')
