@@ -149,7 +149,12 @@ def validate_tables(env_configs, parser, *tables, index=None, pitr_enabled=False
     reference_table = None
 
     for table_name in tables:
-        region = _region_from_table_ref(table_name) or _default_region() # each table might be in a diff region
+        # The run's own region, not the shell's default: --XRegion decides where the Glue
+        # job runs, so it has to decide which table we validate too. A full ARN still
+        # wins, since a cross-region source and target legitimately differ (#333).
+        region = (_region_from_table_ref(table_name)
+                  or getattr(env_configs, 'aws_region', None)
+                  or _default_region())
         clients = Clients(region)
         dynamodb_client = clients.dynamodb_client
 

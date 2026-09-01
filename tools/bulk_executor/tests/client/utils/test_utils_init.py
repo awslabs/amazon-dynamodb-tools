@@ -15,7 +15,9 @@ own __init__ module:
 - parse_environment_arguments(): two-tuple from environment_arguments
 - _get_table_info(): describe_table happy path, ResourceNotFoundException
   → None, other ClientError → re-raise
-- validate_tables(): missing-table exit, missing-index exit, PITR enabled,
+- validate_tables(): which region each table is resolved in (#333: the run's region
+  from env_configs, a table ARN overriding it, default-region fallback),
+  missing-table exit, missing-index exit, PITR enabled,
   PITR disabled exit, PITR cross-account validation warning skip,
   PITR ClientError other → exit, schema mismatch exit, schema match
   with GSI/LSI add/remove/diff warnings, multi-table OK
@@ -390,6 +392,75 @@ def _table_info(name, key_schema=None, attrs=None, gsis=None, lsis=None):
     if lsis is not None:
         payload['LocalSecondaryIndexes'] = lsis
     return payload
+
+
+class TestValidateTablesRegion:
+    """Which region validate_tables resolves each table in (#333).
+
+    The bug this guards: the function received env_configs and ignored it, resolving
+    every plain table name with the shell's default region. A table living only in
+    --XRegion's region was reported missing, and -- worse -- the PITR guard could be
+    satisfied by a *same-named* table in the default region while the job mutated the
+    one in the target region. Demonstrated live before the fix: PITR enabled on
+    us-east-1:b331-pitrprobe, disabled on us-west-2:b331-pitrprobe, and
+    `fill --XRegion us-west-2` wrote 3 items into the non-PITR table, exit 0.
+    """
+
+    def test_plain_table_name_uses_the_runs_region(self, patched_clients):
+        """--XRegion decides where the job runs, so it decides what we validate."""
+        target = MagicMock()
+        target.dynamodb_client = MagicMock()
+        target.dynamodb_client.describe_table.return_value = {'Table': _table_info('t1')}
+        patched_clients['eu-west-2'] = target
+
+        env_configs = MagicMock(aws_region='eu-west-2')
+        validate_tables(env_configs, MagicMock(), 't1')
+
+        target.dynamodb_client.describe_table.assert_called_once_with(TableName='t1')
+        assert 'us-east-1' not in patched_clients, \
+            "the default region must not be consulted when the run has one"
+
+    def test_pitr_is_checked_in_the_runs_region(self, patched_clients):
+        """The safety guard has to look at the table the job will actually mutate."""
+        target = MagicMock()
+        target.dynamodb_client = MagicMock()
+        target.dynamodb_client.describe_table.return_value = {'Table': _table_info('t1')}
+        target.dynamodb_client.describe_continuous_backups.return_value = {
+            'ContinuousBackupsDescription': {
+                'PointInTimeRecoveryDescription': {'PointInTimeRecoveryStatus': 'DISABLED'}}}
+        patched_clients['us-west-2'] = target
+
+        env_configs = MagicMock(aws_region='us-west-2')
+        with pytest.raises(SystemExit, match='point in time recovery'):
+            validate_tables(env_configs, MagicMock(), 't1', pitr_enabled=True)
+
+        target.dynamodb_client.describe_continuous_backups.assert_called_once_with(
+            TableName='t1')
+
+    def test_table_arn_wins_over_the_runs_region(self, patched_clients):
+        """A cross-region source and target legitimately differ, so an ARN still rules."""
+        arn = 'arn:aws:dynamodb:ap-south-1:1:table/t1'
+        by_arn = MagicMock()
+        by_arn.dynamodb_client = MagicMock()
+        by_arn.dynamodb_client.describe_table.return_value = {'Table': _table_info(arn)}
+        patched_clients['ap-south-1'] = by_arn
+
+        env_configs = MagicMock(aws_region='eu-west-2')
+        validate_tables(env_configs, MagicMock(), arn)
+
+        by_arn.dynamodb_client.describe_table.assert_called_once_with(TableName=arn)
+        assert 'eu-west-2' not in patched_clients
+
+    def test_falls_back_to_the_default_region_without_one(self, patched_clients):
+        """Callers that pass no region at all keep working."""
+        fallback = MagicMock()
+        fallback.dynamodb_client = MagicMock()
+        fallback.dynamodb_client.describe_table.return_value = {'Table': _table_info('t1')}
+        patched_clients['us-east-1'] = fallback
+
+        validate_tables(MagicMock(aws_region=None), MagicMock(), 't1')
+
+        fallback.dynamodb_client.describe_table.assert_called_once_with(TableName='t1')
 
 
 class TestValidateTables:
