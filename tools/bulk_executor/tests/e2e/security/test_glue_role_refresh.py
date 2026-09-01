@@ -20,7 +20,10 @@ the refresh, not the behavior under test. The behavior under test (real
 Flow:
   1. Create a throwaway role with a STALE trust policy (a bogus ``ec2``
      principal a fresh bootstrap would never produce).
-  2. Point bootstrap at it as a custom ``--XRole`` and force a version mismatch.
+  2. Drive ``_provision_generated_role`` -- the path a bootstrap-generated role takes.
+     Since #330 a custom ``--XRole`` is deliberately left alone, so pointing at the
+     throwaway role via ``--XRole`` would (correctly) do nothing; the provisioning
+     method is where the convergence behaviour now lives.
   3. Run the real refresh path (real IAM ``update_assume_role_policy``).
   4. Assert via a real ``iam.get_role`` that the trust policy converged to the
      glue-only shape a fresh bootstrap creates -- the stale principal is gone.
@@ -76,33 +79,42 @@ def _delete_role(iam, role_name: str) -> None:
         pass
 
 
+def _make_role_name() -> str:
+    """A unique throwaway name. The AWSGlueServiceRole prefix satisfies bootstrap's
+    naming check; the suffix keeps parallel runs from colliding."""
+    suffix = boto3.client("sts").get_caller_identity()["Account"][-4:] + hex(int(time.time()))[-6:]
+    return f"AWSGlueServiceRole-bulk-e2e-refresh-{suffix}"
+
+
+def _create_stale_role(iam, role_name: str) -> None:
+    """Create the throwaway role with a trust policy a fresh bootstrap would never
+    produce, and wait for IAM's eventual consistency to catch up."""
+    iam.create_role(
+        RoleName=role_name,
+        AssumeRolePolicyDocument=json.dumps(_STALE_TRUST_POLICY),
+        Tags=[
+            {"Key": "purpose", "Value": "bulk_executor e2e role-refresh test"},
+            {"Key": "ephemeral", "Value": "true"},
+        ],
+    )
+    for _ in range(10):
+        try:
+            iam.get_role(RoleName=role_name)
+            return
+        except iam.exceptions.NoSuchEntityException:
+            time.sleep(1)
+
+
 def test_version_mismatch_refresh_converges_trust_policy_real_iam(e2e_config):
     """A version-mismatch refresh must overwrite a stale trust policy so the
     role matches a fresh bootstrap -- verified against real IAM, on a throwaway
     role that touches no shared state."""
     iam = boto3.client("iam")
-    # Prefix satisfies bootstrap's AWSGlueServiceRole naming expectation; uuid
-    # (via time-free token) keeps parallel runs from colliding.
-    suffix = boto3.client("sts").get_caller_identity()["Account"][-4:] + hex(int(time.time()))[-6:]
-    role_name = f"AWSGlueServiceRole-bulk-e2e-refresh-{suffix}"
+    role_name = _make_role_name()
 
     try:
         # --- 1. Throwaway role with a STALE trust policy ---
-        iam.create_role(
-            RoleName=role_name,
-            AssumeRolePolicyDocument=json.dumps(_STALE_TRUST_POLICY),
-            Tags=[
-                {"Key": "purpose", "Value": "bulk_executor e2e role-refresh test"},
-                {"Key": "ephemeral", "Value": "true"},
-            ],
-        )
-        # IAM is eventually consistent; give the role a moment to be visible.
-        for _ in range(10):
-            try:
-                iam.get_role(RoleName=role_name)
-                break
-            except iam.exceptions.NoSuchEntityException:
-                time.sleep(1)
+        _create_stale_role(iam, role_name)
 
         assert STALE_TRUST_PRINCIPAL in _trust_principals(iam, role_name), (
             "test setup failed: stale trust principal was not applied"
@@ -116,8 +128,11 @@ def test_version_mismatch_refresh_converges_trust_policy_real_iam(e2e_config):
         bootstrap._get_glue_job_details = MagicMock(
             return_value={"Job": {"DefaultArguments": {"--bulk-dynamodb-version": "0"}}}
         )
-        # Custom --XRole routes _get_role_name to our throwaway role by name.
-        bootstrap._add_glue_job_role({"XRole": role_name})
+        # Provision the throwaway role the way bootstrap provisions one of its own.
+        # Not via _add_glue_job_role({"XRole": ...}): since #330 that routes to the
+        # custom-role path, which deliberately does not touch an operator's role --
+        # asserted separately below and in tests/client/test_bootstrap.py.
+        bootstrap._provision_generated_role(role_name, {"XRole": ROLE_TYPE_READ_ONLY})
 
         # --- 4. Assert convergence against REAL IAM (not a mock) ---
         principals = _trust_principals(iam, role_name)
@@ -128,4 +143,40 @@ def test_version_mismatch_refresh_converges_trust_policy_real_iam(e2e_config):
         )
     finally:
         # --- 5. Delete the throwaway role no matter what ---
+        _delete_role(iam, role_name)
+
+
+@pytest.mark.e2e
+def test_custom_role_trust_policy_is_left_alone_real_iam(e2e_config):
+    """The other half of #330, against real IAM: a role the operator supplied is not
+    ours to reshape, however stale it looks.
+
+    This is the contract the previous version of the test above had backwards. It drove
+    `--XRole` and asserted the trust policy was rewritten, which is exactly what #330
+    stopped doing -- and because e2e is not part of `make test`, it stayed red unnoticed
+    until the suite was next run.
+    """
+    iam = boto3.client("iam", region_name=e2e_config.aws_region)
+    role_name = _make_role_name()
+    try:
+        _create_stale_role(iam, role_name)
+        assert STALE_TRUST_PRINCIPAL in _trust_principals(iam, role_name), (
+            "test setup failed: stale trust principal was not applied"
+        )
+
+        env = MagicMock(aws_region=e2e_config.aws_region,
+                        aws_account_id=e2e_config.aws_account_id)
+        bootstrap = BootstrapInfrastructure(env)
+        bootstrap._get_glue_job_details = MagicMock(
+            return_value={"Job": {"DefaultArguments": {"--bulk-dynamodb-version": "0"}}}
+        )
+
+        bootstrap._add_glue_job_role({"XRole": role_name})
+
+        principals = _trust_principals(iam, role_name)
+        assert STALE_TRUST_PRINCIPAL in principals, (
+            f"a custom role's trust policy was modified: {principals!r}. Since #330 the "
+            f"operator owns an --XRole role; bootstrap validates it and leaves it as-is."
+        )
+    finally:
         _delete_role(iam, role_name)
