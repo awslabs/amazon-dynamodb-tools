@@ -69,6 +69,31 @@ class TestSurfaceUnderstood:
         assert 'o304.load' not in reason, "Py4J's own wrapper text is not the problem"
         assert capsys.readouterr().out == '', "a denial needs no traceback"
 
+    def test_logs_behind_the_marker_the_client_watches(self, caplog):
+        """The sentence must carry EXPLAINED_FAILURE_PREFIX. Without it the client cannot
+        tell the job has explained itself, and Glue's exception-analysis blob -- which
+        follows a clean exit only sometimes -- reaches the user anyway."""
+        import logging
+
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(SystemExit):
+                surface(Exception(PY4J_DENIAL))
+
+        logged = ' '.join(r.message for r in caplog.records)
+        assert driver_errors.EXPLAINED_FAILURE_PREFIX in logged
+        assert 'is not authorized' in logged
+
+    def test_bulk_executor_error_keeps_its_own_marker(self, caplog):
+        """The name users have seen for years, and the client's original marker."""
+        import logging
+
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(SystemExit):
+                surface(BulkExecutorError("PITR must be enabled"))
+
+        logged = ' '.join(r.message for r in caplog.records)
+        assert 'BulkExecutorError: PITR must be enabled' in logged
+
     def test_reason_is_one_line(self):
         with pytest.raises(SystemExit) as raised:
             surface(BulkExecutorError("first line\nsecond line\n\tindented third"))
