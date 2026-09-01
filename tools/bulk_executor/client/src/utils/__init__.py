@@ -14,12 +14,45 @@ from utils.logger import ColorCodes, log
 SUPPORTED_EXECUTION_CLASSES = ['STANDARD', 'FLEX']
 SUPPORTED_WORKER_TYPES = ['G.1X', 'G.2X', 'G.4X', 'G.8X', 'G.12X', 'G.16X', 'R.1X', 'R.2X', 'R.4X', 'R.8X']
 
+# Suppressed *and counted*, with a one-line summary before the closing line.
+#
+# The bar for this list is narrow: only noise where suppression might have gone too far --
+# where the message we hide could, in some run we have not seen, have been the thing worth
+# reading. The count is that admission. Anything we are confident nobody ever needs belongs
+# in LOG_PATTERN_IGNORE_LIST instead, because a heads-up about output that never matters is
+# just the noise again in a smaller font.
+#
+# The label is what the summary calls them, so write it for someone deciding whether to go
+# and look. Nothing whose absence could disguise lost work belongs here either: task-level
+# failures (`Lost task`, `ExecutorLostFailure`), stage failures and job aborts are never
+# filtered, counted or otherwise -- they are how a genuinely dying cluster announces itself.
+COUNTED_NOISE_PATTERNS = [
+    # Spark reports a query-analysis failure itself, before our handler turns it into
+    # "SQL query error: ...", as one ~10 KB JSON event. Its `msg` field duplicates what we
+    # print, so the primary message is not lost -- but the same blob carries the unresolved
+    # query plan, and for a join with an ambiguous column that plan is the debugging aid
+    # rather than the sentence. Counted because of the plan. Issue #332.
+    (r'"logger": "SQLQueryContextLogger"', "Spark query-analysis dumps"),
+    # An executor going away logs at ERROR whether it was decommissioned or OOM-killed --
+    # the text is identical, so this line cannot tell them apart. Measured on the max_rate
+    # run: 21 in the same second after the write ramped down, zero lost tasks, all 18M items
+    # verified. The consequences of a real death are separate messages and are not filtered,
+    # so suppression costs a symptom, not a diagnosis. Counted because a pattern of these
+    # without task loss would otherwise be invisible, and that is the early signal for a
+    # memory-default regression. Issue #302.
+    (r"Remote RPC client disassociated", "executors released mid-run"),
+]
+
+# Suppressed silently. Routine chatter that is not error-shaped or fires on every single
+# run, so counting it would put the noise back in a different form.
 LOG_PATTERN_IGNORE_LIST = [
     r"Running autoDebugger shutdown hook.",
     r"Error while invoking RpcHandler#receive() for one-way message.",
     # Benign Netty noise: the driver fails to stream a JAR/result to an executor
     # whose channel already closed. Prints red (contains ERROR) but does not affect
     # processing -- seen on tiny jobs (e.g. a diff of two small tables). Issue #247.
+    # Not counted: nothing a user could act on, and a network fault bad enough to
+    # matter shows up as task failures, which are never filtered.
     r"Error sending result StreamResponse",
     # Glue 6.0 ships an invalid escape sequence in its own job wrapper
     # (pythonrunner/runscript.py), which Python 3.13 surfaces as a visible
@@ -36,15 +69,9 @@ LOG_PATTERN_IGNORE_LIST = [
     # line, as one output-group event carrying the header and all 18 frames, so this
     # single anchor drops the whole thing. Nothing in it is ours: every frame is
     # aws-glue-di-package.jar or metrics-core. Remove once AWS fixes the image.
-    # Issue #334.
+    # Issue #334. Not counted: the failure is in Glue's telemetry, never in the job,
+    # so there is no run in which its reporting trouble is worth a heads-up.
     r"Exception thrown from AWSDILyraMetricsReporter#report",
-    # Spark reports a query-analysis failure itself, at ERROR, before our handler sees it:
-    # one ~10 KB JSON event carrying the message we go on to print cleanly, plus ~90 Java
-    # frames and the unresolved query plan. Measured on `sql` with a mistyped column: 90 of
-    # the run's 148 lines. Anchored on the logger name inside that JSON, so it drops the
-    # whole event rather than leaving orphaned frames. The message still reaches the user
-    # through the verb's own "SQL query error: ..." line. Issue #332.
-    r'"logger": "SQLQueryContextLogger"',
 ]
 
 # Intentional nuanced configs:
