@@ -8,7 +8,7 @@ from boto3 import Session
 from botocore.config import Config
 
 sys.path.append('/server/src')
-from python_modules.shared.errors import get_error_message
+from python_modules.shared.errors import ListAccumulator, get_error_message
 from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info,
     get_and_print_table_scan_cost,
@@ -21,6 +21,10 @@ from python_modules.shared.rate_limiter import (
     RateLimiterAggregator,  
     RateLimiterSharedConfig,
     RateLimiterWorker
+)
+from python_modules.shared.worker_errors import (
+    raise_first_worker_error,
+    record_worker_failure
 )
 
 # Console preview cap. Output reaches the client through CloudWatch Live Tail,
@@ -169,7 +173,7 @@ def log_diff(symbol, stream, concise_format):
         return f"{symbol} {json.dumps(ordered, separators=(',', ': '), cls=BinaryAwareEncoder)}"
 
 
-def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_options_b, segment, total_segments, consistent_read, concise_format, job_id, bucket, schema_broadcast, rate_limiter_shared_config):
+def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_options_b, segment, total_segments, consistent_read, concise_format, job_id, bucket, schema_broadcast, rate_limiter_shared_config, error_accumulator):
     rate_limiter_worker_a = RateLimiterWorker(
         shared_config=rate_limiter_shared_config,
         **monitor_options_a
@@ -299,6 +303,10 @@ def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_option
         while not stream_b.is_finished():
             diff.append(log_diff('+', stream_b, concise_format))
             stream_b.advance()
+    except Exception as e:
+        # Record and return; the driver raises the first error after collect().
+        record_worker_failure(error_accumulator, e, f"Error in worker {segment}")
+        return 0, []
     finally:
         rate_limiter_worker_a.shutdown()
         rate_limiter_worker_b.shutdown()
@@ -376,6 +384,7 @@ def run(job, spark_context, glue_context, parsed_args):
 
     # The aggregator only does S3 coordination, which lives in the bootstrap
     # region -- never regionalize it, even when the tables are cross-region.
+    error_accumulator = spark_context.accumulator([], ListAccumulator())
     rate_limiter_aggregator = RateLimiterAggregator(shared_config=rate_limiter_shared_config)
 
     monitor_options_1 = get_dynamodb_throughput_configs(parsed_args, table1, modes=("read"), format="monitor")
@@ -385,11 +394,13 @@ def run(job, spark_context, glue_context, parsed_args):
         # Each segment returns (count, preview) -- the full count plus at most
         # CONSOLE_PREVIEW_LIMIT lines -- so the driver never collects the entire
         # diff into memory. The complete output lives in S3.
-        rdd2 = rdd.map(lambda worker_id: diff_segment(table1, table2, monitor_options_1, monitor_options_2, worker_id, splits, False, diff_type == 'keys', job_id, bucket, broadcast_schema, rate_limiter_shared_config)).collect()
+        rdd2 = rdd.map(lambda worker_id: diff_segment(table1, table2, monitor_options_1, monitor_options_2, worker_id, splits, False, diff_type == 'keys', job_id, bucket, broadcast_schema, rate_limiter_shared_config, error_accumulator)).collect()
     except Exception as e:
         raise Exception(f"Error in parallel execution: {get_error_message(e)}") from None
     finally:
         rate_limiter_aggregator.shutdown()
+
+    raise_first_worker_error(error_accumulator)
 
     total = sum(count for count, _ in rdd2)
 

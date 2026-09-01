@@ -27,6 +27,8 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from python_modules import scancount as sc_module
+from python_modules.shared import worker_errors
+import botocore.exceptions
 
 # The source uses `from python_modules.shared.errors import *` which, under
 # our Mock-based conftest, binds nothing (star-import from Mock is empty).
@@ -634,6 +636,8 @@ class TestCountDataErrorPath:
         rl = _make_rl_worker(session)
         monkeypatch.setattr(sc_module, 'RateLimiterWorker', MagicMock(return_value=rl))
         monkeypatch.setattr(sc_module, 'get_error_message', lambda e: f'msg:{e}')
+        # shared.errors is a Mock in tests/server, so patch where worker_errors reads it.
+        monkeypatch.setattr(worker_errors, 'get_error_message', str)
 
         error_acc = MagicMock()
         sc_module._count_data({}, 'tbl', None, None, None, None,
@@ -642,8 +646,96 @@ class TestCountDataErrorPath:
         error_acc.add.assert_called_once()
         appended = error_acc.add.call_args.args[0]
         assert isinstance(appended, list) and len(appended) == 1
-        assert 'worker 7' in appended[0]
-        assert 'msg:' in appended[0]
+        message, detail = appended[0]
+        assert 'worker 7' in message
+        assert 'throttled' in message
+        assert 'Traceback' in detail, "an unexpected failure carries the worker traceback"
+
+    def test_rejected_filter_expression_is_reported_politely(self, monkeypatch):
+        """A user's malformed --filter-expression reaches DynamoDB in a worker, since the
+        client can only check that #name/:value substitutions have their maps. The
+        rejection is the user's typo, not a bug of ours, so it must not carry frames."""
+        session = MagicMock()
+        table = MagicMock()
+        table.scan = MagicMock(side_effect=botocore.exceptions.ClientError(
+            {'Error': {'Code': 'ValidationException',
+                       'Message': 'Invalid FilterExpression: Syntax error; token: "<EOF>"'}},
+            'Scan'))
+        session.resource.return_value.Table.return_value = table
+
+        rl = _make_rl_worker(session)
+        monkeypatch.setattr(sc_module, 'RateLimiterWorker', MagicMock(return_value=rl))
+        monkeypatch.setattr(sc_module, 'get_error_code',
+                            lambda e: e.response['Error']['Code'], raising=False)
+        monkeypatch.setattr(sc_module, 'get_error_message',
+                            lambda e: e.response['Error']['Message'], raising=False)
+
+        errors = []
+        error_acc = MagicMock()
+        error_acc.add = MagicMock(side_effect=errors.extend)
+
+        sc_module._count_data({}, 'tbl', None, '#ts > ', None, None, 3, 10, error_acc, MagicMock())
+
+        message, detail = errors[0]
+        assert '--filter-expression' in message, "point at the parameter the user typed"
+        assert 'Syntax error' in message, "AWS's own explanation survives"
+        assert detail is None, "a typo needs no traceback"
+
+    def test_denial_is_still_reported_as_understood(self, monkeypatch):
+        """The new ValidationException branch must not swallow the denial path."""
+        session = MagicMock()
+        table = MagicMock()
+        table.scan = MagicMock(side_effect=botocore.exceptions.ClientError(
+            {'Error': {'Code': 'AccessDeniedException',
+                       'Message': 'User: arn:aws:sts::1:x is not authorized to perform: dynamodb:Scan'}},
+            'Scan'))
+        session.resource.return_value.Table.return_value = table
+
+        rl = _make_rl_worker(session)
+        monkeypatch.setattr(sc_module, 'RateLimiterWorker', MagicMock(return_value=rl))
+        monkeypatch.setattr(sc_module, 'get_error_code',
+                            lambda e: e.response['Error']['Code'], raising=False)
+        monkeypatch.setattr(worker_errors, 'get_error_code',
+                            lambda e: e.response['Error']['Code'])
+        monkeypatch.setattr(worker_errors, 'get_error_message',
+                            lambda e: e.response['Error']['Message'])
+
+        errors = []
+        error_acc = MagicMock()
+        error_acc.add = MagicMock(side_effect=errors.extend)
+
+        sc_module._count_data({}, 'tbl', None, None, None, None, 3, 10, error_acc, MagicMock())
+
+        message, detail = errors[0]
+        assert 'not authorized to perform' in message
+        assert detail is None, "a denial is environmental, no traceback"
+
+    def test_unexpected_client_error_still_carries_a_traceback(self, monkeypatch):
+        """An error code nobody expected keeps its frames."""
+        session = MagicMock()
+        table = MagicMock()
+        table.scan = MagicMock(side_effect=botocore.exceptions.ClientError(
+            {'Error': {'Code': 'InternalServerError', 'Message': 'oops'}}, 'Scan'))
+        session.resource.return_value.Table.return_value = table
+
+        rl = _make_rl_worker(session)
+        monkeypatch.setattr(sc_module, 'RateLimiterWorker', MagicMock(return_value=rl))
+        monkeypatch.setattr(sc_module, 'get_error_code',
+                            lambda e: e.response['Error']['Code'], raising=False)
+        monkeypatch.setattr(worker_errors, 'get_error_code',
+                            lambda e: e.response['Error']['Code'])
+        monkeypatch.setattr(worker_errors, 'get_error_message',
+                            lambda e: e.response['Error']['Message'])
+
+        errors = []
+        error_acc = MagicMock()
+        error_acc.add = MagicMock(side_effect=errors.extend)
+
+        sc_module._count_data({}, 'tbl', None, None, None, None, 3, 10, error_acc, MagicMock())
+
+        message, detail = errors[0]
+        assert 'ClientError' in message
+        assert 'Traceback' in detail
 
     def test_error_does_not_propagate(self, monkeypatch):
         """Control drops to finally, no re-raise; count stays 0."""

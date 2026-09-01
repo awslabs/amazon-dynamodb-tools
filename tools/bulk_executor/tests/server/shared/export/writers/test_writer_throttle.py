@@ -127,7 +127,7 @@ class TestBatchWriterValidationError:
         )
 
         assert len(error_accumulator.value) > 0
-        assert "Schema validation error" in error_accumulator.value[0] or "validation" in error_accumulator.value[0].lower()
+        assert "Schema validation error" in error_accumulator.value[0][0]
 
 
 class TestBatchWriterGenericClientError:
@@ -169,7 +169,7 @@ class TestBatchWriterGenericClientError:
         )
 
         assert len(error_accumulator.value) > 0
-        assert "Error during writing" in error_accumulator.value[0]
+        assert "Error during writing" in error_accumulator.value[0][0]
 
 
 class TestBatchWriterUnexpectedError:
@@ -208,7 +208,7 @@ class TestBatchWriterUnexpectedError:
         )
 
         assert len(error_accumulator.value) > 0
-        assert "Unexpected error" in error_accumulator.value[0]
+        assert "Unexpected error" in error_accumulator.value[0][0]
 
 
 class TestBatchWriterSuccessPath:

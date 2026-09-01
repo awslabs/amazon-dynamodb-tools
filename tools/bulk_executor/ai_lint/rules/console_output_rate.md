@@ -162,13 +162,13 @@ be fine, tighten this file so the next run is sharper.
   file / row / manifest line, then raise. Driver-side, so the user sees them, and a
   wholesale schema or manifest mismatch is the show-and-^C case. Note they are paced, so a
   10M-row invalid manifest would spend ~17 minutes printing before raising.
-- **Finding (#319): `update/__init__.py:141`** prints one line per condition-check
-  failure. Fires on a *successful* run (a conditional update that matches few items is the
+- **Finding (#319): `update/__init__.py`, the `ConditionalCheckFailedException` branch
+  of `_update_data`** printed one line per condition-check failure. Fires on a *successful* run (a conditional update that matches few items is the
   user getting what they asked for), runs in a worker (`rdd.map` → `_update_data`, 800 of
   them) so nobody sees it, and is **redundant** with the driver's own
   `Z conditions failed`. ~600 MB on a 2M-item table, restating a number already on screen.
-- **Finding (#319): `find.py:208`** prints one line per failed delete and interpolates the
-  whole item, in a worker over 200 partitions — up to 800 MB that nobody reads, and the
+- **Finding (#319): `find.py`, the per-item handler inside `delete_partition`** printed one
+  line per failed delete and interpolated the whole item, in a worker over 200 partitions — up to 800 MB that nobody reads, and the
   user is told nothing at all about failed deletes because there is no driver summary.
 - Not a verb's problem (#323): 3–8 pairs of rows per 100,000 print on one line, because a
   CloudWatch event boundary can fall between a row and its newline and the client's

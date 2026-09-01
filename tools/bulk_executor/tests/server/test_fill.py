@@ -888,8 +888,10 @@ class TestFillDataErrorHandling:
         error_acc.add.assert_called_once()
         msg = error_acc.add.call_args.args[0]
         assert isinstance(msg, list) and len(msg) == 1
-        assert 'Schema validation error' in msg[0]
-        assert "ValidationException happened" in msg[0]
+        message, detail = msg[0]
+        assert 'Schema validation error' in message
+        assert "ValidationException happened" in message
+        assert detail is None, "a validation rejection needs no traceback"
 
     def test_other_client_error_adds_generic_error(self, monkeypatch):
         """Lines 174-175: non-throttle, non-validation → generic error message."""
@@ -916,7 +918,7 @@ class TestFillDataErrorHandling:
 
         error_acc.add.assert_called_once()
         msg = error_acc.add.call_args.args[0]
-        assert 'Error during writing' in msg[0]
+        assert 'Error during writing' in msg[0][0]
 
     def test_rate_limiter_shutdown_in_finally(self, monkeypatch):
         """Lines 176-177: rate_limiter_worker.shutdown() always called."""
@@ -1073,3 +1075,85 @@ class TestModuleConstants:
     def test_validation_exception_constant(self):
         """Line 28: DYNAMO_DB_VALIDATION_EXCEPTION."""
         assert fill_module.DYNAMO_DB_VALIDATION_EXCEPTION == 'ValidationException'
+
+
+class TestFillWorkerRecordsNonClientErrors:
+    """A worker must not let a non-ClientError escape (issue #327), and what it
+    records depends on whether the failure is one we can explain.
+
+    A generated item that doesn't carry the table's key attributes is the common
+    case -- boto3 raises a bare KeyError from batch_writer's de-duplication, which
+    says nothing about what went wrong -- so it is detected before the write and
+    named. Anything else a user's generator raises gets its traceback.
+    """
+
+    def _wire(self, monkeypatch):
+        rl_instance = MagicMock()
+        session = MagicMock()
+        rl_instance.get_session.return_value = session
+        table = MagicMock()
+        bw = MagicMock()
+        bw.__enter__ = MagicMock(return_value=bw)
+        bw.__exit__ = MagicMock(return_value=False)
+        table.batch_writer.return_value = bw
+        session.resource.return_value.Table.return_value = table
+        monkeypatch.setattr(fill_module, 'RateLimiterWorker', MagicMock(return_value=rl_instance))
+        return rl_instance, bw
+
+    def test_item_missing_a_key_attribute_is_reported_politely(self, monkeypatch):
+        """A generator that doesn't match the key schema is an ordinary mistake, so
+        name what is missing rather than dumping boto3's bare KeyError."""
+        rl_instance, bw = self._wire(monkeypatch)
+        errors = []
+        error_acc = MagicMock()
+        error_acc.add = MagicMock(side_effect=errors.extend)
+
+        # Must not raise.
+        fill_module._fill_data({}, 'tbl', 1,
+                               MagicMock(return_value=[{'wrongkey': 'x', 'payload': 'y'}]),
+                               MagicMock(), error_acc, MagicMock(), ['pk'])
+
+        assert len(errors) == 1, f"expected one recorded error, got {errors}"
+        message, detail = errors[0]
+        assert "missing the table's key attribute(s) ['pk']" in message
+        assert "the item has ['payload', 'wrongkey']" in message, "say what it did produce"
+        assert "'tbl'" in message, "name the table whose schema it has to match"
+        assert detail is None, "an expected mistake needs no traceback"
+        bw.put_item.assert_not_called(), "don't write an item we know DynamoDB will reject"
+        rl_instance.shutdown.assert_called_once()
+
+    def test_generator_raising_is_reported_with_a_traceback(self, monkeypatch):
+        """Anything else out of a user's generator is not something we can explain."""
+        rl_instance, bw = self._wire(monkeypatch)
+        errors = []
+        error_acc = MagicMock()
+        error_acc.add = MagicMock(side_effect=errors.extend)
+
+        fill_module._fill_data({}, 'tbl', 1, MagicMock(side_effect=RuntimeError('faker blew up')),
+                               MagicMock(), error_acc, MagicMock(), ['pk'])
+
+        assert len(errors) == 1, f"expected one recorded error, got {errors}"
+        message, detail = errors[0]
+        assert 'Error in worker' in message
+        assert 'RuntimeError' in message, "the type, since a bare message can be cryptic"
+        assert 'Traceback' in detail
+        rl_instance.shutdown.assert_called_once()
+
+    def test_client_error_still_takes_the_specific_path(self, monkeypatch):
+        """The pre-existing ClientError handling must be unchanged."""
+        import botocore.exceptions
+        rl_instance, bw = self._wire(monkeypatch)
+        err = botocore.exceptions.ClientError(
+            {'Error': {'Code': 'ValidationException',
+                       'Message': 'The provided key element does not match the schema'}},
+            'BatchWriteItem')
+        bw.put_item = MagicMock(side_effect=err)
+        errors = []
+        error_acc = MagicMock()
+        error_acc.add = MagicMock(side_effect=errors.extend)
+
+        fill_module._fill_data({}, 'tbl', 1, MagicMock(return_value=[{'pk': 'x'}]),
+                               MagicMock(), error_acc, MagicMock(), ['pk'])
+
+        assert len(errors) == 1
+        assert 'Schema validation error' in errors[0][0], errors

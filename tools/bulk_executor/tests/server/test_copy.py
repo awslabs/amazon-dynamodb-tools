@@ -28,6 +28,7 @@ import pytest
 # import has to happen at test-collection time.
 
 from python_modules import copy as copy_module  # noqa: E402
+from python_modules.shared import worker_errors
 
 
 @pytest.fixture
@@ -552,6 +553,8 @@ class TestCopyDataErrorPath:
         monkeypatch.setattr(copy_module, 'RateLimiterWorker', MagicMock(return_value=rl_instance))
         monkeypatch.setattr(copy_module, '_region_from_table_ref', lambda ref: None)
         monkeypatch.setattr(copy_module, 'get_error_message', lambda e: f"wrapped:{e}")
+        # shared.errors is a Mock in tests/server, so patch where worker_errors reads it.
+        monkeypatch.setattr(worker_errors, 'get_error_message', str)
 
         table = MagicMock()
         table.scan = MagicMock(side_effect=RuntimeError('throttled'))
@@ -570,8 +573,10 @@ class TestCopyDataErrorPath:
         appended = error_acc.add.call_args.args[0]
         assert isinstance(appended, list) and len(appended) == 1, \
             "errors are wrapped in a single-element list for ListAccumulator"
-        assert 'worker 7' in appended[0], "error message identifies the worker segment"
-        assert 'wrapped:' in appended[0], "get_error_message wraps the underlying exception"
+        message, detail = appended[0]
+        assert 'worker 7' in message, "error message identifies the worker segment"
+        assert 'throttled' in message, "the underlying exception's message survives"
+        assert 'Traceback' in detail, "an unexpected failure carries the worker traceback"
 
     def test_rate_limiters_shutdown_in_finally_after_scan_error(self, monkeypatch):
         instances = []

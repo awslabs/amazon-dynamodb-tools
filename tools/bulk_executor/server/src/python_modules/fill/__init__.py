@@ -9,6 +9,7 @@ from awsglue.context import GlueContext
 from awsglue.job import Job
 from botocore.config import Config
 from pyspark.context import SparkContext
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.errors import *
 from python_modules.shared.pricing import PricingUtility
 from python_modules.shared.table_info import get_and_print_dynamodb_table_info
@@ -22,6 +23,11 @@ from python_modules.shared.rate_limiter import (
     RateLimiterWorker
 )
 from python_modules.shared.table_info import get_dynamodb_throughput_configs
+from python_modules.shared.worker_errors import (
+    raise_first_worker_error,
+    record_understood_failure,
+    record_worker_failure
+)
 
 
 DYNAMO_DB_THROTTLE_EXCEPTION = 'ProvisionedThroughputExceededException'
@@ -121,9 +127,7 @@ def run(job, spark_context, glue_context, parsed_args):
         raise Exception(f"Error in parallel execution: {get_error_message(e)}") from None
     finally:
         rate_limiter_aggregator.shutdown()
-    if error_accumulator.value:
-        first_error = error_accumulator.value[0]
-        raise Exception(first_error) from None
+    raise_first_worker_error(error_accumulator)
 
     # Print the total records inserted using the accumulator after all tasks complete
     log.info(f"Total records filled: {total_inserted_accumulator.value:,}")
@@ -158,6 +162,16 @@ def _fill_data(monitor_options, table_name, num_items, generate, total_inserted_
                     for item in item_collection:
                         if local_count >= num_items:
                             break
+                        missing = [name for name in key_names if name not in item]
+                        if missing:
+                            # A common mistake, and worth naming precisely: boto3
+                            # would raise a bare KeyError from batch_writer's
+                            # de-duplication, and DynamoDB's own rejection arrives as
+                            # "The provided key element does not match the schema".
+                            raise BulkExecutorError(
+                                f"Generated item is missing the table's key attribute(s) "
+                                f"{missing}; the item has {sorted(map(str, item))}. The generator "
+                                f"has to produce the key schema of '{table_name}'.")
                         batch.put_item(Item=item)
                         local_count += 1
 
@@ -174,9 +188,13 @@ def _fill_data(monitor_options, table_name, num_items, generate, total_inserted_
             # Offer a little help for "The provided key element does not match" which can be confusing
             if "The provided key element does not match" in msg:
                 msg = f"Perhaps generated items don't match table schema? {msg}"
-            error_accumulator.add([f"Schema validation error: {msg}"])
+            record_understood_failure(error_accumulator, f"Schema validation error: {msg}")
         else:
-            error_accumulator.add([f"Error during writing: {get_error_message(e)}"])
+            record_worker_failure(error_accumulator, e, "Error during writing")
+    except Exception as e:
+        # Anything the ClientError handler above doesn't cover -- including whatever a
+        # user's generator raises, which is reported with its traceback.
+        record_worker_failure(error_accumulator, e, "Error in worker")
     finally:
         rate_limiter_worker.shutdown()
 

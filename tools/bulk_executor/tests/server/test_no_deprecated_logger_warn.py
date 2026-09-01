@@ -27,7 +27,7 @@ recorded three call sites and missed the fourth
 import re
 from pathlib import Path
 
-_REPO = Path(__file__).resolve().parents[1]
+_REPO = Path(__file__).resolve().parents[2]
 _SOURCE_ROOTS = (_REPO / "client" / "src", _REPO / "server" / "src")
 
 # `.warn(` but not `.warning(` -- the char after "warn" is the discriminator.

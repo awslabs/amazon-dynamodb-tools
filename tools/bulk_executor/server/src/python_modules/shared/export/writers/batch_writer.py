@@ -8,6 +8,7 @@ from .base_writer import DynamoDBWriter
 from ...rate_limiter import RateLimiterWorker
 from ...logger import log
 from ...errors import get_error_code, get_error_message
+from ...worker_errors import record_understood_failure, record_worker_failure
 
 from .constants import DYNAMO_DB_THROTTLE_EXCEPTION, DYNAMO_DB_VALIDATION_EXCEPTION
 from ..utils.enums import Operation
@@ -76,13 +77,13 @@ class BatchWriter(DynamoDBWriter):
         except botocore.exceptions.ClientError as e:
             if get_error_code(e) == DYNAMO_DB_THROTTLE_EXCEPTION:
                 log.info('Persistent throttling on batch_writer exit, give up on last few operations...')
-                error_accumulator.add([f"Persistent throttling, retries exhausted. {local_count} items written before failure."])
+                record_understood_failure(error_accumulator, f"Persistent throttling, retries exhausted. {local_count} items written before failure.")
             elif get_error_code(e) == DYNAMO_DB_VALIDATION_EXCEPTION:
-                error_accumulator.add([f"Schema validation error: Perhaps items don't match table schema?: {get_error_message(e)}"])
+                record_understood_failure(error_accumulator, f"Schema validation error: Perhaps items don't match table schema?: {get_error_message(e)}")
             else:
-                error_accumulator.add([f"Error during writing: {get_error_message(e)}"])
+                record_worker_failure(error_accumulator, e, "Error during writing")
         except Exception as e:
-            error_accumulator.add([f"Unexpected error during write: {str(e)}"])
+            record_worker_failure(error_accumulator, e, "Unexpected error during write")
         finally:
             if rate_limiter_worker:
                 rate_limiter_worker.shutdown()
