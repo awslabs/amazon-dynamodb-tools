@@ -48,21 +48,12 @@ COUNTED_NOISE_PATTERNS = [
 LOG_PATTERN_IGNORE_LIST = [
     r"Running autoDebugger shutdown hook.",
     r"Error while invoking RpcHandler#receive() for one-way message.",
-    # Benign Netty noise: the driver fails to stream a JAR/result to an executor whose
-    # channel already closed. Prints red but does not affect processing -- seen on tiny jobs
-    # (e.g. a diff of two small tables). Not counted: it says nothing a user could act on,
-    # and a network fault bad enough to matter shows up as task failures, which are never
-    # filtered. Issue #247.
-    r"Error sending result StreamResponse",
-    # Glue's own metrics reporter races on the map behind its stage-skewness gauge, logs the
-    # ConcurrentModificationException at ERROR, and says in the same line that it suppressed
-    # it. One event, header plus 18 frames. Not counted: the failure is in Glue's telemetry,
-    # never in the job, so there is no run in which its reporting trouble is worth a
-    # heads-up. Issue #334.
-    r"Exception thrown from AWSDILyraMetricsReporter#report",
     # Benign Netty noise: the driver fails to stream a JAR/result to an executor
     # whose channel already closed. Prints red (contains ERROR) but does not affect
     # processing -- seen on tiny jobs (e.g. a diff of two small tables). Issue #247.
+    # Not counted: nothing a user could act on, and a network fault bad enough to
+    # matter shows up as task failures, which are never filtered.
+    r"Error sending result StreamResponse",
     # Glue 6.0 ships an invalid escape sequence in its own job wrapper
     # (pythonrunner/runscript.py), which Python 3.13 surfaces as a visible
     # SyntaxWarning on every single run -- 26/26 job runs in testing. It arrives
@@ -78,13 +69,9 @@ LOG_PATTERN_IGNORE_LIST = [
     # line, as one output-group event carrying the header and all 18 frames, so this
     # single anchor drops the whole thing. Nothing in it is ours: every frame is
     # aws-glue-di-package.jar or metrics-core. Remove once AWS fixes the image.
-    # Issue #334.
-    # Spark reports a query-analysis failure itself, at ERROR, before our handler sees it:
-    # one ~10 KB JSON event carrying the message we go on to print cleanly, plus ~90 Java
-    # frames and the unresolved query plan. Measured on `sql` with a mistyped column: 90 of
-    # the run's 148 lines. Anchored on the logger name inside that JSON, so it drops the
-    # whole event rather than leaving orphaned frames. The message still reaches the user
-    # through the verb's own "SQL query error: ..." line. Issue #332.
+    # Issue #334. Not counted: the failure is in Glue's telemetry, never in the job,
+    # so there is no run in which its reporting trouble is worth a heads-up.
+    r"Exception thrown from AWSDILyraMetricsReporter#report",
 ]
 
 # Intentional nuanced configs:
