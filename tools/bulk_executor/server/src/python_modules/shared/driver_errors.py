@@ -32,7 +32,13 @@ UNEXPECTED_FAILURE_BANNER = "The job failed in a way we did not expect. Tracebac
 # suppress Glue's exception-analysis blob. Glue emits that blob for a clean sys.exit only
 # sometimes -- observed on a denied `find` but not a denied `count` in the same batch -- so
 # the marker has to be there every time, not only when a BulkExecutorError was involved.
-EXPLAINED_FAILURE_PREFIX = "Failure: "
+#
+# Named rather than generic because the client matches it as a substring anywhere in a log
+# line. "Failure: " alone appeared only in our own output across every run captured for
+# #332, but Spark has shapes like ExecutorLostFailure and FetchFailure that could put
+# "Failure: " in a line of its own -- and a false match would suppress Glue's diagnostics
+# for a failure we had not explained.
+EXPLAINED_FAILURE_PREFIX = "Bulk Executor failure: "
 
 # Cap on what we hand to sys.exit(): Glue records it as the job's ErrorMessage and the
 # client prints it as its closing line. AWS's authorization sentences run ~400 chars,

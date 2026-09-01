@@ -356,7 +356,7 @@ class TestPrettyPrintLogEvent:
         monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
 
         denial = _make_event(message=(
-            "Failure: User: arn:aws:sts::1:assumed-role/R/GlueJobRunnerSession is not "
+            "Bulk Executor failure: User: arn:aws:sts::1:assumed-role/R/GlueJobRunnerSession is not "
             "authorized to perform: dynamodb:Scan on resource: table/t"
         ))
         bulk_runner._pretty_print_log_event(denial)
@@ -393,6 +393,28 @@ class TestPrettyPrintLogEvent:
         bulk_runner._pretty_print_log_event(ev)
         captured = capsys.readouterr()
         assert 'UNRESOLVED_COLUMN' in captured.out + captured.err
+
+    def test_sparks_own_failure_wording_does_not_trip_the_marker(self, bulk_runner, monkeypatch):
+        """The client matches markers as substrings, so a generic word would misfire. Spark
+        has plenty of "...Failure" shapes; none of them may be mistaken for the job saying
+        it has explained itself, or Glue's diagnostics get suppressed for a failure nobody
+        described."""
+        monkeypatch.setattr(runner_module.utils, 'LOG_PATTERN_IGNORE_LIST', [])
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
+
+        for spark_line in (
+            "ERROR TaskSetManager: Lost task 3.0 in stage 2.0: ExecutorLostFailure: "
+            "executor 7 exited unrelated to the running tasks",
+            "WARN TaskSetManager: Lost task 1.0: FetchFailure: shuffle block missing",
+            'ERROR GlueExceptionAnalysisListener:9 - {"Failure Reason": "boom"}',
+            "ERROR DAGScheduler: Job aborted due to stage failure: Task 0 failed 4 times",
+        ):
+            bulk_runner._suppress_glue_noise = False
+            bulk_runner._pretty_print_log_event(_make_event(message=spark_line))
+            assert bulk_runner._suppress_glue_noise is False, (
+                f"{spark_line[:60]!r} must not read as the job explaining itself"
+            )
 
     def test_real_worker_traceback_still_prints(self, bulk_runner, capsys):
         """Guard for #334: the anchor is Glue's reporter, not the frames. An unexpected
