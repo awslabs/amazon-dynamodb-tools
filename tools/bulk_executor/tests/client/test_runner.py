@@ -370,6 +370,30 @@ class TestPrettyPrintLogEvent:
         bulk_runner._pretty_print_log_event(blob)
         assert capsys.readouterr().out == '', "Glue's restatement adds nothing after it"
 
+    def test_suppresses_sparks_own_query_analysis_dump(self, bulk_runner, capsys):
+        """#332: Spark logs an analysis failure itself, at ERROR, as one JSON event holding
+        the message plus ~90 Java frames and the query plan -- before our handler turns it
+        into "SQL query error: ...". Measured on a mistyped column: 90 of 148 lines.
+
+        The message below is the head of the verbatim CloudWatch event (10,850 chars, a
+        single event, so one anchor drops all of it).
+        """
+        ev = _make_event(message="{\"ts\": \"2026-09-01 09:31:40.589\", \"level\": \"ERROR\", \"logger\": \"SQLQueryContextLogger\", \"msg\": \"[UNRESOLVED_COLUMN.WITH_SUGGESTION] A column, variable, or function parameter with name `nosuchcolumn` cannot be resolved. Did you mean one of the following? [`payload`, `sk`, `pk`]. SQLSTATE: 42703\", \"context\": {\"errorClass\": \"UNRESOLVED_COLUMN.WITH_SUGGESTION\"}, \"exception\": {\"class\": \"Py4JJavaError\", ")
+        bulk_runner._pretty_print_log_event(ev)
+        captured = capsys.readouterr()
+        assert captured.out == '' and captured.err == ''
+
+    def test_our_own_sql_query_error_still_prints(self, bulk_runner, capsys):
+        """Guard: the anchor is Spark's logger name, not the error text, so the sentence the
+        verb produces is unaffected."""
+        ev = _make_event(message=(
+            "2026-09-01 09:31:41,173 ERROR - BulkExecutorError: SQL query error: "
+            "[UNRESOLVED_COLUMN.WITH_SUGGESTION] A column with name `nosuchcolumn` cannot be resolved"
+        ))
+        bulk_runner._pretty_print_log_event(ev)
+        captured = capsys.readouterr()
+        assert 'UNRESOLVED_COLUMN' in captured.out + captured.err
+
     def test_real_worker_traceback_still_prints(self, bulk_runner, capsys):
         """Guard for #334: the anchor is Glue's reporter, not the frames. An unexpected
         worker failure prints its traceback through the same path and must survive."""
