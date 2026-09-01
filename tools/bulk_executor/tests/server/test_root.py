@@ -113,12 +113,18 @@ def _install_logger_stub(modules_to_install):
 
 
 def _install_bulk_executor_error_stub(modules_to_install):
-    """Provide a real exception class so `except BulkExecutorError` actually matches."""
+    """Expose the class the classifier itself holds, under the stubbed module path.
+
+    Not a fresh subclass. root.py now reports through shared/driver_errors.py, which asks
+    shared/worker_errors.py whether the failure is understood -- and that check is an
+    isinstance against the class *it* bound at import time. conftest registers both
+    `shared.` and `python_modules.shared.` over the same files, so importing the module
+    again can produce a second, distinct class; the isinstance would then miss and the
+    test would assert nothing about the branch it names.
+    """
+    from python_modules.shared.worker_errors import BulkExecutorError
+
     be_module = types.ModuleType("python_modules.shared.bulk_executor_error")
-
-    class BulkExecutorError(Exception):
-        pass
-
     be_module.BulkExecutorError = BulkExecutorError
     modules_to_install["python_modules.shared.bulk_executor_error"] = be_module
     return BulkExecutorError
@@ -143,6 +149,23 @@ def _load_root(monkeypatch, argv, verb_module=None, verb_name=None,
         logger_module = _install_logger_stub(install)
 
     BulkExecutorError = _install_bulk_executor_error_stub(install)
+
+    # tests/server/conftest.py replaces shared.errors with a Mock, so get_error_message
+    # would hand back a Mock repr and any assertion on the message text would be vacuous.
+    # driver_errors needs a working one to build the closing line.
+    errors_module = types.ModuleType("python_modules.shared.errors")
+    errors_module.get_error_message = lambda e: str(e)
+    errors_module.get_error_code = lambda e: None
+    errors_module.ListAccumulator = object
+    install["python_modules.shared.errors"] = errors_module
+
+    # shared/worker_errors.py holds the classifier root.py's reporting path uses, and it
+    # binds these two names at import time -- which already happened, against conftest's
+    # Mock. Installing a module above does not rebind them, so patch them where they are
+    # read or every assertion on message text is vacuous.
+    import python_modules.shared.worker_errors as _worker_errors
+    monkeypatch.setattr(_worker_errors, "get_error_message", lambda e: str(e))
+    monkeypatch.setattr(_worker_errors, "get_error_code", lambda e: None)
 
     # The verb module is what root.py imports via importlib.import_module.
     # If `import_should_fail` is set, we leave python_modules.<verb_name>
@@ -581,23 +604,38 @@ class TestRootBulkExecutorErrorPropagation:
 
 
 class TestRootGenericExceptionPropagation:
-    """Generic Exception from a verb is re-raised (lines 88-89)."""
+    """A non-BulkExecutorError from a verb is reported, then exits (#332).
 
-    def test_generic_exception_propagates(self, monkeypatch):
-        """Lines 88-89: a non-BulkExecutorError exception is re-raised verbatim."""
+    It used to be re-raised, which handed the user Glue's exception-analysis blob and
+    Py4J's restatement of the same failure on top of the traceback. root.py now routes
+    everything through shared/driver_errors.py: the traceback is printed once for the
+    user, and the job exits with a one-line reason that becomes Glue's ErrorMessage.
+    """
+
+    def test_generic_exception_is_reported_then_exits(self, monkeypatch, capsys):
         run_mock = MagicMock(side_effect=RuntimeError("boom"))
         verb = _make_verb_module("copy", run_callable=run_mock)
-        with pytest.raises(RuntimeError, match="boom"):
+        with pytest.raises(SystemExit) as exc_info:
             _load_root(monkeypatch,
                        ["root.py", "--XAction", "copy"],
                        verb_module=verb, verb_name="copy")
 
+        reason = str(exc_info.value)
+        assert "boom" in reason, "the closing line names the failure"
+        assert "Traceback" not in reason, (
+            "the reason is Glue's ErrorMessage and the client's last line -- keep it to one"
+        )
+        out = capsys.readouterr().out
+        assert "did not expect" in out and "Traceback" in out, (
+            "an unexpected failure prints its traceback where the user will see it"
+        )
+
     def test_generic_exception_skips_commit_and_stop(self, monkeypatch):
-        """Lines 93-94: exception path bypasses job.commit() and spark.stop()."""
+        """A failed job must not be committed -- that is what makes Glue mark it FAILED."""
         run_mock = MagicMock(side_effect=ValueError("nope"))
         verb = _make_verb_module("copy", run_callable=run_mock)
         awsglue = _build_awsglue_stubs()
-        with pytest.raises(ValueError):
+        with pytest.raises(SystemExit):
             _load_root(monkeypatch,
                        ["root.py", "--XAction", "copy"],
                        verb_module=verb, verb_name="copy",

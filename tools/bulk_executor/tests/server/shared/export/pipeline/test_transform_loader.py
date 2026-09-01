@@ -24,5 +24,7 @@ class TestTransformLoader:
         assert callable(module.transform_incremental_record)
 
     def test_load_nonexistent_module(self):
-        with pytest.raises(ImportError):
+        """--transform names the module, so a typo is a sentence, not a traceback (#332)."""
+        from python_modules.shared.bulk_executor_error import BulkExecutorError
+        with pytest.raises(BulkExecutorError, match="Cannot import transform module"):
             load_transform_module('nonexistent_module', 'python_modules.load_export.transform')

@@ -92,7 +92,8 @@ def run(job, spark_context, glue_context, parsed_args):
         # without wrapping them into an opaque "SQL query error".
         raise
     except Exception as e:
-        raise Exception("SQL query error: " + get_error_message(e)) from None
+        # The query is the user's to fix, so this is a sentence, not a stack trace.
+        raise BulkExecutorError("SQL query error: " + get_error_message(e)) from None
     finally:
         # Ensure Spark session cleanup
         try:

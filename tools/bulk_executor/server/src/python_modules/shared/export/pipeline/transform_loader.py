@@ -1,4 +1,5 @@
 import importlib
+from ...bulk_executor_error import BulkExecutorError
 
 
 def load_transform_module(module_name, transform_package):
@@ -18,4 +19,7 @@ def load_transform_module(module_name, transform_package):
     try:
         return importlib.import_module(f"{transform_package}.{module_name}")
     except ImportError as e:
-        raise ImportError(f"Cannot import transform module '{module_name}' from '{transform_package}': {e}")
+        # --transform is user input, so a typo is a sentence rather than a traceback.
+        raise BulkExecutorError(
+            f"Cannot import transform module '{module_name}' from '{transform_package}': {e}"
+        ) from None

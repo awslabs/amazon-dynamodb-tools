@@ -94,7 +94,12 @@ def run(job, spark_context, glue_context, parsed_args):
         dynamicFrame.printSchema()
 
     except Exception as e:
-        raise Exception(f"Failed to create DynamicFrame {e}")
+        # This is where Spark actually reads the source, so it fires on the everyday
+        # mistakes: --format json pointed at CSV, malformed JSON, an unreadable Parquet
+        # file. (A path that does not exist is caught earlier, before the job starts.)
+        raise BulkExecutorError(
+            f"Could not read the source at '{s3_path}' as {parsed_args.get('format')!r}: "
+            f"{get_error_message(e)}") from None
 
     if parsed_args.get('removeEmptyStringAttributes') is not None:
         log.debug(f"removeEmptyStringAttributes parameter was provided")
@@ -114,7 +119,9 @@ def run(job, spark_context, glue_context, parsed_args):
             glue_context, df, table_name, parsed_args, write_rate=write_rate)
         log.info(f"Wrote {count} items to '{table_name}'")
     except Exception as e:
-        raise Exception(f"Error in writing to table: {get_error_message(e)}") from None
+        # The connector write: a read-only role or persistent throttling lands here, and
+        # get_error_message unwraps the Py4J stack to AWS's own sentence.
+        raise BulkExecutorError(f"Error in writing to table: {get_error_message(e)}") from None
 
 def check_s3_file_exists(s3_uri):
     """

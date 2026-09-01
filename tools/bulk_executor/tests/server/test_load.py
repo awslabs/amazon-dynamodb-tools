@@ -274,7 +274,8 @@ class TestRunDynamicFrameCount:
         assert result is None
 
     def test_raises_on_count_exception(self, monkeypatch):
-        """Line 99-100: exception during count() re-raises wrapped."""
+        """A failure reading the source is the user's to fix -- wrong --format, malformed
+        data -- so it reports as a sentence naming the path and format (#332)."""
         monkeypatch.setattr(load_module, 'check_s3_file_exists', lambda uri: True)
         monkeypatch.setattr(load_module, 'get_dynamodb_throughput_configs',
                             lambda *a, **kw: {})
@@ -282,9 +283,12 @@ class TestRunDynamicFrameCount:
         df.count.side_effect = RuntimeError('spark error')
         monkeypatch.setattr(load_module, 'read_data', lambda *a: df)
 
-        with pytest.raises(Exception, match="Failed to create DynamicFrame"):
+        with pytest.raises(load_module.BulkExecutorError, match="Could not read the source") as exc:
             load_module.run(MagicMock(), MagicMock(), MagicMock(),
                             {'table': 't', 's3_path': 's3://b/k', 'format': 'csv'})
+        assert "s3://b/k" in str(exc.value) and "'csv'" in str(exc.value), (
+            "name the path and the format the user claimed it was"
+        )
 
 
 class TestRunRemoveEmptyStrings:

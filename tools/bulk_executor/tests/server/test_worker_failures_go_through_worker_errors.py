@@ -18,6 +18,8 @@ update, scancount and find's did not), and a new verb would arrive unprotected.
 """
 
 import re
+
+import pytest
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[2]
@@ -89,16 +91,18 @@ def test_the_seam_is_actually_used():
         f"expected several verbs to surface worker failures, found {surfacing}")
 
 
-def test_the_client_watches_for_the_banner_the_job_prints():
+@pytest.mark.parametrize("module", ["worker_errors.py", "driver_errors.py"])
+def test_the_client_watches_for_the_banners_the_job_prints(module):
     """The client suppresses Glue's exception-analysis noise once the job has explained
-    itself. That handshake is two string literals in two trees: if they drift, an
-    unexpected failure gets the worker traceback *and* a Glue traceback of our plumbing
-    on top of it, which is exactly what the banner exists to prevent."""
-    server = (_SERVER_SRC / "python_modules" / "shared" / "worker_errors.py").read_text()
+    itself. That handshake is string literals in two trees: if they drift, an unexpected
+    failure gets our traceback *and* Glue's blob on top of it, which is exactly what the
+    banner exists to prevent. Both sides print one -- a worker failure and a driver
+    failure -- so both are checked."""
+    server = (_SERVER_SRC / "python_modules" / "shared" / module).read_text()
     banner = re.search(r'UNEXPECTED_FAILURE_BANNER = "([^"]+)"', server)
-    assert banner, "worker_errors.py no longer defines UNEXPECTED_FAILURE_BANNER"
+    assert banner, f"{module} no longer defines UNEXPECTED_FAILURE_BANNER"
 
     client = (_REPO / "client" / "src" / "runner.py").read_text()
     assert banner.group(1) in client, (
         f"client/src/runner.py does not watch for {banner.group(1)!r}; "
-        "JOB_EXPLAINED_THE_FAILURE has drifted from worker_errors.py")
+        f"JOB_EXPLAINED_THE_FAILURE has drifted from {module}")
