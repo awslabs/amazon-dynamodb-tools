@@ -273,6 +273,30 @@ class TestRunDynamicFrameCount:
                                  {'table': 't', 's3_path': 's3://b/k', 'format': 'csv'})
         assert result is None
 
+    def test_zero_rows_warns_and_succeeds(self, monkeypatch, caplog):
+        """A run that goes on to succeed must not print an ERROR line. Measured before this
+        change: "ERROR - No data found, please check your data source" immediately above
+        "Job completed successfully", with exit 0."""
+        import logging
+
+        monkeypatch.setattr(load_module, 'check_s3_file_exists', lambda uri: True)
+        df = MagicMock()
+        df.count.return_value = 0
+        monkeypatch.setattr(load_module, 'read_data', lambda *a: df)
+        write = MagicMock()
+        monkeypatch.setattr(load_module, 'write_dynamodb_dataframe', write)
+
+        with caplog.at_level(logging.WARNING):
+            load_module.run(MagicMock(), MagicMock(), MagicMock(),
+                            {'table': 't', 's3_path': 's3://b/k', 'format': 'json'})
+
+        levels = {r.levelname for r in caplog.records}
+        assert 'ERROR' not in levels, "a successful run must not log an error"
+        message = ' '.join(r.message for r in caplog.records)
+        assert 'Read 0 items' in message and "'json'" in message and '--format' in message, \
+            "say what happened and what to check"
+        write.assert_not_called()
+
     def test_raises_when_the_frame_cannot_even_be_created(self, monkeypatch):
         """Parquet reads its footer while the frame is created, so `--format parquet` at a
         CSV file raises from read_data rather than from count(). Both are the same mistake

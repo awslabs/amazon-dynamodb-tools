@@ -91,7 +91,14 @@ def run(job, spark_context, glue_context, parsed_args):
         dynamicFrame = read_data(glue_context, s3_path, parsed_args)
         count = dynamicFrame.count()
         if count == 0:
-            log.error("No data found, please check your data source") # Should perhaps check that the path exists
+            # Logged as a warning, not an error: this run goes on to succeed, and an ERROR
+            # line above "Job completed successfully" is a contradiction the reader has to
+            # resolve. An empty drop is also a legitimate input -- the export pipeline
+            # treats a 0-item export the same way. Whether a source that holds bytes but
+            # yields no rows should fail instead is a separate question (#340).
+            log.warning(
+                f"Read 0 items from '{s3_path}' as {parsed_args.get('format')!r} -- "
+                f"nothing was loaded. If that is unexpected, check --format and the path.")
             return
         log.info(f"\nPreparing to load {count} items")
         log.info("Schema is:")
