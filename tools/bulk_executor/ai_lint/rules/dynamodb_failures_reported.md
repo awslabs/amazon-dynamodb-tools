@@ -32,14 +32,16 @@ Under a DynamoDB authorization denial (issue #327), the two shapes diverge sharp
 
 | shape | console output | closing line |
 |---|---|---|
-| records on an accumulator | **67–80 lines** | `Error in worker 3: User … is not authorized to perform: dynamodb:Scan …` |
-| lets the exception escape | **625–939 lines** | a Py4J wrapper, or text cut at `Traceback (most recent call last):` — the denied action is never named |
+| records, then surfaces through the seam | **37–52 lines** | `SystemExit: Error in worker 2: User … is not authorized to perform: dynamodb:Scan on resource: …` |
+| lets the exception escape | **597–668 lines** | `Exception: Error in parallel execution: … PythonRDD.collectAndServe … org.apache.spark.SparkException` — the denied action is never named |
+
+Both columns are live measurements of the same commands, the second taken on `main`
+before this was fixed (`fill` 625, `diff` 668, `update` 650 lines).
 
 The mechanism: a recorded failure lets the Spark task **succeed**, so the driver
-raises a plain Python exception whose message Glue records verbatim as the job's
-`ErrorMessage` — which the client prints as its closing line. An escaping exception
-gets retried `spark.task.maxFailures` (4) times, aborts the job, and reaches the
-driver wrapped in Py4J, where the cause is buried or truncated away.
+decides what the user sees. An escaping exception instead gets retried
+`spark.task.maxFailures` (4) times, aborts the job, and reaches the driver wrapped in
+Py4J, where the cause is buried behind `collectAndServe`.
 
 ## Scope — find the worker entry points live
 
@@ -59,8 +61,14 @@ two, and the split is what the user experiences:
 
 - **understood** — a permission denial, throttling, a validation rejection, a missing
   table (`UNDERSTOOD_ERROR_CODES`, plus AWS's own "is not authorized to perform"
-  wording). The user can act on it and there is nothing to debug, so the one sentence
-  is the whole report.
+  wording), or something a verb detected and phrased itself: `fill` checks each
+  generated item against the table's key names *before* writing, so the common mistake
+  reads `Generated item is missing the table's key attribute(s) ['id']; the item has
+  ['payload', 'pknum']` instead of boto3's bare `KeyError: 'id'` out of `batch_writer`'s
+  de-duplication. The user can act on it and there is nothing to debug, so the one
+  sentence is the whole report. **Pre-empting a predictable mistake this way is better
+  than classifying it after the fact** — look for the opportunity when a verb runs user
+  data through a library that will fail cryptically.
 - **unexpected** — a bug of ours, or a user-supplied generator or transform doing
   something we cannot anticipate. The driver prints the worker's traceback to the
   **console**, once, from the first recorded failure however many workers hit it.
@@ -96,7 +104,7 @@ guard found a seventh site nobody had noticed (`shared/export/pipeline/writer.py
 not treat the guard as replacing this rule — it checks the plumbing, not whether a
 handler exists or is broad enough.
 
-## Two traps worth checking explicitly
+## Traps worth checking explicitly
 
 - **`batch_writer` flushes on `with` exit.** A per-item `try` inside the loop does
   **not** cover writes: `boto3`'s batch writer buffers 25 items and sends them when
@@ -106,6 +114,18 @@ handler exists or is broad enough.
 - **`except ClientError` is too narrow.** A generator returning items that don't
   match the table's key schema raises `KeyError` inside `batch_writer`, which a
   ClientError-only handler misses. That is how `fill` produced 625 lines.
+- **`exit()` inside a worker does not do what it looks like.** `SystemExit` is a
+  `BaseException`, so the worker's `except Exception` never sees it: the task fails, gets
+  four Spark retries, aborts the job, and arrives as a Py4J wrapper. `update` had two of
+  these (throttling, `ValidationException`) and they survived the round of fixes that
+  caught every other verb, because the code *looks* like it reports politely. **Grep for
+  `exit(` in worker code every time you run this rule.** Both now raise
+  `BulkExecutorError`, which the worker handler does catch and record.
+- **The `except Exception: raise Exception(f"Error in parallel execution: …")` wrapper
+  around `collect()`** (in `copy`, `diff`, `fill`, `scancount`, `update`) is not a
+  violation. It catches what genuinely escaped — Spark infrastructure failures — and a
+  plain exception is the right shape for those. Do not "fix" it into a
+  `BulkExecutorError`.
 
 ## Invariant 2 — driver-side work fails politely too
 
@@ -129,6 +149,17 @@ Two things that look like compliance and are not:
   a presentation finding rather than a data-loss one. Judge on how the user receives
   it, not on whether the text exists somewhere in the log.
 
+The classification from invariant 1 applies here too: a *understood* driver-side failure
+(a denial, a validation rejection) belongs in `BulkExecutorError`, an *unexpected* one
+keeps its type. The driver already has the frames, so there is nothing to capture and
+re-print — but note that an unhandled driver-side exception still drags in Glue's
+exception-analysis blob, because the client only suppresses that after seeing
+`BulkExecutorError` or the worker-failure banner. Concrete case to check while fixing
+#332: a `fill` generator that raises on *every* call dies inside
+`check_generator_output_avg_size`'s 10-call size peek, on the driver, unhandled — 73
+lines with a Glue blob, closing on `UNCLASSIFIED_ERROR … RuntimeError: faker did
+something silly`. The message is fine; the packaging is not.
+
 ## Accepted variants
 
 - A **per-item** reporter (`shared/failure_reporter.BoundedFailureReporter`) is fine
@@ -136,6 +167,12 @@ Two things that look like compliance and are not:
   the safety net. Do not treat its presence as satisfying invariant 1.
 - `foreachPartition` has no return value, so an accumulator is the only channel;
   points 1, 2 and 4 still apply.
+- **A failure the user asked for is not a failure.** `update` treats
+  `ConditionalCheckFailedException` as a normal outcome: it increments
+  `failed_accumulator`, logs only the key (bounded per worker), and the driver folds the
+  total into the *success* line — `Processed N records: (X updates, Y non-updates, Z
+  conditions failed)`, exit 0. Do not flag that as an unreported failure; do check that
+  the count reaches the user, since silently dropping it would be the real bug.
 
 ## Verifying against real AWS
 
@@ -164,24 +201,27 @@ the test have burned time here:
   mocks `python_modules.shared.errors`, so `get_error_message` returns a `Mock`; a test
   asserting on message text has to patch it on `worker_errors`, not on the verb's
   module.
-- **`exit()` inside a worker does not do what it looks like.** `SystemExit` is a
-  `BaseException`, so the worker's `except Exception` never sees it: the task fails, gets
-  four Spark retries, aborts the job, and arrives as a Py4J wrapper. `update` had two of
-  these (throttling, `ValidationException`) long after the other verbs were fixed; they
-  now raise `BulkExecutorError`, which the worker handler *does* catch and record. Grep
-  for `exit(` in worker code as part of this rule.
 
 Judge the result on three things, not one: the **line count** (a conforming denial is
-tens of lines, not hundreds), whether any of `Traceback`, `py4j`,
-`GlueExceptionAnalysis` or `at org.apache.spark` appears at all, and the **closing
-line**.
+tens of lines, not hundreds), whether `Traceback`, `py4j`, `GlueExceptionAnalysis` or
+`at org.apache.spark` appears, and the **closing line**.
+
+Two exceptions to the middle test, or you will chase ghosts:
+
+- **The unexpected path is supposed to print a traceback** — one, from the worker,
+  introduced by `worker_errors.UNEXPECTED_FAILURE_BANNER`. Count them: more than one
+  traceback, or a Glue exception-analysis blob alongside it, is the finding.
+- **Glue emits Java stacks of its own on runs that succeeded.** A successful `copy`
+  logged 25 lines of `ScheduledReporter … AWSDILyraMetricsReporter#report` /
+  `java.util.ConcurrentModificationException` from `aws-glue-di-package.jar` (issue
+  #334). Check the frames' origin before attributing a stack to us.
 
 ## How to report
 
 For each worker entry point, state one of:
 
-- `conforms — <function>: except Exception -> <accumulator>, driver raises
-  BulkExecutorError at <line>`
+- `conforms — <function>: except Exception -> record_worker_failure(<accumulator>),
+  driver calls raise_first_worker_error at <line>`
 - a **finding**: name the function, say which point fails (no handler / handler too
   narrow / records but the driver never checks / raises instead of returning), and
   give the shape of the consequence (log volume, closing line).
@@ -198,11 +238,27 @@ State what you verified even when clean, so a pass is trustworthy.
 
 - Conforms: `copy` (`_copy_data`), `update` (`_update_data`), `scancount`
   (`_count_data`), `diff` (`diff_segment`), `fill` (`_fill_data`), `find --delete`
-  (`delete_partition`), and `shared/export/pipeline/writer.py`. The last three verbs
-  were fixed in the PR that added this rule; the first three were the pattern it
-  copies. All seven record through `worker_errors` and surface with
-  `raise_first_worker_error` — verified live for `diff`, `fill` and `find --delete`: 41-52 lines, no traceback, closing line naming the principal,
-  action and resource.
+  (`delete_partition`), and `shared/export/pipeline/writer.py`. All seven record through
+  `worker_errors` and surface with `raise_first_worker_error`.
+
+  Verified live 2026-08-31 across six regions, `--XNumberOfWorkers 2`, denials from a
+  read-only custom role — every line count below is total console output, and every one
+  of these runs had **zero** traceback/Py4J/Glue-blob lines:
+
+  | run | lines | closing line |
+  |---|---|---|
+  | `scancount` read denied | 37 | `SystemExit: Error in worker 2: … dynamodb:Scan …` |
+  | `diff` read denied | 52 | `SystemExit: Error in worker 2: … dynamodb:Scan …` |
+  | `fill` write denied | 41 | `SystemExit: Error during writing: … dynamodb:BatchWriteItem …` |
+  | `delete` write denied | 46 | `SystemExit: Error during delete: … dynamodb:BatchWriteItem …` |
+  | `update` write denied | 39 | `SystemExit: Error in worker 268: … dynamodb:UpdateItem …` |
+  | `copy` write denied | 50 | `SystemExit: Error in worker 134: … dynamodb:BatchWriteItem …` |
+  | `fill` generated item missing the key | 41 | `SystemExit: Error in worker: Generated item is missing the table's key attribute(s) ['id'] …` |
+  | `update` ValidationException | 39 | `SystemExit: Error in worker 268: Validation exception (usually caused by the generator …)` |
+  | `fill` generator raises (unexpected) | 48 | 4-frame worker traceback, then `Exception: Error in worker: RuntimeError: faker did something silly` |
+
+  Outputs are kept in `~/Documents/bulk-331-runs/` with `before/` counterparts on `main`
+  (597-668 lines each).
 - **Does not conform to invariant 2, tracked as #332:** `find`, `count` and `sql`.
   A table the role cannot `Scan` gives 314-324 lines closing on
   `Error Category: UNCLASSIFIED_ERROR; Failed Line Number: 1362; An error occurred
