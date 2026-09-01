@@ -30,6 +30,14 @@ LOG_PATTERN_IGNORE_LIST = [
     # imported, so no filter in server/src can reach it. Remove once AWS fixes
     # the image. Issue #292.
     r"SyntaxWarning: invalid escape sequence",
+    # Glue's own metrics reporter races on the map behind its stage-skewness gauge and
+    # logs the ConcurrentModificationException at ERROR -- then says in the same line
+    # that it suppressed it. It arrives on a *successful* run, right before the result
+    # line, as one output-group event carrying the header and all 18 frames, so this
+    # single anchor drops the whole thing. Nothing in it is ours: every frame is
+    # aws-glue-di-package.jar or metrics-core. Remove once AWS fixes the image.
+    # Issue #334.
+    r"Exception thrown from AWSDILyraMetricsReporter#report",
 ]
 
 # Intentional nuanced configs:
