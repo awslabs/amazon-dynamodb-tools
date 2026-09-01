@@ -148,15 +148,32 @@ handler exists or is broad enough.
 ## Invariant 2 — driver-side work fails politely too
 
 A verb whose DynamoDB access happens on the **driver** (`find`, `count`, `sql` read
-through `shared/glue_connector`'s `.load()`) has no worker code to check, but it is
-not therefore exempt. A denied `.load()` must still reach the user as one sentence.
+through `shared/glue_connector`'s `.load()`; `load` writes through it) has no worker code
+to check, but it is not therefore exempt. A denied `.load()` must still reach the user as
+one sentence.
 
-The channel is `BulkExecutorError`: `root.py` catches it and calls
-`sys.exit(str(e))`, Glue records that as the job's `ErrorMessage`, and the client
-prints it as its closing line. The PITR guard already rides this path and produces
-exactly one clean sentence. Anything else — a bare Spark/Py4J exception, or a plain
-`Exception` — leaves the user a traceback prefixed with Glue's error category, even
-when the text underneath is perfectly good.
+Since #332 there is a net: `root.py` routes everything out of a verb through
+`shared/driver_errors.py`, which classifies it the same way workers are classified and
+**exits rather than re-raising**. Re-raising is what summons Glue's exception-analysis
+blob and Py4J's restatement of the same failure. So a verb no longer *has* to convert its
+own exception for the user to get a sentence — but converting is still better where the
+verb knows something the net cannot, which is why `sql`, `load` and the transform loader
+raise `BulkExecutorError` with their own wording.
+
+Two things to check when reading driver-side code:
+
+- **A marker must reach the console.** An understood failure logs behind
+  `driver_errors.EXPLAINED_FAILURE_PREFIX`, an unexpected one behind
+  `driver_errors.UNEXPECTED_FAILURE_BANNER`, and the client suppresses Glue's blob when it
+  sees either (or `BulkExecutorError`). Glue emits that blob after a clean `sys.exit` only
+  *sometimes* — measured: a denied `find` produced 183 blob lines while a denied `count`
+  in the same batch produced none — so a missing marker is a bug you will only see half
+  the time.
+- **The message has to survive the Java stack.** A Py4J error's `str()` is the whole
+  stack. `get_error_message` unwraps it to the innermost cause, because the outer layer is
+  usually Spark boilerplate ("Job aborted due to stage failure") while the cause is AWS's
+  sentence. If you see a closing line reading `An error occurred while calling o304.load`,
+  that unwrapping did not happen.
 
 Two things that look like compliance and are not:
 
@@ -280,13 +297,11 @@ State what you verified even when clean, so a pass is trustworthy.
 
   Outputs are kept in `~/Documents/bulk-331-runs/` with `before/` counterparts on `main`
   (597-668 lines each).
-- **Does not conform to invariant 2, tracked as #332:** `find`, `count` and `sql`.
-  A table the role cannot `Scan` gives 314-324 lines closing on
-  `Error Category: UNCLASSIFIED_ERROR; Failed Line Number: 1362; An error occurred
-  while calling o304.load. User: ... is not authorized ...`. AWS's sentence is in
-  there, but it arrives as an unhandled Py4J exception. Compare the worker-side
-  verbs, which now close on `Error during delete: User ... is not authorized to
-  perform: dynamodb:BatchWriteItem` in 26-82 lines.
+- Invariant 2 conforms as of #332, via the `root.py` net plus per-site wording in `sql`,
+  `load` and `transform_loader`. Before it, a table the role could not `Scan` gave
+  314-324 lines closing on `Error Category: UNCLASSIFIED_ERROR; ...; An error occurred
+  while calling o304.load. User: ... is not authorized ...`; the sentence was in there,
+  but it arrived as an unhandled Py4J exception.
 - Partly audited: `load`, `load_export`, `revert_export`. Their shared write path
   (`shared/export/pipeline/writer.py`) is now correct, but whether every worker entry
   point in those paths records rather than escapes has not been checked — treat the

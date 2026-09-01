@@ -81,10 +81,14 @@ def run(job, spark_context, glue_context, parsed_args):
     if not check_s3_file_exists(s3_path):
         raise BulkExecutorError(f"The S3 path '{s3_path}' doesn't exist or is not accessible")
 
-    dynamicFrame = read_data(glue_context, s3_path, parsed_args)
-
+    # Inside the same handler as the count below: some formats fail here instead. Parquet
+    # reads its footer while the frame is being created, so `--format parquet` at a CSV
+    # file raises from read_data, while a JSON or CSV mismatch only surfaces at count().
+    # Measured before this was wrapped: the Parquet case reported as an unexpected failure
+    # ("Py4JJavaError: ... is not a Parquet file") rather than as the user's own mistake.
     count = 0
     try:
+        dynamicFrame = read_data(glue_context, s3_path, parsed_args)
         count = dynamicFrame.count()
         if count == 0:
             log.error("No data found, please check your data source") # Should perhaps check that the path exists

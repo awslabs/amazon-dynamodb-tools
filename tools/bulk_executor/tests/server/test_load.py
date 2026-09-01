@@ -273,6 +273,23 @@ class TestRunDynamicFrameCount:
                                  {'table': 't', 's3_path': 's3://b/k', 'format': 'csv'})
         assert result is None
 
+    def test_raises_when_the_frame_cannot_even_be_created(self, monkeypatch):
+        """Parquet reads its footer while the frame is created, so `--format parquet` at a
+        CSV file raises from read_data rather than from count(). Both are the same mistake
+        and must read the same way; measured live before this was wrapped, the Parquet case
+        came out as "Py4JJavaError: ... is not a Parquet file" with a traceback."""
+        monkeypatch.setattr(load_module, 'check_s3_file_exists', lambda uri: True)
+
+        def boom(*_args):
+            raise RuntimeError("s3://b/k/data.csv is not a Parquet file")
+
+        monkeypatch.setattr(load_module, 'read_data', boom)
+
+        with pytest.raises(load_module.BulkExecutorError, match="Could not read the source") as exc:
+            load_module.run(MagicMock(), MagicMock(), MagicMock(),
+                            {'table': 't', 's3_path': 's3://b/k/data.csv', 'format': 'parquet'})
+        assert "'parquet'" in str(exc.value), "name the format the user claimed"
+
     def test_raises_on_count_exception(self, monkeypatch):
         """A failure reading the source is the user's to fix -- wrong --format, malformed
         data -- so it reports as a sentence naming the path and format (#332)."""
