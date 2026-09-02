@@ -2,7 +2,9 @@
 
 Covers `python_modules/diff.py`:
 - BinaryAwareEncoder: bytes → base64 JSON encoding
-- SegmentStream: parallel-scan stream abstraction (pagination, peek, advance, key extraction)
+- SegmentStream: parallel-scan stream abstraction (pagination, peek, advance, key
+  extraction, and the bounded lookahead window that keeps a drifted diff from buffering
+  whole segments)
 - item_matches: JSON-based item comparison
 - format_item_with_keys_first: key ordering for display
 - log_diff: concise vs full format output
@@ -231,6 +233,110 @@ class TestSegmentStream:
 
 
 # --- item_matches --------------------------------------------------------------
+
+class TestSegmentStreamBoundedLookahead:
+    """The lookahead buffer has a ceiling.
+
+    Before this, peeking ahead to realign two drifted scans loaded pages forever and never
+    trimmed them: measured at 16x the segment's wire bytes per table in Python, growing
+    linearly with no ceiling, which is how a diff of two tables with disjoint keys ran a
+    G.1X task out of memory.
+    """
+
+    def _stream_of_pages(self, page_count, items_per_page=3, pk='id'):
+        """A stream with far more items than the lookahead is allowed to buffer."""
+        session = MagicMock()
+        client = MagicMock()
+        session.client.return_value = client
+        state = {'page': 0}
+
+        def mock_scan(**kwargs):
+            state['page'] += 1
+            items = [{pk: {'S': f"p{state['page']}-i{i}"}}
+                     for i in range(items_per_page)]
+            resp = {'Items': items}
+            if state['page'] < page_count:
+                resp['LastEvaluatedKey'] = {pk: {'S': 'marker'}}
+            return resp
+
+        client.scan.side_effect = mock_scan
+        stream = diff_module.SegmentStream(
+            session=session, table_name='wide-table', segment=7, total_segments=400,
+            consistent_read=False, pk=pk, sk=None)
+        return stream, client
+
+    def test_peeking_past_the_window_raises_rather_than_buffering(self):
+        stream, _ = self._stream_of_pages(page_count=10_000)
+
+        with pytest.raises(diff_module.BulkExecutorError) as raised:
+            # Ask for an item far enough ahead that reaching it would need the whole segment.
+            stream.peek(1_000_000)
+
+        message = str(raised.value)
+        assert 'too different to diff accurately' in message, \
+            'lead with the conclusion, not with our buffering'
+        assert 'segment 7' in message, 'name the segment, so a rerun can be reasoned about'
+        assert f'{diff_module.MAX_LOOKAHEAD_ITEMS:,} items' in message
+        assert len(message.splitlines()) == 1 and len(message) < 250, \
+            'one short sentence: it becomes the Glue failure reason and the closing line'
+
+    def test_the_buffer_never_exceeds_the_window_by_more_than_a_page(self):
+        stream, client = self._stream_of_pages(page_count=10_000, items_per_page=3)
+
+        with pytest.raises(diff_module.BulkExecutorError):
+            stream.peek(1_000_000)
+
+        assert len(stream.items) < diff_module.MAX_LOOKAHEAD_ITEMS + 3, \
+            'the cap is checked before a scan, so the last page is the only overshoot'
+        assert client.scan.call_count < diff_module.MAX_LOOKAHEAD_ITEMS, \
+            'it stopped asking for pages; it did not read the segment out'
+
+    def test_a_stream_read_in_step_is_unaffected(self):
+        """The bound is on *lookahead*. Reading a long stream one item at a time, which is
+        what an aligned diff does, drains the buffer before each load, so it never trips --
+        however many items the segment holds."""
+        stream, _ = self._stream_of_pages(page_count=8_000, items_per_page=3)
+
+        seen = 0
+        while not stream.is_finished():
+            assert stream.head() is not None
+            stream.advance()
+            seen += 1
+
+        assert seen == 24_000, 'every item, well past the lookahead limit'
+
+    def test_consuming_frees_the_window_again(self):
+        """A small misalignment is peek-then-advance, repeatedly. len(self.items) falls as
+        items are consumed, so that shape never accumulates toward the cap."""
+        stream, _ = self._stream_of_pages(page_count=8_000, items_per_page=2)
+
+        for _ in range(12_000):
+            stream.peek(1)
+            stream.advance()
+
+        assert len(stream.items) < diff_module.MAX_LOOKAHEAD_ITEMS
+
+    def test_empty_pages_do_not_count_against_the_window(self):
+        """DynamoDB can return a page with no items and a LastEvaluatedKey, when the 1 MB read
+        window covered none of this segment's keys. A sparse segment must not read as drift."""
+        session = MagicMock()
+        client = MagicMock()
+        session.client.return_value = client
+        state = {'page': 0}
+
+        def mock_scan(**kwargs):
+            state['page'] += 1
+            if state['page'] < 500:
+                return {'Items': [], 'LastEvaluatedKey': {'id': {'S': 'marker'}}}
+            return {'Items': [{'id': {'S': 'found'}}]}
+
+        client.scan.side_effect = mock_scan
+        stream = diff_module.SegmentStream(
+            session=session, table_name='sparse', segment=0, total_segments=1,
+            consistent_read=False, pk='id', sk=None)
+
+        assert stream.head_pk() == 'found', 'walked 499 empty pages without tripping the cap'
+
 
 class TestItemMatches:
 
@@ -1307,6 +1413,146 @@ class TestDiffSegmentAlignment:
 
 
 # --- diff_segment: sort-key edge cases -----------------------------------------
+
+class TestDiffSegmentDisjointTables:
+    """Two tables that share no partition keys: the case that ran a task out of memory.
+
+    diff_segment cannot align them -- there is nothing to align on -- so it now reports
+    that in one sentence instead of loading both segments into Python. The failure goes on
+    the accumulator with no traceback, because there is nothing in our code to debug.
+    """
+
+    def _fake_session(self, prefix, item_count, items_per_page=25):
+        """A session whose scan pages through `item_count` items, keys prefixed."""
+        session = MagicMock()
+        client = MagicMock()
+        session.client.return_value = client
+        state = {'served': 0}
+
+        def mock_scan(**kwargs):
+            start = state['served']
+            end = min(start + items_per_page, item_count)
+            state['served'] = end
+            items = [{'pk': {'S': f'{prefix}-{i:06d}'}} for i in range(start, end)]
+            resp = {'Items': items}
+            if end < item_count:
+                resp['LastEvaluatedKey'] = {'pk': {'S': 'marker'}}
+            return resp
+
+        client.scan.side_effect = mock_scan
+        return session
+
+    @patch.object(diff_module, 'RateLimiterWorker')
+    def test_disjoint_keys_report_one_sentence_and_no_traceback(self, mock_rl):
+        """More items per stream than the lookahead may buffer, so there is no way to tell
+        whether the two ever meet without reading both segments out."""
+        over_the_cap = diff_module.MAX_LOOKAHEAD_ITEMS + 2_000
+        sessions = iter([self._fake_session('a', over_the_cap),
+                         self._fake_session('b', over_the_cap)])
+        worker = MagicMock()
+        worker.get_session.side_effect = lambda: next(sessions)
+        mock_rl.return_value = worker
+
+        broadcast = MagicMock()
+        broadcast.value = {'table1': {'pk': 'pk', 'sk': None},
+                           'table2': {'pk': 'pk', 'sk': None}}
+        accumulator = _FakeAccumulator()
+
+        count, preview = diff_module.diff_segment(
+            'table-a', 'table-b', {}, {}, 0, 400, False, True,
+            'jr_x', None, broadcast, MagicMock(), accumulator)
+
+        assert (count, preview) == (0, [])
+        assert len(accumulator.value) == 1
+        message, detail = accumulator.value[0]
+        assert 'too different to diff accurately' in message
+        assert detail is None, 'understood: a traceback would only show our own plumbing'
+
+    @patch.object(diff_module, 'RateLimiterWorker')
+    def test_disjoint_keys_inside_the_window_still_diff_completely(self, mock_rl):
+        """Under the cap there is no need to give up: reading both segments out proves the
+        two share nothing, and every item is a difference. That is the right answer, and the
+        cap is only reached by segments too big to hold."""
+        under_the_cap = 200
+        sessions = iter([self._fake_session('a', under_the_cap),
+                         self._fake_session('b', under_the_cap)])
+        worker = MagicMock()
+        worker.get_session.side_effect = lambda: next(sessions)
+        mock_rl.return_value = worker
+
+        broadcast = MagicMock()
+        broadcast.value = {'table1': {'pk': 'pk', 'sk': None},
+                           'table2': {'pk': 'pk', 'sk': None}}
+        accumulator = _FakeAccumulator()
+
+        count, preview = diff_module.diff_segment(
+            'table-a', 'table-b', {}, {}, 0, 400, False, True,
+            'jr_x', None, broadcast, MagicMock(), accumulator)
+
+        assert accumulator.value == [], 'nothing failed'
+        assert count == 2 * under_the_cap, 'every item on both sides, and nothing invented'
+
+    @patch.object(diff_module, 'RateLimiterWorker')
+    def test_a_small_misalignment_still_aligns(self, mock_rl):
+        """The bound must not break the case it exists to serve: tables that drift a
+        little and then meet again."""
+        a_items = [{'pk': {'S': f'k-{i:04d}'}} for i in range(60)]
+        b_items = [{'pk': {'S': f'k-{i:04d}'}} for i in range(60) if i not in (3, 4, 5)]
+
+        def session_of(items):
+            session, client = MagicMock(), MagicMock()
+            session.client.return_value = client
+            client.scan.side_effect = [{'Items': items}]
+            return session
+
+        sessions = iter([session_of(a_items), session_of(b_items)])
+        worker = MagicMock()
+        worker.get_session.side_effect = lambda: next(sessions)
+        mock_rl.return_value = worker
+
+        broadcast = MagicMock()
+        broadcast.value = {'table1': {'pk': 'pk', 'sk': None},
+                           'table2': {'pk': 'pk', 'sk': None}}
+        accumulator = _FakeAccumulator()
+
+        count, preview = diff_module.diff_segment(
+            'table-a', 'table-b', {}, {}, 0, 400, False, True,
+            'jr_x', None, broadcast, MagicMock(), accumulator)
+
+        assert accumulator.value == [], 'nothing failed'
+        assert count == 3, 'the three keys missing from B, and nothing invented'
+        assert all('k-000' in line for line in preview)
+
+    @patch.object(diff_module, 'RateLimiterWorker')
+    def test_alignment_found_from_the_second_stream(self, mock_rl):
+        """The realignment check runs on whichever stream just produced a key, so a match
+        discovered while peeking into B counts as much as one found in A."""
+        a_items = [{'pk': {'S': p}} for p in ('x1', 'x2', 'shared')]
+        b_items = [{'pk': {'S': p}} for p in ('y1', 'y2', 'y3', 'y4', 'shared')]
+
+        def session_of(items):
+            session, client = MagicMock(), MagicMock()
+            session.client.return_value = client
+            client.scan.side_effect = [{'Items': items}]
+            return session
+
+        sessions = iter([session_of(a_items), session_of(b_items)])
+        worker = MagicMock()
+        worker.get_session.side_effect = lambda: next(sessions)
+        mock_rl.return_value = worker
+
+        broadcast = MagicMock()
+        broadcast.value = {'table1': {'pk': 'pk', 'sk': None},
+                           'table2': {'pk': 'pk', 'sk': None}}
+        accumulator = _FakeAccumulator()
+
+        count, preview = diff_module.diff_segment(
+            'table-a', 'table-b', {}, {}, 0, 400, False, True,
+            'jr_x', None, broadcast, MagicMock(), accumulator)
+
+        assert accumulator.value == []
+        assert count == 6, 'x1 x2 missing from B, y1..y4 missing from A; shared matches'
+
 
 class TestDiffSegmentSortKeyEdges:
     """Cover remaining branches in the sort-key comparison logic."""
