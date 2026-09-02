@@ -47,10 +47,9 @@ CONSOLE_PREVIEW_LIMIT = 10
 # its wire bytes per table, because an item is held as raw DynamoDB JSON where every attribute
 # costs a dict plus two strings.
 #
-# Where 10,000 comes from -- both curves are still flat there. Memory is per *worker*, i.e.
-# two streams on each of four concurrent tasks, against the ~6 GB a G.1X leaves the Python
-# side; time is one search that runs the window out, which the O(n^2) intersection in the
-# realignment loop below makes superlinear:
+# The columns below are per *worker*, i.e. two streams on each of four concurrent tasks,
+# against the ~6 GB a G.1X leaves the Python side. Time is one search that runs the window
+# out, which the O(n^2) intersection in the realignment loop below makes superlinear:
 #
 #                                Python/item    @2,000   @10,000   @50,000
 #     2 attributes, 178 B            1,287 B      16 MB     96 MB    488 MB
@@ -61,13 +60,27 @@ CONSOLE_PREVIEW_LIMIT = 10
 #
 #     one exhausted search                        0.01 s    0.12 s    4.23 s
 #
+# Where 30,000 comes from -- it is between the @10,000 and @50,000 columns, so the worst
+# normal item shape peaks around 2.6 GB, under half the budget, and an exhausted search runs
+# ~1.5 s. 10,000 was too tight in both directions at once: it left most of the budget unused,
+# and it failed a legitimate case (#356). Realigning across an item collection the other table
+# does not have means peeking past all of it, because every item in it carries the same pk --
+# so the whole collection is buffered to learn one fact, and a collection wider than the cap
+# ends a run on tables that may be otherwise identical.
+#
+# Not higher than 30,000, because the failure a too-large cap buys is worse than the one it
+# avoids. 50,000 puts the same shape at 4.3 GB of ~6 GB, and this buffer is Python-side, while
+# the client's memory watchdog only recognises the JVM's wording -- so overshooting here does
+# not produce the "job ran out of memory, try R.1X" diagnosis, it produces a bare stop with no
+# reason. #358 covers making that survivable, and the cases 30,000 still cannot reach.
+#
 # A count of items, not of bytes: `del self.items[0]` in advance() already keeps
 # len(self.items) equal to the live buffer, so this needs no bookkeeping of its own, and diff
 # is stateful enough already. Note from the table what that does *not* buy -- a table of
 # 400 KB items is past the budget at every cap worth having, so this bound does not cover that
 # shape at all. Lowering the number would not fix it either; only counting bytes would, and
 # reaching it takes a segment holding gigabytes, which the old code would have died on sooner.
-MAX_LOOKAHEAD_ITEMS = 10_000
+MAX_LOOKAHEAD_ITEMS = 30_000
 
 class BinaryAwareEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles bytes objects by converting them to base64-encoded strings."""
