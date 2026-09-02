@@ -8,6 +8,7 @@ from boto3 import Session
 from botocore.config import Config
 
 sys.path.append('/server/src')
+from python_modules.shared.bulk_executor_error import BulkExecutorError
 from python_modules.shared.errors import ListAccumulator, get_error_message
 from python_modules.shared.table_info import (
     get_and_print_dynamodb_table_info,
@@ -33,6 +34,40 @@ from python_modules.shared.worker_errors import (
 # ceiling and silently lose output, so we print only a small preview here and write
 # the complete diff to S3. See issue #86 / #280.
 CONSOLE_PREVIEW_LIMIT = 10
+
+# How far one stream may run ahead of the other while looking for a shared partition key.
+#
+# Scan order inside a segment is DynamoDB's own, so the two tables only arrive in step when
+# their key spaces line up. When they drift, diff_segment peeks ahead in both streams until it
+# sees a pk on both sides. Peeking consumes nothing -- only advance() takes items off the front
+# -- so the buffer grows for as long as the search runs, and the search had no limit: two
+# tables sharing no keys grew theirs until the segment ran out.
+#
+# Measured against the real diff_segment: peak Python grew linearly with the segment, at 16x
+# its wire bytes per table, because an item is held as raw DynamoDB JSON where every attribute
+# costs a dict plus two strings.
+#
+# Where 10,000 comes from -- both curves are still flat there. Memory is per *worker*, i.e.
+# two streams on each of four concurrent tasks, against the ~6 GB a G.1X leaves the Python
+# side; time is one search that runs the window out, which the O(n^2) intersection in the
+# realignment loop below makes superlinear:
+#
+#                                Python/item    @2,000   @10,000   @50,000
+#     2 attributes, 178 B            1,287 B      16 MB     96 MB    488 MB
+#     14 attributes, 778 B           5,149 B      80 MB    392 MB    1.9 GB
+#     37 attributes, 1.1 KB         11,631 B     176 MB    888 MB    4.3 GB
+#     400 KB in 5 values              409 KB     6.2 GB     30 GB    152 GB
+#     400 KB in 2000 values           974 KB      15 GB     73 GB    363 GB
+#
+#     one exhausted search                        0.01 s    0.12 s    4.23 s
+#
+# A count of items, not of bytes: `del self.items[0]` in advance() already keeps
+# len(self.items) equal to the live buffer, so this needs no bookkeeping of its own, and diff
+# is stateful enough already. Note from the table what that does *not* buy -- a table of
+# 400 KB items is past the budget at every cap worth having, so this bound does not cover that
+# shape at all. Lowering the number would not fix it either; only counting bytes would, and
+# reaching it takes a segment holding gigabytes, which the old code would have died on sooner.
+MAX_LOOKAHEAD_ITEMS = 10_000
 
 class BinaryAwareEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles bytes objects by converting them to base64-encoded strings."""
@@ -76,6 +111,15 @@ class SegmentStream:
 
     def _load_page(self):
         if self.last_page: return
+
+        # Checked before the scan, against the buffer as it stands after everything consumed
+        # so far -- so a stream read in step, which drains to one item before each load, never
+        # trips it however long the segment.
+        if len(self.items) >= MAX_LOOKAHEAD_ITEMS:
+            raise BulkExecutorError(
+                f"Tables are too different to diff accurately: in segment {self.segment} the "
+                f"two comparing scans ran {MAX_LOOKAHEAD_ITEMS:,} items apart without finding "
+                f"a matching partition key in both.")
 
         kwargs={
             'TableName' : self.table_name,
