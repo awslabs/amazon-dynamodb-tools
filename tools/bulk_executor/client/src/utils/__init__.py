@@ -87,10 +87,9 @@ LOG_PATTERN_IGNORE_LIST = [
 # as a clause. `advice` is the next thing to try; it prints once, at detection.
 #
 # Patterns are matched as substrings against raw log events from every stream, driver and
-# executor alike. Intentional nuanced configs:
-# - PascaleCase Keys
-# - Suffix symbols (the trailing colon keeps `OutOfMemoryError:` off prose that merely
-#   discusses the class, e.g. a Spark config name or one of our own messages)
+# executor alike, so they are written exactly as the JVM and the AWS SDK print them --
+# case included, and keeping the trailing colon of `OutOfMemoryError:`. Matching the printed
+# form is what keeps them narrow; do not normalise the case or trim the punctuation.
 UnhealthySignal = namedtuple('UnhealthySignal', 'pattern summary advice')
 
 # Recognises a memory failure in the run's *final* ErrorMessage, for the path where the
