@@ -55,26 +55,12 @@ LOG_PATTERN_IGNORE_LIST = [
     # Not counted: nothing a user could act on, and a network fault bad enough to
     # matter shows up as task failures, which are never filtered.
     r"Error sending result StreamResponse",
-    # The JVM's own out-of-memory banner. Four lines, and they arrive as a single event, so
-    # matching any of them drops the block:
-    #
-    #     #
-    #     # java.lang.OutOfMemoryError: Java heap space
-    #     # -XX:OnOutOfMemoryError="/usr/bin/bash /tmp/glue-job-3005627601503484264/exception_catch/onOOMError.sh %p ..."
-    #     #   Executing /bin/sh -c "/usr/bin/bash /tmp/glue-job-3005627601503484264/exception_catch/onOOMError.sh 162 ..."
-    #
-    # Two of them are a hook command line and the /bin/sh that runs it, naming a
-    # /tmp/glue-job-<digits>/ path on a machine the user cannot reach. The heap error goes
-    # with them, which is deliberate: bulk detects this event and prints "Stopping the job:
-    # the job ran out of memory." plus what to change, which is strictly better than the
-    # banner. Detection is unaffected -- UNHEALTHY_STATE_LOG_SIGNALS is matched against raw
-    # events before this filter, so suppressing the block cannot hide it.
-    # Not counted: nothing here is worth a heads-up once we have said it ourselves.
-    #
-    # One pattern, not two: the "Executing /bin/sh -c" line is in the same event, so
-    # anchoring on it as well would be redundant -- and it is broad enough to swallow
-    # unrelated Glue output we have never seen, which is not a trade a silent filter should
-    # make.
+    # The JVM's own out-of-memory banner, whose other lines are a hook command and the
+    # /bin/sh that runs it, both naming a /tmp/glue-job-<digits>/ path on a machine the user
+    # cannot reach. All four arrive as one event, so this anchor takes the heap error with
+    # them -- deliberate: bulk matches the same event and prints "Stopping the job: the job
+    # ran out of memory." plus what to change. Suppressing it cannot hide the signal, because
+    # UNHEALTHY_STATE_LOG_SIGNALS is matched against raw events before this filter runs.
     r"-XX:OnOutOfMemoryError=",
     # Glue 6.0 ships an invalid escape sequence in its own job wrapper
     # (pythonrunner/runscript.py), which Python 3.13 surfaces as a visible
