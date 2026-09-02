@@ -2,6 +2,7 @@ import argparse
 import json
 import re
 import sys
+from collections import namedtuple
 from typing import Optional
 
 import boto3
@@ -54,6 +55,14 @@ LOG_PATTERN_IGNORE_LIST = [
     # Not counted: nothing a user could act on, and a network fault bad enough to
     # matter shows up as task failures, which are never filtered.
     r"Error sending result StreamResponse",
+    # The JVM's own -XX:OnOutOfMemoryError plumbing, printed alongside the heap error it
+    # reacts to: the hook's command line and the /bin/sh that runs it, both naming a
+    # /tmp/glue-job-<digits>/ path that exists on a machine the user will never see. The
+    # "java.lang.OutOfMemoryError: Java heap space" line above them is deliberately left
+    # alone -- it is the evidence -- and bulk now explains the memory failure itself, so
+    # these two add nothing. Not counted: there is no run where a temp path helps.
+    r"-XX:OnOutOfMemoryError=",
+    r"Executing /bin/sh -c",
     # Glue 6.0 ships an invalid escape sequence in its own job wrapper
     # (pythonrunner/runscript.py), which Python 3.13 surfaces as a visible
     # SyntaxWarning on every single run -- 26/26 job runs in testing. It arrives
@@ -74,14 +83,63 @@ LOG_PATTERN_IGNORE_LIST = [
     r"Exception thrown from AWSDILyraMetricsReporter#report",
 ]
 
-# Intentional nuanced configs:
+# A log line matching one of these means the run cannot finish, so bulk stops the job
+# rather than let it burn DPU-minutes on a doomed retry loop.
+#
+# Each signal carries what to tell the user, because stopping is *our* decision: Glue
+# records a stopped run as STOPPED with no ErrorMessage, so whatever we do not say here,
+# nothing downstream will. Measured before this existed: an executor running out of memory
+# produced exactly three lines -- "indicate the Glue Job is unhealthy! Shutting down", the
+# stop itself, and "Job was stopped." -- with the words "out of memory" appearing nowhere,
+# and a Glue console entry showing a stopped job with no reason at all.
+#
+# `summary` completes both "Stopping the job: <summary>." and the closing line, so write it
+# as a clause. `advice` is the next thing to try; it prints once, at detection.
+#
+# Patterns are matched as substrings against raw log events from every stream, driver and
+# executor alike. Intentional nuanced configs:
 # - PascaleCase Keys
-# - Suffix symbols
-UNHEALTHY_STATE_LOG_MESSAGE_KEYS = [
-    "AccessDeniedException:",
-    "ModuleNotFoundError:",
-    "OutOfMemoryError:",
-    "ProvisionedThroughputExceededException:"
+# - Suffix symbols (the trailing colon keeps `OutOfMemoryError:` off prose that merely
+#   discusses the class, e.g. a Spark config name or one of our own messages)
+UnhealthySignal = namedtuple('UnhealthySignal', 'pattern summary advice')
+
+# Recognises a memory failure in the run's *final* ErrorMessage, for the path where the
+# watchdog never fired -- a driver that dies before it can log, or a signal that arrived
+# after live tail closed. "OUT_OF_MEMORY_ERROR" is Glue's own error category; the other two
+# are the JVM's wording and Glue's sentence ("Glue job failed due to driver out of memory").
+MEMORY_FAILURE_MARKERS = (
+    "OUT_OF_MEMORY_ERROR",
+    "OutOfMemoryError",
+    "out of memory",
+)
+
+# Named separately because three paths share it: a heap that fills up on the driver, one
+# that fills up on an executor, and a memory failure recognised only in Glue's closing
+# ErrorMessage. All three call for the same first move.
+MEMORY_ADVICE = (
+    "Memory-heavy runs want the memory-optimized worker types: --XWorkerType R.1X gives a "
+    "worker twice the memory of the default G.1X at the same vCPU count, and R.2X/R.4X go "
+    "further. Raising --XNumberOfWorkers helps only when the memory is spread across tasks "
+    "-- a sort, a GROUP BY or a collect_list over a whole table concentrates in one task, "
+    "and no number of workers makes that task smaller."
+)
+
+UNHEALTHY_STATE_LOG_SIGNALS = [
+    UnhealthySignal(
+        "OutOfMemoryError:", "the job ran out of memory", MEMORY_ADVICE),
+    UnhealthySignal(
+        "AccessDeniedException:", "the job was denied an AWS permission",
+        "The denied action is named in the output above. Re-run './bulk bootstrap' with a "
+        "role that allows it -- --XRole READ-WRITE for anything that writes."),
+    UnhealthySignal(
+        "ModuleNotFoundError:", "the job could not import a Python module",
+        "A generator or --transform module has to be deployed with './bulk bootstrap' "
+        "before a job can import it."),
+    UnhealthySignal(
+        "ProvisionedThroughputExceededException:",
+        "DynamoDB throttled the job past the SDK's own retries",
+        "Give the table more capacity, or hold bulk back with --XMaxReadRate / "
+        "--XMaxWriteRate so it stays under what the table can serve."),
 ]
 
 STD_ERROR_MESSAGE_KEYS = [ # Lowercase Keys Intentional

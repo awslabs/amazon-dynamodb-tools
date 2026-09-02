@@ -12,7 +12,8 @@ Covers `client/src/runner.py`:
   BulkExecutorError suppression flag, GlueExceptionAnalysisListener
   noise gate, output-vs-non-output formatting, GRAY/PINK/YELLOW/default
   color routing)
-- _is_job_state_unhealthy: matches against UNHEALTHY_STATE_LOG_MESSAGE_KEYS
+- _unhealthy_signal: matches against UNHEALTHY_STATE_LOG_SIGNALS, and returns the
+  signal so the stop can be explained; _advise_once de-duplicates the advice
 - _wait_for_log_groups_to_exist: success on first try, retry/log/sleep
   loop on missing groups, ClientError handling, max-retries exit path
 - _watch_log_group: sessionStart pass-through, sessionUpdate happy path,
@@ -42,6 +43,7 @@ as a regression harness.
 """
 
 import json
+import logging
 import sys
 from unittest.mock import MagicMock, patch, call
 
@@ -68,6 +70,8 @@ if _CLIENT_SRC not in sys.path:
 with patch('clients.Clients') as _MockClients:
     _MockClients.return_value = MagicMock()
     import runner as runner_module  # noqa: E402
+
+import utils  # noqa: E402  same package the runner reads its constants from
 
 
 # --- Fixtures ---------------------------------------------------------------
@@ -440,6 +444,77 @@ class TestPrettyPrintLogEvent:
         assert summary is not None, "the run must admit what it withheld"
         assert outcome is not None, "sanity: the closing line was reached"
         assert summary < outcome, "the admission belongs above the outcome, not after it"
+
+    def _drive_to_close(self, bulk_runner, monkeypatch, state, error_message=None):
+        """Run _execute_job to its closing lines with the Glue state we choose."""
+        monkeypatch.setattr(bulk_runner, '_start_glue_job', lambda *a: 'jr_test')
+        monkeypatch.setattr(bulk_runner, '_watch_glue_job', lambda *a: None)
+        monkeypatch.setattr(bulk_runner, '_watch_for_interrupt', lambda *a: None)
+        monkeypatch.setattr(bulk_runner, '_get_job_run_state', lambda *a: state)
+        monkeypatch.setattr(bulk_runner, '_get_job_run_error_message', lambda *a: error_message)
+        monkeypatch.setattr(bulk_runner, '_get_job_run_dpu', lambda *a, **kw: 0)
+        # Every non-SUCCEEDED state exits non-zero (issue #137), which is the point of
+        # those states; the closing lines are already logged by then.
+        with pytest.raises(SystemExit):
+            bulk_runner._execute_job({}, {})
+
+    def test_a_stop_we_caused_closes_by_naming_the_reason(self, bulk_runner, caplog, monkeypatch):
+        """The measured bug: an executor ran out of memory, bulk stopped the job, and the
+        last line was "Job was stopped." in warning yellow -- identical to Ctrl+C, with the
+        words "out of memory" nowhere in the run."""
+        bulk_runner._record_unhealthy_signal(
+            utils.UnhealthySignal('OutOfMemoryError:', 'the job ran out of memory', 'advice'))
+
+        with caplog.at_level(logging.INFO):
+            self._drive_to_close(bulk_runner, monkeypatch, 'STOPPED')
+
+        closing = [r for r in caplog.records if 'Job duration' in r.message][-1]
+        assert 'the job ran out of memory' in closing.message
+        assert 'Job was stopped' not in closing.message
+        assert closing.levelno == logging.ERROR, \
+            "a stop we caused is a failure, not the yellow of a user interrupt"
+
+    def test_a_user_stop_still_reads_as_a_stop(self, bulk_runner, caplog, monkeypatch):
+        """Ctrl+C sets no signal, so nothing about it changes."""
+        with caplog.at_level(logging.INFO):
+            self._drive_to_close(bulk_runner, monkeypatch, 'STOPPED')
+
+        closing = [r for r in caplog.records if 'Job duration' in r.message][-1]
+        assert closing.message.startswith('Job was stopped.')
+        assert closing.levelno == logging.WARNING
+
+    def test_glue_error_message_naming_memory_gets_the_advice(self, bulk_runner, caplog, monkeypatch):
+        """The path with no watchdog match at all: a driver that dies too fast to log one.
+        Glue's own closing sentence is then the only evidence -- measured verbatim below."""
+        glue_said = ("SystemExit: SQL query error: [Errno 111] Connection refused caused by "
+                     "Error Category: OUT_OF_MEMORY_ERROR; Glue job failed due to driver out "
+                     "of memory")
+
+        with caplog.at_level(logging.INFO):
+            self._drive_to_close(bulk_runner, monkeypatch, 'FAILED', error_message=glue_said)
+
+        assert utils.MEMORY_ADVICE in caplog.text, \
+            "Glue named the category; the run must not end without saying what to change"
+
+    def test_an_unrelated_failure_gets_no_memory_advice(self, bulk_runner, caplog, monkeypatch):
+        with caplog.at_level(logging.INFO):
+            self._drive_to_close(bulk_runner, monkeypatch, 'FAILED',
+                                 error_message="SystemExit: Invalid 'where': no such column")
+
+        assert utils.MEMORY_ADVICE not in caplog.text
+
+    def test_memory_advice_is_not_repeated_when_both_paths_notice(self, bulk_runner, caplog, monkeypatch):
+        """Watchdog and closing message can both be right about the same run."""
+        signal = [s for s in utils.UNHEALTHY_STATE_LOG_SIGNALS
+                  if s.pattern == 'OutOfMemoryError:'][0]
+        bulk_runner._record_unhealthy_signal(signal)
+        bulk_runner._advise_once(signal.advice)
+
+        with caplog.at_level(logging.INFO):
+            self._drive_to_close(bulk_runner, monkeypatch, 'STOPPED',
+                                 error_message="Error Category: OUT_OF_MEMORY_ERROR")
+
+        assert caplog.text.count(utils.MEMORY_ADVICE) == 1
 
     def test_counted_noise_is_hidden_but_tallied(self, bulk_runner, capsys, monkeypatch):
         """Noise we are not certain about is suppressed *and* counted, so the closing
@@ -821,23 +896,73 @@ class TestPrettyPrintLogEvent:
         assert runner_module.ColorCodes.YELLOW not in out
 
 
-# --- _is_job_state_unhealthy ------------------------------------------------
+# --- _unhealthy_signal ------------------------------------------------------
 
 
-class TestIsJobStateUnhealthy:
-    """Tests for unhealthy state detection (lines 137-144)."""
+def _signal(pattern='BadThing:', summary='the thing went bad', advice='try the other thing'):
+    return utils.UnhealthySignal(pattern, summary, advice)
 
-    def test_returns_true_when_unhealthy_keyword_present(self, bulk_runner, monkeypatch):
-        monkeypatch.setattr(runner_module.utils, 'UNHEALTHY_STATE_LOG_MESSAGE_KEYS',
-                            ['BadThing:'])
+
+class TestUnhealthySignal:
+    """Tests for unhealthy state detection."""
+
+    def test_returns_the_matching_signal(self, bulk_runner, monkeypatch):
+        signal = _signal()
+        monkeypatch.setattr(runner_module.utils, 'UNHEALTHY_STATE_LOG_SIGNALS', [signal])
         ev = {'message': 'oh no BadThing: detected'}
-        assert bulk_runner._is_job_state_unhealthy(ev) is True
+        assert bulk_runner._unhealthy_signal(ev) is signal
 
-    def test_returns_false_when_no_unhealthy_keyword(self, bulk_runner, monkeypatch):
-        monkeypatch.setattr(runner_module.utils, 'UNHEALTHY_STATE_LOG_MESSAGE_KEYS',
-                            ['BadThing:'])
+    def test_returns_none_when_no_signal_matches(self, bulk_runner, monkeypatch):
+        monkeypatch.setattr(runner_module.utils, 'UNHEALTHY_STATE_LOG_SIGNALS', [_signal()])
         ev = {'message': 'totally fine'}
-        assert bulk_runner._is_job_state_unhealthy(ev) is False
+        assert bulk_runner._unhealthy_signal(ev) is None
+
+    def test_returns_the_first_of_several_matches(self, bulk_runner, monkeypatch):
+        """Order is the tie-break, so the caller gets one summary rather than a pile."""
+        first, second = _signal('A:', 'first'), _signal('B:', 'second')
+        monkeypatch.setattr(runner_module.utils, 'UNHEALTHY_STATE_LOG_SIGNALS', [first, second])
+        assert bulk_runner._unhealthy_signal({'message': 'B: and A: both'}) is first
+
+    def test_every_shipped_signal_carries_a_summary_and_advice(self):
+        """The point of the list: a stop nobody explained is the bug this replaced."""
+        for signal in utils.UNHEALTHY_STATE_LOG_SIGNALS:
+            assert signal.pattern
+            assert signal.summary and not signal.summary.endswith('.'), \
+                f"{signal.pattern}: summary completes 'Job failed: <summary>.'"
+            assert signal.advice and signal.advice.endswith('.'), \
+                f"{signal.pattern}: advice is prose, and prints on its own line"
+
+    def test_out_of_memory_is_one_of_them(self):
+        """Guard on the pattern itself: it is what the JVM prints, and the whole
+        memory story hangs off matching it."""
+        memory = [s for s in utils.UNHEALTHY_STATE_LOG_SIGNALS
+                  if s.pattern == 'OutOfMemoryError:']
+        assert len(memory) == 1
+        assert memory[0].advice is utils.MEMORY_ADVICE
+        assert 'java.lang.OutOfMemoryError: Java heap space'.find(memory[0].pattern) != -1, \
+            "must match the JVM's own wording, as captured from a Glue executor log"
+
+
+class TestAdviseOnce:
+
+    def test_prints_advice(self, bulk_runner, caplog):
+        with caplog.at_level(logging.ERROR):
+            bulk_runner._advise_once('do the thing')
+        assert 'do the thing' in caplog.text
+
+    def test_same_advice_twice_prints_once(self, bulk_runner, caplog):
+        """A memory failure is recognisable twice -- watchdog line, then Glue's closing
+        ErrorMessage -- and the paragraph read as two problems."""
+        with caplog.at_level(logging.ERROR):
+            bulk_runner._advise_once('do the thing')
+            bulk_runner._advise_once('do the thing')
+        assert caplog.text.count('do the thing') == 1
+
+    def test_different_advice_both_print(self, bulk_runner, caplog):
+        with caplog.at_level(logging.ERROR):
+            bulk_runner._advise_once('first')
+            bulk_runner._advise_once('second')
+        assert 'first' in caplog.text and 'second' in caplog.text
 
 
 # --- _wait_for_log_groups_to_exist ------------------------------------------
@@ -940,7 +1065,8 @@ class TestWatchLogGroup:
         bulk_runner._stop_glue_job = MagicMock()
         printed = []
         bulk_runner._pretty_print_log_event = MagicMock(side_effect=printed.append)
-        monkeypatch.setattr(runner_module.utils, 'UNHEALTHY_STATE_LOG_MESSAGE_KEYS', ['OutOfMemoryError'])
+        monkeypatch.setattr(runner_module.utils, 'UNHEALTHY_STATE_LOG_SIGNALS',
+                            [_signal('OutOfMemoryError', 'the job ran out of memory')])
 
         driver_ev = {'logStreamName': 'jr-xyz', 'message': 'diff line\n', 'timestamp': 1}
         exec_ev = {'logStreamName': 'jr-xyz_g-abc123', 'message': 'OutOfMemoryError\n', 'timestamp': 2}
@@ -1008,8 +1134,8 @@ class TestWatchLogGroup:
         bulk_runner._get_job_run_state = MagicMock(return_value=runner_module.RUNNING_STATE)
         bulk_runner._stop_glue_job = MagicMock()
 
-        # Force is_job_state_unhealthy to return True for our event.
-        monkeypatch.setattr(runner_module.utils, 'UNHEALTHY_STATE_LOG_MESSAGE_KEYS', ['BadThing:'])
+        # Force the health check to match our event.
+        monkeypatch.setattr(runner_module.utils, 'UNHEALTHY_STATE_LOG_SIGNALS', [_signal()])
         # Make pretty_print_log_event a no-op to isolate this branch.
         bulk_runner._pretty_print_log_event = MagicMock()
 
