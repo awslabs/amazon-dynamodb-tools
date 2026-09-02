@@ -11,7 +11,13 @@ tests/server/       Mirrors server/src/ tree
 tests/client/       Mirrors client/src/ tree
 Makefile            Single source of truth for test commands
 pytest.ini          Root config; sets pythonpath so both src trees resolve
+AGENTS.md           This file — the operating manual
+CLAUDE.md           Committed symlink to AGENTS.md; one file, two names
 ```
+
+`CLAUDE.md` is a committed **symlink** to `AGENTS.md` (mode `120000`), so tools that
+look for either name read the same content. Always edit `AGENTS.md` — never replace
+the symlink with a copy, or the two silently drift.
 
 ## Running tests
 
