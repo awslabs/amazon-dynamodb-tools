@@ -92,8 +92,13 @@ def run(job, spark_context, glue_context, parsed_args):
         # without wrapping them into an opaque "SQL query error".
         raise
     except Exception as e:
-        # The query is the user's to fix, so this is a sentence, not a stack trace.
-        raise BulkExecutorError("SQL query error: " + get_error_message(e)) from None
+        # The query is the user's to fix, so this is a sentence, not a stack trace. No
+        # "SQL query error:" prefix: get_error_message already returns a standalone sentence
+        # -- Spark's own "[UNRESOLVED_COLUMN] ... Did you mean ...", a denial's "is not
+        # authorized ...", or a dead executor's "Task ... rejected from ThreadPoolExecutor".
+        # Prefixing them all "SQL query error" mislabelled the last two, which are not the
+        # query's fault; the client detects and explains a real memory failure on its own.
+        raise BulkExecutorError(get_error_message(e)) from None
     finally:
         # Ensure Spark session cleanup
         try:
