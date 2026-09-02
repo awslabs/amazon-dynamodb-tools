@@ -59,6 +59,16 @@ def print_dynamodb_table_info(session, table_name, numitems, avg_size):
     print() # empty print intentional
     return table_info
 
+def _as_item_collection(item_collection):
+    # A generator may return one item as a dict, or many items as a list. Iterating
+    # a dict yields its keys, not the item, so wrap the single-item case. Both the
+    # cost estimate and the fill itself have to agree on this, or the estimate
+    # measures attribute names instead of items.
+    if isinstance(item_collection, dict):
+        item_collection = [item_collection] # in case the user returns one item
+    return item_collection
+
+
 def check_generator_output_avg_size(generate):
     # Generate returns a set of items, call it 10 times and sum things up
     total_count = 0
@@ -68,7 +78,7 @@ def check_generator_output_avg_size(generate):
     serializer = TypeSerializer()
 
     for i in range(10):
-        for item in generate():
+        for item in _as_item_collection(generate()):
             total_count += 1
             total_size += len(json.dumps(serializer.serialize(item), default=str).encode('UTF-8'))
 
@@ -156,9 +166,7 @@ def _fill_data(monitor_options, table_name, num_items, generate, total_inserted_
         with table.batch_writer(overwrite_by_pkeys=key_names) as batch:
             while local_count < num_items:
                 try:
-                    item_collection = generate()
-                    if isinstance(item_collection, dict):
-                        item_collection = [item_collection] # in case the user returns one item
+                    item_collection = _as_item_collection(generate())
                     for item in item_collection:
                         if local_count >= num_items:
                             break
