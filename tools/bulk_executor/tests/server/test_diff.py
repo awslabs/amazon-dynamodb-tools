@@ -266,7 +266,9 @@ class TestSegmentStreamBoundedLookahead:
         return stream, client
 
     def test_peeking_past_the_window_raises_rather_than_buffering(self):
-        stream, _ = self._stream_of_pages(page_count=10_000)
+        # Page count derived from the cap, not hard-coded: at 3 items per page this serves
+        # 3x the window, so the bound is reached well before the segment is exhausted.
+        stream, _ = self._stream_of_pages(page_count=diff_module.MAX_LOOKAHEAD_ITEMS)
 
         with pytest.raises(diff_module.BulkExecutorError) as raised:
             # Ask for an item far enough ahead that reaching it would need the whole segment.
@@ -281,7 +283,8 @@ class TestSegmentStreamBoundedLookahead:
             'one short sentence: it becomes the Glue failure reason and the closing line'
 
     def test_the_buffer_never_exceeds_the_window_by_more_than_a_page(self):
-        stream, client = self._stream_of_pages(page_count=10_000, items_per_page=3)
+        stream, client = self._stream_of_pages(
+            page_count=diff_module.MAX_LOOKAHEAD_ITEMS, items_per_page=3)
 
         with pytest.raises(diff_module.BulkExecutorError):
             stream.peek(1_000_000)
@@ -295,7 +298,8 @@ class TestSegmentStreamBoundedLookahead:
         """The bound is on *lookahead*. Reading a long stream one item at a time, which is
         what an aligned diff does, drains the buffer before each load, so it never trips --
         however many items the segment holds."""
-        stream, _ = self._stream_of_pages(page_count=8_000, items_per_page=3)
+        pages = diff_module.MAX_LOOKAHEAD_ITEMS  # 3 items each, so 3x the window
+        stream, _ = self._stream_of_pages(page_count=pages, items_per_page=3)
 
         seen = 0
         while not stream.is_finished():
@@ -303,14 +307,16 @@ class TestSegmentStreamBoundedLookahead:
             stream.advance()
             seen += 1
 
-        assert seen == 24_000, 'every item, well past the lookahead limit'
+        assert seen == pages * 3 > diff_module.MAX_LOOKAHEAD_ITEMS, \
+            'every item, well past the lookahead limit'
 
     def test_consuming_frees_the_window_again(self):
         """A small misalignment is peek-then-advance, repeatedly. len(self.items) falls as
         items are consumed, so that shape never accumulates toward the cap."""
-        stream, _ = self._stream_of_pages(page_count=8_000, items_per_page=2)
+        consumed = diff_module.MAX_LOOKAHEAD_ITEMS + 2_000  # past the cap, so it would trip
+        stream, _ = self._stream_of_pages(page_count=consumed, items_per_page=2)
 
-        for _ in range(12_000):
+        for _ in range(consumed):
             stream.peek(1)
             stream.advance()
 
@@ -1522,6 +1528,56 @@ class TestDiffSegmentDisjointTables:
         assert accumulator.value == [], 'nothing failed'
         assert count == 3, 'the three keys missing from B, and nothing invented'
         assert all('k-000' in line for line in preview)
+
+    @patch.object(diff_module, 'RateLimiterWorker')
+    def test_wide_unmatched_item_collection_still_diffs(self, mock_rl):
+        """An item collection one table lacks must not end the run (#356).
+
+        Every item in a collection carries the same pk, so peeking through it adds
+        nothing to the seen-pk set -- realigning means buffering the whole collection
+        to learn one fact. At the old 10,000 this failed with 'too different to diff
+        accurately' on tables identical apart from the collection, which is the
+        opposite of the disjoint case the bound exists for.
+        """
+        collection = 12_000
+        lead = [{'pk': {'S': f'k-{i:06d}'}, 'sk': {'S': 's-0'}} for i in range(10)]
+        trail = [{'pk': {'S': f'z-{i:06d}'}, 'sk': {'S': 's-0'}} for i in range(10)]
+        extra = [{'pk': {'S': 'P'}, 'sk': {'S': f's-{i:06d}'}} for i in range(collection)]
+
+        def session_of(items, per_page=500):
+            session, client = MagicMock(), MagicMock()
+            session.client.return_value = client
+            state = {'served': 0}
+
+            def mock_scan(**kwargs):
+                start = state['served']
+                end = min(start + per_page, len(items))
+                state['served'] = end
+                resp = {'Items': items[start:end]}
+                if end < len(items):
+                    resp['LastEvaluatedKey'] = {'pk': {'S': 'marker'}}
+                return resp
+
+            client.scan.side_effect = mock_scan
+            return session
+
+        sessions = iter([session_of(lead + extra + trail), session_of(lead + trail)])
+        worker = MagicMock()
+        worker.get_session.side_effect = lambda: next(sessions)
+        mock_rl.return_value = worker
+
+        broadcast = MagicMock()
+        broadcast.value = {'table1': {'pk': 'pk', 'sk': 'sk'},
+                           'table2': {'pk': 'pk', 'sk': 'sk'}}
+        accumulator = _FakeAccumulator()
+
+        count, preview = diff_module.diff_segment(
+            'table-a', 'table-b', {}, {}, 0, 400, False, True,
+            'jr_x', None, broadcast, MagicMock(), accumulator)
+
+        assert accumulator.value == [], 'a collection A alone has is a difference, not a failure'
+        assert count == collection, \
+            'every item of the unmatched collection, and nothing invented'
 
     @patch.object(diff_module, 'RateLimiterWorker')
     def test_alignment_found_from_the_second_stream(self, mock_rl):
