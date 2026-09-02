@@ -70,8 +70,12 @@ LOG_PATTERN_IGNORE_LIST = [
     # banner. Detection is unaffected -- UNHEALTHY_STATE_LOG_SIGNALS is matched against raw
     # events before this filter, so suppressing the block cannot hide it.
     # Not counted: nothing here is worth a heads-up once we have said it ourselves.
+    #
+    # One pattern, not two: the "Executing /bin/sh -c" line is in the same event, so
+    # anchoring on it as well would be redundant -- and it is broad enough to swallow
+    # unrelated Glue output we have never seen, which is not a trade a silent filter should
+    # make.
     r"-XX:OnOutOfMemoryError=",
-    r"Executing /bin/sh -c",
     # Glue 6.0 ships an invalid escape sequence in its own job wrapper
     # (pythonrunner/runscript.py), which Python 3.13 surfaces as a visible
     # SyntaxWarning on every single run -- 26/26 job runs in testing. It arrives
