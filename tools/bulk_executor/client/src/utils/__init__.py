@@ -82,14 +82,8 @@ LOG_PATTERN_IGNORE_LIST = [
     r"Exception thrown from AWSDILyraMetricsReporter#report",
 ]
 
-# One fatal log pattern, with what to tell the user about it.
-# `summary` completes both "Stopping the job: <summary>." and the closing line, so write it
-# as a clause. `advice` is the next thing to try; it prints once, at detection.
-#
-# Patterns are matched as substrings against raw log events from every stream, driver and
-# executor alike, so they are written exactly as the JVM and the AWS SDK print them --
-# case included, and keeping the trailing colon of `OutOfMemoryError:`. Matching the printed
-# form is what keeps them narrow; do not normalise the case or trim the punctuation.
+# One fatal log pattern, and what to tell the user when it turns up. See
+# UNHEALTHY_STATE_LOG_SIGNALS below for how the three parts are used.
 UnhealthySignal = namedtuple('UnhealthySignal', 'pattern summary advice')
 
 # Recognises a memory failure in the run's *final* ErrorMessage, for the path where the
@@ -139,6 +133,17 @@ MEMORY_ADVICE = (
 # lines -- "indicate the Glue Job is unhealthy! Shutting down", the stop itself, and "Job was
 # stopped." -- with the words "out of memory" nowhere in them, and a Glue console entry
 # showing a stopped job with no reason at all.
+#
+# Adding one:
+#
+# `pattern` is matched as a substring against raw log events from every stream, driver and
+# executor alike. Write it exactly as the JVM or the AWS SDK prints it, case and trailing
+# punctuation included -- matching the printed form is what keeps it from matching loosely.
+#
+# `summary` is a clause, because it has to complete two sentences: "Stopping the job:
+# <summary>." when the line is seen, and "Job failed: <summary>." as the run's last line.
+#
+# `advice` is the next thing to try, printed once, right after the summary.
 UNHEALTHY_STATE_LOG_SIGNALS = [
     UnhealthySignal(
         "OutOfMemoryError:", "the job ran out of memory", MEMORY_ADVICE),
