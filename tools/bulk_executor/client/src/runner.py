@@ -79,6 +79,10 @@ class BulkDynamoDbRunner:
         # from the live-tail threads, read once at the end, so it takes the lock.
         self._suppressed_noise = {}
         self._suppressed_noise_lock = threading.Lock()
+        # The signal that made us stop the job: the closing line names it, and its presence
+        # is also how we know the advice has already been given. Both live-tail threads can
+        # match; whichever stores first wins, and either is a true account of the run.
+        self._unhealthy_signal_seen = None
 
         clients = Clients(self.aws_region)
         self.dynamodb_client = clients.dynamodb_client
@@ -203,14 +207,21 @@ class BulkDynamoDbRunner:
         else:
             print(formatted_message, end='') # not our job to add newlines
 
-    def _is_job_state_unhealthy(self, log_event):
-        """
-        Review all Log Groups for any log events that indicate the job is in an unhealthy state.
+    def _unhealthy_signal(self, log_event):
+        """Return the UnhealthySignal this log event matches, or None.
+
+        Reviews all Log Groups for any log events that indicate the job is in an unhealthy
+        state. The signal is returned rather than a bool so the caller can tell the user
+        what was seen: we stop the job on the strength of this line, and a stopped run
+        carries no reason of its own.
 
         WARNING: This may not work as expected if certain log groups are disabled (ex. '/jobs/error')
                  since that may be where the useful unhealthy log events are generated.
         """
-        return any(key in log_event['message'] for key in utils.UNHEALTHY_STATE_LOG_MESSAGE_KEYS)
+        for signal in utils.UNHEALTHY_STATE_LOG_SIGNALS:
+            if signal.pattern in log_event['message']:
+                return signal
+        return None
 
     def _wait_for_log_groups_to_exist(self, log_group_arns):
         """
@@ -309,8 +320,16 @@ class BulkDynamoDbRunner:
                         # Shortcut detector: driver records (reassembled) + raw
                         # executor events -- i.e. everything, printed or not.
                         for log_event in [*printed_events, *executor_events]:
-                            if self._is_job_state_unhealthy(log_event):
-                                log.error(f"Logs from {log_group_name} indicate the Glue Job is unhealthy! Shutting down...")
+                            signal = self._unhealthy_signal(log_event)
+                            if signal:
+                                # Said here, in full, because this is the only place that
+                                # knows why: the stop turns the run into a Glue STOPPED
+                                # with no ErrorMessage, and the executor stream the line
+                                # came from is never printed.
+                                self._unhealthy_signal_seen = self._unhealthy_signal_seen or signal
+                                log.error(f"Stopping the job: {signal.summary}.")
+                                log.error(signal.advice)
+                                log.debug(f"Matched {signal.pattern!r} in {log_group_name}")
                                 job_unhealthy_event.set()
                                 self._stop_glue_job(job_run_id)
                                 return
@@ -628,10 +647,19 @@ You can run the script with the --XWaitForDPU parameter in order to print the us
         # line is colored so the outcome is visible, not just stated in text: a
         # user-interrupted stop is a yellow warning (expected, not broken), a
         # genuine failure/timeout is a red error, and success stays plain INFO.
+        #
+        # A stop we initiated is a failure wearing a stop's clothes: Glue reports STOPPED
+        # with no ErrorMessage either way, so without this the closing line for a job that
+        # ran out of memory read "Job was stopped." in warning yellow -- the same thing
+        # Ctrl+C prints, and the last word on a run whose reason was never stated.
         job_end_message = None
         job_failed = True
         final_log = log.info
-        if job_run_state == STOPPING_STATE:
+        stopped_because = self._unhealthy_signal_seen
+        if job_run_state in (STOPPING_STATE, STOPPED_STATE) and stopped_because:
+            job_end_message = f"Job failed: {stopped_because.summary}."
+            final_log = log.error
+        elif job_run_state == STOPPING_STATE:
             job_end_message = "Job is stopping."
             final_log = log.warning
         elif job_run_state == STOPPED_STATE:
@@ -666,6 +694,14 @@ You can run the script with the --XWaitForDPU parameter in order to print the us
 
         if job_run_error_message:
             log.error(job_run_error_message)
+            # The other way a memory failure reaches the user: the watchdog matched nothing
+            # (a driver can die before it logs anything), but Glue's own closing message says
+            # OUT_OF_MEMORY_ERROR. Without this that run ends on Glue's sentence and no hint
+            # of what to change. Skipped when a signal did fire, because the advice was
+            # printed at detection and saying it twice reads as two problems.
+            if (not self._unhealthy_signal_seen
+                    and any(m in job_run_error_message for m in utils.MEMORY_FAILURE_MARKERS)):
+                log.error(utils.MEMORY_ADVICE)
 
         # Propagate failure to the process exit code so callers (and the shell)
         # can detect it. The Glue-side error message has already been printed.

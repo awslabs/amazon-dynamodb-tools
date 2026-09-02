@@ -2,6 +2,7 @@ import argparse
 import json
 import re
 import sys
+from collections import namedtuple
 from typing import Optional
 
 import boto3
@@ -54,6 +55,13 @@ LOG_PATTERN_IGNORE_LIST = [
     # Not counted: nothing a user could act on, and a network fault bad enough to
     # matter shows up as task failures, which are never filtered.
     r"Error sending result StreamResponse",
+    # The JVM's own out-of-memory banner, whose other lines are a hook command and the
+    # /bin/sh that runs it, both naming a /tmp/glue-job-<digits>/ path on a machine the user
+    # cannot reach. All four arrive as one event, so this anchor takes the heap error with
+    # them -- deliberate: bulk matches the same event and prints "Stopping the job: the job
+    # ran out of memory." plus what to change. Suppressing it cannot hide the signal, because
+    # UNHEALTHY_STATE_LOG_SIGNALS is matched against raw events before this filter runs.
+    r"-XX:OnOutOfMemoryError=",
     # Glue 6.0 ships an invalid escape sequence in its own job wrapper
     # (pythonrunner/runscript.py), which Python 3.13 surfaces as a visible
     # SyntaxWarning on every single run -- 26/26 job runs in testing. It arrives
@@ -74,14 +82,84 @@ LOG_PATTERN_IGNORE_LIST = [
     r"Exception thrown from AWSDILyraMetricsReporter#report",
 ]
 
-# Intentional nuanced configs:
-# - PascaleCase Keys
-# - Suffix symbols
-UNHEALTHY_STATE_LOG_MESSAGE_KEYS = [
-    "AccessDeniedException:",
-    "ModuleNotFoundError:",
-    "OutOfMemoryError:",
-    "ProvisionedThroughputExceededException:"
+# One fatal log pattern, and what to tell the user when it turns up. See
+# UNHEALTHY_STATE_LOG_SIGNALS below for how the three parts are used.
+UnhealthySignal = namedtuple('UnhealthySignal', 'pattern summary advice')
+
+# Recognises a memory failure in the run's *final* ErrorMessage, for the path where the
+# watchdog never fired -- a driver that dies before it can log, or a signal that arrived
+# after live tail closed. "OUT_OF_MEMORY_ERROR" is Glue's own error category; the other two
+# are the JVM's wording and Glue's sentence ("Glue job failed due to driver out of memory").
+MEMORY_FAILURE_MARKERS = (
+    "OUT_OF_MEMORY_ERROR",
+    "OutOfMemoryError",
+    "out of memory",
+)
+
+# Named separately because three paths share it: a heap that fills up on the driver, one
+# that fills up on an executor, and a memory failure recognised only in Glue's closing
+# ErrorMessage. All three call for the same first move.
+#
+# R.1X leads because it is the lever that fits, measured rather than assumed. Read from the
+# driver's own bootstrap command line: G.1X runs with spark.executor.memory=10g and
+# spark.driver.memory=10g, R.1X with 20g and 20g, at the same vCPU count. Verified end to
+# end -- a collect_list query that exhausted a G.1X executor succeeded unchanged on R.1X.
+# More workers is deliberately not the headline: it does nothing for one task holding a
+# whole-table sort, which is the shape that usually gets here.
+MEMORY_ADVICE = (
+    "Memory-heavy runs want the memory-optimized worker types: --XWorkerType R.1X gives a "
+    "worker twice the memory of the default G.1X at the same vCPU count, and R.2X/R.4X go "
+    "further. Raising --XNumberOfWorkers helps only when the memory is spread across tasks "
+    "-- a sort, a GROUP BY or a collect_list over a whole table concentrates in one task, "
+    "and no number of workers makes that task smaller."
+)
+
+# A log line matching one of these means the run cannot finish, so bulk stops the job
+# rather than let it burn DPU-minutes on a doomed retry loop.
+#
+# Each signal carries what to tell the user, because when we stop a job there are three
+# separate reasons nothing else will:
+#
+# 1. The line that named the cause is usually on an *executor* stream, and
+#    _pretty_print_log_event drops those unread -- they are framework noise, and mixing them
+#    into the driver's output mislabelled it (#284). So the watchdog sees the cause and the
+#    user does not.
+# 2. Glue records a stop as STOPPED with no ErrorMessage. A failed run carries a reason; a
+#    stopped one carries nothing, and we turned the failure into a stop.
+# 3. The closing line is derived from the Glue state alone, so our stop and a user's Ctrl+C
+#    both reached "Job was stopped." in the same warning yellow.
+#
+# Measured before this existed: an executor exhausting its 10 GB heap produced exactly three
+# lines -- "indicate the Glue Job is unhealthy! Shutting down", the stop itself, and "Job was
+# stopped." -- with the words "out of memory" nowhere in them, and a Glue console entry
+# showing a stopped job with no reason at all.
+#
+# Adding one:
+#
+# `pattern` is matched as a substring against raw log events from every stream, driver and
+# executor alike. Write it exactly as the JVM or the AWS SDK prints it, case and trailing
+# punctuation included -- matching the printed form is what keeps it from matching loosely.
+#
+# `summary` is a clause, because it has to complete two sentences: "Stopping the job:
+# <summary>." when the line is seen, and "Job failed: <summary>." as the run's last line.
+#
+# `advice` is the next thing to try, printed once, right after the summary.
+UNHEALTHY_STATE_LOG_SIGNALS = [
+    UnhealthySignal(
+        "OutOfMemoryError:", "the job ran out of memory", MEMORY_ADVICE),
+    UnhealthySignal(
+        "AccessDeniedException:", "the job was denied an AWS permission",
+        "The denied action is named in the output above. Re-run './bulk bootstrap' with a "
+        "role that allows it -- --XRole READ-WRITE for anything that writes."),
+    UnhealthySignal(
+        "ModuleNotFoundError:", "the job could not import a Python module",
+        "A generator or --transform module has to be deployed with './bulk bootstrap' "
+        "before a job can import it."),
+    UnhealthySignal(
+        "ProvisionedThroughputExceededException:",
+        "DynamoDB throttled the job past the SDK's own retries",
+        "Give the table more capacity, or hold bulk back with --XMaxReadRate / "
+        "--XMaxWriteRate so it stays under what the table can serve."),
 ]
 
 STD_ERROR_MESSAGE_KEYS = [ # Lowercase Keys Intentional
