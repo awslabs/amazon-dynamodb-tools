@@ -436,7 +436,7 @@ class TestRunLimitHandling:
         df = MagicMock()
         glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
 
-        with pytest.raises(sql_module.BulkExecutorError, match="SQL query error") as exc:
+        with pytest.raises(sql_module.BulkExecutorError) as exc:
             sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
         assert "Invalid 'limit'" not in str(exc.value), (
             "a Spark-side failure must not be reported as a bad --limit"
@@ -631,13 +631,18 @@ class TestRunErrorHandling:
                                        mock_table_info,
                                        mock_spark_session, mock_get_error_message,
                                        glue_context, base_args):
-        """Lines 102-103: exception from spark.sql wrapped with 'SQL query error:'."""
+        """A Spark failure surfaces as a clean BulkExecutorError carrying the underlying
+        message, with no 'SQL query error:' prefix -- the message stands on its own, and the
+        prefix mislabelled failures that were not the query's fault (a denial, a dead
+        executor)."""
         mock_spark_session.sql.side_effect = RuntimeError("parse failure")
         df = MagicMock()
         glue_context.create_dynamic_frame.from_options.return_value.toDF.return_value = df
 
-        with pytest.raises(Exception, match="SQL query error:.*err:"):
+        with pytest.raises(sql_module.BulkExecutorError) as exc:
             sql_module.run(MagicMock(), MagicMock(), glue_context, base_args)
+        assert "err:parse failure" in str(exc.value)
+        assert "SQL query error" not in str(exc.value)
 
     def test_spark_stop_called_on_success(self, monkeypatch, mock_boto3_session,
                                             mock_table_info,

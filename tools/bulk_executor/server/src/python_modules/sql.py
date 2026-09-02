@@ -88,12 +88,12 @@ def run(job, spark_context, glue_context, parsed_args):
         result.unpersist()
         
     except BulkExecutorError:
-        # User-parameter errors are already clean; let root.py surface them
-        # without wrapping them into an opaque "SQL query error".
+        # Already a clean sentence (e.g. from a --limit check); surface it as-is.
         raise
     except Exception as e:
-        # The query is the user's to fix, so this is a sentence, not a stack trace.
-        raise BulkExecutorError("SQL query error: " + get_error_message(e)) from None
+        # Wrap so root.py exits with one line and no traceback; get_error_message already
+        # returns a standalone sentence, so it needs no prefix.
+        raise BulkExecutorError(get_error_message(e)) from None
     finally:
         # Ensure Spark session cleanup
         try:
