@@ -102,16 +102,12 @@ MEMORY_FAILURE_MARKERS = (
 #
 # R.1X leads because it is the lever that fits, measured rather than assumed. Read from the
 # driver's own bootstrap command line: G.1X runs with spark.executor.memory=10g and
-# spark.driver.memory=10g, R.1X with 20g and 20g, at the same vCPU count. Verified end to
-# end -- a collect_list query that exhausted a G.1X executor succeeded unchanged on R.1X.
-# More workers is deliberately not the headline: it does nothing for one task holding a
-# whole-table sort, which is the shape that usually gets here.
+# spark.driver.memory=10g, R.1X with 20g and 20g. Verified end to end -- a collect_list query
+# that exhausted a G.1X executor succeeded unchanged on R.1X. (vCPU counts are not observable in
+# Glue logs, so nothing here claims parity on those.)
 MEMORY_ADVICE = (
-    "Memory-heavy runs want the memory-optimized worker types: --XWorkerType R.1X gives a "
-    "worker twice the memory of the default G.1X at the same vCPU count, and R.2X/R.4X go "
-    "further. Raising --XNumberOfWorkers helps only when the memory is spread across tasks "
-    "-- a sort, a GROUP BY or a collect_list over a whole table concentrates in one task, "
-    "and no number of workers makes that task smaller."
+    "Use --XWorkerType to run on a worker with more memory; R.1X has double the heap of the "
+    "default G.1X."
 )
 
 # A log line matching one of these means the run cannot finish, so bulk stops the job
