@@ -55,12 +55,21 @@ LOG_PATTERN_IGNORE_LIST = [
     # Not counted: nothing a user could act on, and a network fault bad enough to
     # matter shows up as task failures, which are never filtered.
     r"Error sending result StreamResponse",
-    # The JVM's own -XX:OnOutOfMemoryError plumbing, printed alongside the heap error it
-    # reacts to: the hook's command line and the /bin/sh that runs it, both naming a
-    # /tmp/glue-job-<digits>/ path that exists on a machine the user will never see. The
-    # "java.lang.OutOfMemoryError: Java heap space" line above them is deliberately left
-    # alone -- it is the evidence -- and bulk now explains the memory failure itself, so
-    # these two add nothing. Not counted: there is no run where a temp path helps.
+    # The JVM's own out-of-memory banner. Four lines, and they arrive as a single event, so
+    # matching any of them drops the block:
+    #
+    #     #
+    #     # java.lang.OutOfMemoryError: Java heap space
+    #     # -XX:OnOutOfMemoryError="/usr/bin/bash /tmp/glue-job-3005627601503484264/exception_catch/onOOMError.sh %p ..."
+    #     #   Executing /bin/sh -c "/usr/bin/bash /tmp/glue-job-3005627601503484264/exception_catch/onOOMError.sh 162 ..."
+    #
+    # Two of them are a hook command line and the /bin/sh that runs it, naming a
+    # /tmp/glue-job-<digits>/ path on a machine the user cannot reach. The heap error goes
+    # with them, which is deliberate: bulk detects this event and prints "Stopping the job:
+    # the job ran out of memory." plus what to change, which is strictly better than the
+    # banner. Detection is unaffected -- UNHEALTHY_STATE_LOG_SIGNALS is matched against raw
+    # events before this filter, so suppressing the block cannot hide it.
+    # Not counted: nothing here is worth a heads-up once we have said it ourselves.
     r"-XX:OnOutOfMemoryError=",
     r"Executing /bin/sh -c",
     # Glue 6.0 ships an invalid escape sequence in its own job wrapper

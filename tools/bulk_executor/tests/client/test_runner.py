@@ -458,6 +458,36 @@ class TestPrettyPrintLogEvent:
         with pytest.raises(SystemExit):
             bulk_runner._execute_job({}, {})
 
+    JVM_OOM_BANNER = (
+        "#\n"
+        "# java.lang.OutOfMemoryError: Java heap space\n"
+        '# -XX:OnOutOfMemoryError="/usr/bin/bash /tmp/glue-job-3005627601503484264'
+        '/exception_catch/onOOMError.sh %p jr_b48f57b7 bulk_dynamodb true true"\n'
+        '#   Executing /bin/sh -c "/usr/bin/bash /tmp/glue-job-3005627601503484264'
+        '/exception_catch/onOOMError.sh 162 jr_b48f57b7 true true"...\n'
+    )
+
+    def test_the_jvm_oom_banner_is_suppressed_whole(self, bulk_runner, capsys, monkeypatch):
+        """Captured verbatim from a driver that ran out of memory. All four lines arrive as
+        one event, so the heap error goes with the hook noise -- deliberate, because we
+        print our own sentence instead, and it beats a banner naming a /tmp path on a
+        machine the user cannot reach."""
+        monkeypatch.setattr(runner_module.utils, 'CONFIG_LOG_MESSAGE_KEYS', [])
+        monkeypatch.setattr(runner_module.utils, 'STD_ERROR_MESSAGE_KEYS', [])
+
+        bulk_runner._pretty_print_log_event(_make_event(message=self.JVM_OOM_BANNER))
+
+        out = capsys.readouterr()
+        assert out.out == '' and out.err == ''
+        assert bulk_runner._suppressed_noise == {}, 'silent, not counted'
+
+    def test_suppressing_the_banner_cannot_hide_the_signal(self, bulk_runner):
+        """The invariant that makes the suppression safe: the health check reads raw events,
+        so the same block still stops the job."""
+        signal = bulk_runner._unhealthy_signal({'message': self.JVM_OOM_BANNER})
+        assert signal is not None
+        assert signal.summary == 'the job ran out of memory'
+
     def test_a_stop_we_caused_closes_by_naming_the_reason(self, bulk_runner, caplog, monkeypatch):
         """The measured bug: an executor ran out of memory, bulk stopped the job, and the
         last line was "Job was stopped." in warning yellow -- identical to Ctrl+C, with the
