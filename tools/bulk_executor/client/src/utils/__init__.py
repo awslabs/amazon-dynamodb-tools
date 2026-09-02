@@ -82,26 +82,7 @@ LOG_PATTERN_IGNORE_LIST = [
     r"Exception thrown from AWSDILyraMetricsReporter#report",
 ]
 
-# A log line matching one of these means the run cannot finish, so bulk stops the job
-# rather than let it burn DPU-minutes on a doomed retry loop.
-#
-# Each signal carries what to tell the user, because when we stop a job there are three
-# separate reasons nothing else will:
-#
-# 1. The line that named the cause is usually on an *executor* stream, and
-#    _pretty_print_log_event drops those unread -- they are framework noise, and mixing them
-#    into the driver's output mislabelled it (#284). So the watchdog sees the cause and the
-#    user does not.
-# 2. Glue records a stop as STOPPED with no ErrorMessage. A failed run carries a reason; a
-#    stopped one carries nothing, and we turned the failure into a stop.
-# 3. The closing line is derived from the Glue state alone, so our stop and a user's Ctrl+C
-#    both reached "Job was stopped." in the same warning yellow.
-#
-# Measured before this existed: an executor exhausting its 10 GB heap produced exactly three
-# lines -- "indicate the Glue Job is unhealthy! Shutting down", the stop itself, and "Job was
-# stopped." -- with the words "out of memory" nowhere in them, and a Glue console entry
-# showing a stopped job with no reason at all.
-#
+# One fatal log pattern, with what to tell the user about it.
 # `summary` completes both "Stopping the job: <summary>." and the closing line, so write it
 # as a clause. `advice` is the next thing to try; it prints once, at detection.
 #
@@ -140,6 +121,25 @@ MEMORY_ADVICE = (
     "and no number of workers makes that task smaller."
 )
 
+# A log line matching one of these means the run cannot finish, so bulk stops the job
+# rather than let it burn DPU-minutes on a doomed retry loop.
+#
+# Each signal carries what to tell the user, because when we stop a job there are three
+# separate reasons nothing else will:
+#
+# 1. The line that named the cause is usually on an *executor* stream, and
+#    _pretty_print_log_event drops those unread -- they are framework noise, and mixing them
+#    into the driver's output mislabelled it (#284). So the watchdog sees the cause and the
+#    user does not.
+# 2. Glue records a stop as STOPPED with no ErrorMessage. A failed run carries a reason; a
+#    stopped one carries nothing, and we turned the failure into a stop.
+# 3. The closing line is derived from the Glue state alone, so our stop and a user's Ctrl+C
+#    both reached "Job was stopped." in the same warning yellow.
+#
+# Measured before this existed: an executor exhausting its 10 GB heap produced exactly three
+# lines -- "indicate the Glue Job is unhealthy! Shutting down", the stop itself, and "Job was
+# stopped." -- with the words "out of memory" nowhere in them, and a Glue console entry
+# showing a stopped job with no reason at all.
 UNHEALTHY_STATE_LOG_SIGNALS = [
     UnhealthySignal(
         "OutOfMemoryError:", "the job ran out of memory", MEMORY_ADVICE),
