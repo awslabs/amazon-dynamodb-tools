@@ -1,8 +1,8 @@
 """Unit tests for the `nosk` fill generator (no-sort-key variant).
 
 Covers `python_modules/fill/nosk.py`:
-- generate(): returns a single dict (NOT a list — fill.__init__._fill_data
-  wraps single dicts via isinstance(item_collection, dict) check)
+- generate(): returns a single dict (NOT a list — fill.__init__._as_item_collection
+  wraps single dicts, for both the fill and its cost estimate)
 - 'pknum' is a Decimal in the documented numeric range
 - 'payload' is a 200-char string from ascii_lowercase + digits
 - multiple invocations produce independent random output
