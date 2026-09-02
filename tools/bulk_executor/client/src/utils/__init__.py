@@ -99,12 +99,22 @@ LOG_PATTERN_IGNORE_LIST = [
 # A log line matching one of these means the run cannot finish, so bulk stops the job
 # rather than let it burn DPU-minutes on a doomed retry loop.
 #
-# Each signal carries what to tell the user, because stopping is *our* decision: Glue
-# records a stopped run as STOPPED with no ErrorMessage, so whatever we do not say here,
-# nothing downstream will. Measured before this existed: an executor running out of memory
-# produced exactly three lines -- "indicate the Glue Job is unhealthy! Shutting down", the
-# stop itself, and "Job was stopped." -- with the words "out of memory" appearing nowhere,
-# and a Glue console entry showing a stopped job with no reason at all.
+# Each signal carries what to tell the user, because when we stop a job there are three
+# separate reasons nothing else will:
+#
+# 1. The line that named the cause is usually on an *executor* stream, and
+#    _pretty_print_log_event drops those unread -- they are framework noise, and mixing them
+#    into the driver's output mislabelled it (#284). So the watchdog sees the cause and the
+#    user does not.
+# 2. Glue records a stop as STOPPED with no ErrorMessage. A failed run carries a reason; a
+#    stopped one carries nothing, and we turned the failure into a stop.
+# 3. The closing line is derived from the Glue state alone, so our stop and a user's Ctrl+C
+#    both reached "Job was stopped." in the same warning yellow.
+#
+# Measured before this existed: an executor exhausting its 10 GB heap produced exactly three
+# lines -- "indicate the Glue Job is unhealthy! Shutting down", the stop itself, and "Job was
+# stopped." -- with the words "out of memory" nowhere in them, and a Glue console entry
+# showing a stopped job with no reason at all.
 #
 # `summary` completes both "Stopping the job: <summary>." and the closing line, so write it
 # as a clause. `advice` is the next thing to try; it prints once, at detection.
@@ -129,6 +139,13 @@ MEMORY_FAILURE_MARKERS = (
 # Named separately because three paths share it: a heap that fills up on the driver, one
 # that fills up on an executor, and a memory failure recognised only in Glue's closing
 # ErrorMessage. All three call for the same first move.
+#
+# R.1X leads because it is the lever that fits, measured rather than assumed. Read from the
+# driver's own bootstrap command line: G.1X runs with spark.executor.memory=10g and
+# spark.driver.memory=10g, R.1X with 20g and 20g, at the same vCPU count. Verified end to
+# end -- a collect_list query that exhausted a G.1X executor succeeded unchanged on R.1X.
+# More workers is deliberately not the headline: it does nothing for one task holding a
+# whole-table sort, which is the shape that usually gets here.
 MEMORY_ADVICE = (
     "Memory-heavy runs want the memory-optimized worker types: --XWorkerType R.1X gives a "
     "worker twice the memory of the default G.1X at the same vCPU count, and R.2X/R.4X go "

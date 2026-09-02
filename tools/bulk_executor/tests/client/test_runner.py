@@ -37,6 +37,10 @@ Covers `client/src/runner.py`:
 - run: arg-prep failure short-circuit, full happy path with state
   transitions (STOPPING/STOPPED/FAILED/TIMEOUT/SUCCEEDED), unhandled
   state error log, DPU-hours formatting branch, error-message logging
+- the closing lines, driven through _execute_job: a stop bulk caused reads as a
+  failure naming the reason, while a user's Ctrl+C still reads as a stop; Glue's
+  own OUT_OF_MEMORY_ERROR message earns the same advice; and the advice prints
+  once however many paths recognise the run
 
 Tests are written test-first against current behavior so they serve
 as a regression harness.
