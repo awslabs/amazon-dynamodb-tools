@@ -79,14 +79,10 @@ class BulkDynamoDbRunner:
         # from the live-tail threads, read once at the end, so it takes the lock.
         self._suppressed_noise = {}
         self._suppressed_noise_lock = threading.Lock()
-        # The signal that made us stop the job, so the closing line can name it. One
-        # live-tail thread per log group can race to it; first one wins, since it is also
-        # the one that stops the job.
+        # The signal that made us stop the job: the closing line names it, and its presence
+        # is also how we know the advice has already been given. Both live-tail threads can
+        # match; whichever stores first wins, and either is a true account of the run.
         self._unhealthy_signal_seen = None
-        self._unhealthy_signal_lock = threading.Lock()
-        # Advice already printed, so two paths recognising one problem say it once.
-        self._advice_given = set()
-        self._advice_lock = threading.Lock()
 
         clients = Clients(self.aws_region)
         self.dynamodb_client = clients.dynamodb_client
@@ -211,25 +207,6 @@ class BulkDynamoDbRunner:
         else:
             print(formatted_message, end='') # not our job to add newlines
 
-    def _advise_once(self, advice):
-        """Print one piece of advice, however many paths recognise the same problem.
-
-        A memory failure can be noticed twice -- by the watchdog on a log line, and again in
-        the run's closing ErrorMessage -- and repeating the same paragraph makes it read
-        like two separate problems.
-        """
-        with self._advice_lock:
-            if advice in self._advice_given:
-                return
-            self._advice_given.add(advice)
-        log.error(advice)
-
-    def _record_unhealthy_signal(self, signal):
-        """Remember the first signal seen, for the closing line."""
-        with self._unhealthy_signal_lock:
-            if self._unhealthy_signal_seen is None:
-                self._unhealthy_signal_seen = signal
-
     def _unhealthy_signal(self, log_event):
         """Return the UnhealthySignal this log event matches, or None.
 
@@ -349,9 +326,9 @@ class BulkDynamoDbRunner:
                                 # knows why: the stop turns the run into a Glue STOPPED
                                 # with no ErrorMessage, and the executor stream the line
                                 # came from is never printed.
-                                self._record_unhealthy_signal(signal)
+                                self._unhealthy_signal_seen = self._unhealthy_signal_seen or signal
                                 log.error(f"Stopping the job: {signal.summary}.")
-                                self._advise_once(signal.advice)
+                                log.error(signal.advice)
                                 log.debug(f"Matched {signal.pattern!r} in {log_group_name}")
                                 job_unhealthy_event.set()
                                 self._stop_glue_job(job_run_id)
@@ -717,12 +694,14 @@ You can run the script with the --XWaitForDPU parameter in order to print the us
 
         if job_run_error_message:
             log.error(job_run_error_message)
-            # The other way a memory failure reaches the user: the watchdog never matched a
-            # log line (the driver can die before it logs one), but Glue's own closing
-            # message says OUT_OF_MEMORY_ERROR. Without this, that run ends on Glue's
-            # sentence and no hint of what to change.
-            if any(marker in job_run_error_message for marker in utils.MEMORY_FAILURE_MARKERS):
-                self._advise_once(utils.MEMORY_ADVICE)
+            # The other way a memory failure reaches the user: the watchdog matched nothing
+            # (a driver can die before it logs anything), but Glue's own closing message says
+            # OUT_OF_MEMORY_ERROR. Without this that run ends on Glue's sentence and no hint
+            # of what to change. Skipped when a signal did fire, because the advice was
+            # printed at detection and saying it twice reads as two problems.
+            if (not self._unhealthy_signal_seen
+                    and any(m in job_run_error_message for m in utils.MEMORY_FAILURE_MARKERS)):
+                log.error(utils.MEMORY_ADVICE)
 
         # Propagate failure to the process exit code so callers (and the shell)
         # can detect it. The Glue-side error message has already been printed.

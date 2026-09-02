@@ -13,7 +13,7 @@ Covers `client/src/runner.py`:
   noise gate, output-vs-non-output formatting, GRAY/PINK/YELLOW/default
   color routing)
 - _unhealthy_signal: matches against UNHEALTHY_STATE_LOG_SIGNALS, and returns the
-  signal so the stop can be explained; _advise_once de-duplicates the advice
+  signal so the stop can be explained rather than merely announced
 - _wait_for_log_groups_to_exist: success on first try, retry/log/sleep
   loop on missing groups, ClientError handling, max-retries exit path
 - _watch_log_group: sessionStart pass-through, sessionUpdate happy path,
@@ -496,8 +496,8 @@ class TestPrettyPrintLogEvent:
         """The measured bug: an executor ran out of memory, bulk stopped the job, and the
         last line was "Job was stopped." in warning yellow -- identical to Ctrl+C, with the
         words "out of memory" nowhere in the run."""
-        bulk_runner._record_unhealthy_signal(
-            utils.UnhealthySignal('OutOfMemoryError:', 'the job ran out of memory', 'advice'))
+        bulk_runner._unhealthy_signal_seen = utils.UnhealthySignal(
+            'OutOfMemoryError:', 'the job ran out of memory', 'advice')
 
         with caplog.at_level(logging.INFO):
             self._drive_to_close(bulk_runner, monkeypatch, 'STOPPED')
@@ -538,17 +538,19 @@ class TestPrettyPrintLogEvent:
         assert utils.MEMORY_ADVICE not in caplog.text
 
     def test_memory_advice_is_not_repeated_when_both_paths_notice(self, bulk_runner, caplog, monkeypatch):
-        """Watchdog and closing message can both be right about the same run."""
-        signal = [s for s in utils.UNHEALTHY_STATE_LOG_SIGNALS
-                  if s.pattern == 'OutOfMemoryError:'][0]
-        bulk_runner._record_unhealthy_signal(signal)
-        bulk_runner._advise_once(signal.advice)
+        """Watchdog and closing message can both be right about the same run. The watchdog
+        printed the advice at detection, so the closing path must not say it again -- a
+        repeated paragraph reads as two separate problems."""
+        bulk_runner._unhealthy_signal_seen = [
+            s for s in utils.UNHEALTHY_STATE_LOG_SIGNALS
+            if s.pattern == 'OutOfMemoryError:'][0]
 
         with caplog.at_level(logging.INFO):
             self._drive_to_close(bulk_runner, monkeypatch, 'STOPPED',
                                  error_message="Error Category: OUT_OF_MEMORY_ERROR")
 
-        assert caplog.text.count(utils.MEMORY_ADVICE) == 1
+        assert utils.MEMORY_ADVICE not in caplog.text, \
+            'already given at detection, which this test does not reach'
 
     def test_counted_noise_is_hidden_but_tallied(self, bulk_runner, capsys, monkeypatch):
         """Noise we are not certain about is suppressed *and* counted, so the closing
@@ -977,30 +979,6 @@ class TestUnhealthySignal:
             "must match the JVM's own wording, as captured from a Glue executor log"
 
 
-class TestAdviseOnce:
-
-    def test_prints_advice(self, bulk_runner, caplog):
-        with caplog.at_level(logging.ERROR):
-            bulk_runner._advise_once('do the thing')
-        assert 'do the thing' in caplog.text
-
-    def test_same_advice_twice_prints_once(self, bulk_runner, caplog):
-        """A memory failure is recognisable twice -- watchdog line, then Glue's closing
-        ErrorMessage -- and the paragraph read as two problems."""
-        with caplog.at_level(logging.ERROR):
-            bulk_runner._advise_once('do the thing')
-            bulk_runner._advise_once('do the thing')
-        assert caplog.text.count('do the thing') == 1
-
-    def test_different_advice_both_print(self, bulk_runner, caplog):
-        with caplog.at_level(logging.ERROR):
-            bulk_runner._advise_once('first')
-            bulk_runner._advise_once('second')
-        assert 'first' in caplog.text and 'second' in caplog.text
-
-
-# --- _wait_for_log_groups_to_exist ------------------------------------------
-
 
 class TestWaitForLogGroupsToExist:
     """Tests for log group existence polling (lines 146-173)."""
@@ -1161,7 +1139,7 @@ class TestWatchLogGroup:
         bulk_runner._watch_log_group('jr-1', self._arn(), unhealthy)
         event_stream.close.assert_called_once()
 
-    def test_session_update_with_unhealthy_log_stops_job(self, bulk_runner, monkeypatch):
+    def test_session_update_with_unhealthy_log_stops_job(self, bulk_runner, monkeypatch, caplog):
         import threading
         unhealthy = threading.Event()
         bulk_runner._wait_for_log_groups_to_exist = MagicMock()
@@ -1195,10 +1173,19 @@ class TestWatchLogGroup:
                 'responseStream': event_stream
             }
 
-            bulk_runner._watch_log_group('jr-1', self._arn(), unhealthy)
+            with caplog.at_level(logging.ERROR):
+                bulk_runner._watch_log_group('jr-1', self._arn(), unhealthy)
 
         assert unhealthy.is_set()
         bulk_runner._stop_glue_job.assert_called_once_with('jr-1')
+
+        # Stopping without saying why is the bug this replaced: the matched line is on a
+        # stream we never print, and a stopped run carries no ErrorMessage of its own, so
+        # these two lines are the only account the user gets.
+        assert 'Stopping the job: the thing went bad.' in caplog.text
+        assert 'try the other thing' in caplog.text, 'the advice, at detection'
+        # Kept for the closing line, which is written after the watcher threads are done.
+        assert bulk_runner._unhealthy_signal_seen.summary == 'the thing went bad'
 
     def test_unknown_event_type_raises_runtime_error(self, bulk_runner, monkeypatch):
         """Lines 239-240: Unknown event raises RuntimeError, caught by generic handler."""
