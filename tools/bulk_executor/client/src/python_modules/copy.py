@@ -9,9 +9,11 @@ help_text = f"""
         Copy items from one DynamoDB table to another (already-existing) table
         Required --source parameter
         Required --target parameter
+        Optional --transform parameter to specify a transform module containing a transform_item function.
 
     Examples:
         bulk copy --source tableOne --target tableTwo
+        bulk copy --source tableOne --target tableTwo --transform pii_redact
     """
 
 def run(env_configs):
@@ -23,6 +25,7 @@ def run(env_configs):
     parser.add_argument('verb', help=argparse.SUPPRESS)
     parser.add_argument('--source', required=True, type=str, help='Source table name')
     parser.add_argument('--target', required=True, type=str, help='Target table name')
+    parser.add_argument('--transform', type=str, default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     #result = {k: v for k, v in vars(args).items() if v is not None}
@@ -30,6 +33,9 @@ def run(env_configs):
 
     if result["source"] == result["target"]:
         parser.error("--source and --target must be different DynamoDB tables")
+
+    if 'transform' in result:
+        result['transform'] = utils.sanitize_arg(result['transform'], r'\.py$')
 
     utils.validate_tables(env_configs, parser, result['source'], result['target'], pitr_enabled=True, schemas_match=True)
 

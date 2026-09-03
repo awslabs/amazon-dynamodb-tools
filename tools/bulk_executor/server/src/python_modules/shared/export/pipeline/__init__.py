@@ -12,7 +12,7 @@ from .cost_estimator import estimate_cost
 from .reader import read_and_parse
 from .writer import write
 from .reporter import report
-from .transform_loader import load_transform_module
+from ...transform_loader import load_transform_module
 from ..utils.enums import ExportLoadType, Operation
 from ..utils.export_path_resolver import ExportPathResolver
 
