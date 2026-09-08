@@ -186,12 +186,15 @@ class TestReadAndParse:
         mock_rdd = Mock()
         mock_spark_context.textFile.return_value = mock_rdd
         mock_rdd.map.return_value = mock_rdd
+        mock_rdd.filter.return_value = mock_rdd
 
         path_resolver = Mock()
         path_resolver.get_base_path.return_value = 's3://bucket'
+        error_acc = Mock()
+        error_acc.value = []
 
         records_rdd, export_load_type, parser, total_expected = _read_and_parse(
-            mock_spark_context, manifest_data_full, path_resolver, key_schema
+            mock_spark_context, manifest_data_full, path_resolver, key_schema, error_acc
         )
 
         assert export_load_type == ExportLoadType.FULL
@@ -199,7 +202,8 @@ class TestReadAndParse:
         assert total_expected == 100
         mock_parser_factory.get_parser.assert_called_once_with(ExportLoadType.FULL, key_schema)
         mock_spark_context.textFile.assert_called_once()
-        mock_rdd.map.assert_called_once_with(mock_parser.parse_to_record)
+        mock_rdd.map.assert_called_once()
+        mock_rdd.filter.assert_called_once()
 
     @patch('python_modules.shared.export.pipeline.reader.ParserFactory')
     @patch('python_modules.shared.export.pipeline.reader.get_export_file_paths')
@@ -211,16 +215,85 @@ class TestReadAndParse:
         mock_rdd = Mock()
         mock_spark_context.textFile.return_value = mock_rdd
         mock_rdd.map.return_value = mock_rdd
+        mock_rdd.filter.return_value = mock_rdd
 
         path_resolver = Mock()
         path_resolver.get_base_path.return_value = 's3://bucket'
+        error_acc = Mock()
+        error_acc.value = []
 
         records_rdd, export_load_type, parser, total_expected = _read_and_parse(
-            mock_spark_context, manifest_data_incremental, path_resolver, key_schema
+            mock_spark_context, manifest_data_incremental, path_resolver, key_schema, error_acc
         )
 
         assert export_load_type == ExportLoadType.INCREMENTAL
         mock_parser_factory.get_parser.assert_called_once_with(ExportLoadType.INCREMENTAL, key_schema)
+
+    @patch('python_modules.shared.export.pipeline.reader.ParserFactory')
+    @patch('python_modules.shared.export.pipeline.reader.get_export_file_paths')
+    def test_malformed_line_recorded_and_dropped(self, mock_get_paths, mock_parser_factory, mock_spark_context, manifest_data_full, key_schema):
+        """#337: a parser ValueError must not escape the worker map -- it is recorded
+        as an understood failure and the line is dropped, not raised."""
+        mock_get_paths.return_value = (['s3://bucket/data/file1.json.gz'], 100)
+        mock_parser = Mock()
+        mock_parser.parse_to_record.side_effect = ValueError("Export line missing 'Item' field")
+        mock_parser_factory.get_parser.return_value = mock_parser
+
+        mock_rdd = Mock()
+        mock_spark_context.textFile.return_value = mock_rdd
+        mock_rdd.map.return_value = mock_rdd
+        mock_rdd.filter.return_value = mock_rdd
+
+        path_resolver = Mock()
+        path_resolver.get_base_path.return_value = 's3://bucket'
+        error_acc = Mock()
+        error_acc.value = []
+
+        _read_and_parse(mock_spark_context, manifest_data_full, path_resolver, key_schema, error_acc)
+
+        parse_line_fn = mock_rdd.map.call_args[0][0]
+        result = parse_line_fn('{not valid json')
+
+        assert result is None
+        error_acc.add.assert_called_once()
+        message, detail = error_acc.add.call_args[0][0][0]
+        # The parser's own ValueError message is already self-descriptive
+        # ("Export line missing 'Item' field", etc.) -- passed through as-is,
+        # matching how every other record_understood_failure call in this
+        # codebase reports a fully-formed message with no added prefix.
+        assert message == "Export line missing 'Item' field"
+        assert detail is None, "an understood failure carries no traceback"
+
+        filter_fn = mock_rdd.filter.call_args[0][0]
+        assert filter_fn(None) is False
+        assert filter_fn(Mock()) is True
+
+    @patch('python_modules.shared.export.pipeline.reader.ParserFactory')
+    @patch('python_modules.shared.export.pipeline.reader.get_export_file_paths')
+    def test_valid_line_passes_through(self, mock_get_paths, mock_parser_factory, mock_spark_context, manifest_data_full, key_schema):
+        mock_get_paths.return_value = (['s3://bucket/data/file1.json.gz'], 100)
+        mock_parser = Mock()
+        parsed_record = Mock()
+        mock_parser.parse_to_record.return_value = parsed_record
+        mock_parser_factory.get_parser.return_value = mock_parser
+
+        mock_rdd = Mock()
+        mock_spark_context.textFile.return_value = mock_rdd
+        mock_rdd.map.return_value = mock_rdd
+        mock_rdd.filter.return_value = mock_rdd
+
+        path_resolver = Mock()
+        path_resolver.get_base_path.return_value = 's3://bucket'
+        error_acc = Mock()
+        error_acc.value = []
+
+        _read_and_parse(mock_spark_context, manifest_data_full, path_resolver, key_schema, error_acc)
+
+        parse_line_fn = mock_rdd.map.call_args[0][0]
+        result = parse_line_fn('{"Item": {}}')
+
+        assert result is parsed_record
+        error_acc.add.assert_not_called()
 
 
 class TestApplyTransformStage:
