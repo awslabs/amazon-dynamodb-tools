@@ -332,6 +332,7 @@ class BulkDynamoDbRunner:
                                 log.debug(f"Matched {signal.pattern!r} in {log_group_name}")
                                 job_unhealthy_event.set()
                                 self._stop_glue_job(job_run_id)
+                                event_stream.close()
                                 return
 
                         if job_run_state == SUCCEEDED_STATE:
