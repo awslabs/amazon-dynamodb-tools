@@ -37,6 +37,24 @@ def shared_config():
     return RateLimiterSharedConfig(bucket="test-bucket", job_run_id="job-123")
 
 
+class TestRateLimiterSharedConfigPrefix:
+    def test_prefix_is_the_job_run_when_no_scope_is_given(self):
+        config = RateLimiterSharedConfig(bucket="test-bucket", job_run_id="job-123")
+        assert config.prefix == "server/rate-limiter/job-123"
+
+    def test_scope_adds_a_separate_prefix_under_the_job_run(self):
+        config = RateLimiterSharedConfig(bucket="test-bucket", job_run_id="job-123", scope="table1")
+        assert config.prefix == "server/rate-limiter/job-123/table1"
+
+    def test_two_scopes_never_share_a_prefix(self):
+        """The aggregator adds up every report under its prefix, so scopes must not overlap."""
+        one = RateLimiterSharedConfig(bucket="b", job_run_id="job-123", scope="table1")
+        two = RateLimiterSharedConfig(bucket="b", job_run_id="job-123", scope="table2")
+        assert one.prefix != two.prefix
+        assert not one.prefix.startswith(two.prefix + "/")
+        assert not two.prefix.startswith(one.prefix + "/")
+
+
 class TestRateLimiterAggregatorInit:
     def test_initializing_message_logged_at_debug(self, shared_config, caplog):
         with patch.object(

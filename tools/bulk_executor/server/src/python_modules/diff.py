@@ -191,14 +191,21 @@ def log_diff(symbol, stream, concise_format):
         return f"{symbol} {json.dumps(ordered, separators=(',', ': '), cls=BinaryAwareEncoder)}"
 
 
-def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_options_b, segment, total_segments, consistent_read, concise_format, job_id, bucket, schema_broadcast, rate_limiter_shared_config, error_accumulator):
+def diff_segment(stream_a_name, stream_b_name, monitor_options_a, monitor_options_b, segment, total_segments, consistent_read, concise_format, job_id, bucket, schema_broadcast, rate_limiter_shared_config, error_accumulator, rate_limiter_shared_config_b=None):
+    # Each table is rate limited on its own: table A's workers report under one
+    # config and table B's under another, so the aggregator for one table never
+    # counts the other table's reads. Without a separate config for B (older
+    # callers) both tables share A's limit, as before.
+    if rate_limiter_shared_config_b is None:
+        rate_limiter_shared_config_b = rate_limiter_shared_config
+
     rate_limiter_worker_a = RateLimiterWorker(
         shared_config=rate_limiter_shared_config,
         **monitor_options_a
     )
 
     rate_limiter_worker_b = RateLimiterWorker(
-        shared_config=rate_limiter_shared_config,
+        shared_config=rate_limiter_shared_config_b,
         **monitor_options_b
     )
 
@@ -395,15 +402,24 @@ def run(job, spark_context, glue_context, parsed_args):
     except Exception as e:
         raise Exception(f"Error in parallel execution: {get_error_message(e)}") from None
 
-    rate_limiter_shared_config = RateLimiterSharedConfig(
+    # One rate limit per table: the aggregator adds up every worker report under
+    # its S3 prefix, so two tables sharing a prefix would share one limit.
+    rate_limiter_shared_config_1 = RateLimiterSharedConfig(
         bucket=bucket,
-        job_run_id=job_id
+        job_run_id=job_id,
+        scope='table1'
+    )
+    rate_limiter_shared_config_2 = RateLimiterSharedConfig(
+        bucket=bucket,
+        job_run_id=job_id,
+        scope='table2'
     )
 
     # The aggregator only does S3 coordination, which lives in the bootstrap
     # region -- never regionalize it, even when the tables are cross-region.
     error_accumulator = spark_context.accumulator([], ListAccumulator())
-    rate_limiter_aggregator = RateLimiterAggregator(shared_config=rate_limiter_shared_config)
+    rate_limiter_aggregator_1 = RateLimiterAggregator(shared_config=rate_limiter_shared_config_1)
+    rate_limiter_aggregator_2 = RateLimiterAggregator(shared_config=rate_limiter_shared_config_2)
 
     monitor_options_1 = get_dynamodb_throughput_configs(parsed_args, table1, modes=("read"), format="monitor")
     monitor_options_2 = get_dynamodb_throughput_configs(parsed_args, table2, modes=("read"), format="monitor")
@@ -412,11 +428,12 @@ def run(job, spark_context, glue_context, parsed_args):
         # Each segment returns (count, preview) -- the full count plus at most
         # CONSOLE_PREVIEW_LIMIT lines -- so the driver never collects the entire
         # diff into memory. The complete output lives in S3.
-        rdd2 = rdd.map(lambda worker_id: diff_segment(table1, table2, monitor_options_1, monitor_options_2, worker_id, splits, False, diff_type == 'keys', job_id, bucket, broadcast_schema, rate_limiter_shared_config, error_accumulator)).collect()
+        rdd2 = rdd.map(lambda worker_id: diff_segment(table1, table2, monitor_options_1, monitor_options_2, worker_id, splits, False, diff_type == 'keys', job_id, bucket, broadcast_schema, rate_limiter_shared_config_1, error_accumulator, rate_limiter_shared_config_2)).collect()
     except Exception as e:
         raise Exception(f"Error in parallel execution: {get_error_message(e)}") from None
     finally:
-        rate_limiter_aggregator.shutdown()
+        rate_limiter_aggregator_1.shutdown()
+        rate_limiter_aggregator_2.shutdown()
 
     raise_first_worker_error(error_accumulator)
 
