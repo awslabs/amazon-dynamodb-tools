@@ -20,31 +20,48 @@ from dynamodb_optima.aws.pricing_collector import PricingCollector
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "pricing"
 
 # On-Demand list prices from the recorded fixtures, as each reader returns them.
-STANDARD = ("on_demand_read", "on_demand_write", "provisioned_read", "provisioned_write")
+STANDARD = (
+    "on_demand_read",
+    "on_demand_write",
+    "provisioned_read",
+    "provisioned_write",
+)
 EXPECTED = {
     "us-east-1": {
-        "on_demand_read": 1.25e-07, "on_demand_write": 6.25e-07,
-        "provisioned_read": 0.00013, "provisioned_write": 0.00065,
-        "on_demand_read_ia": 1.55e-07, "on_demand_write_ia": 7.8e-07,
-        "provisioned_read_ia": 0.00016, "provisioned_write_ia": 0.00081,
+        "on_demand_read": 1.25e-07,
+        "on_demand_write": 6.25e-07,
+        "provisioned_read": 0.00013,
+        "provisioned_write": 0.00065,
+        "on_demand_read_ia": 1.55e-07,
+        "on_demand_write_ia": 7.8e-07,
+        "provisioned_read_ia": 0.00016,
+        "provisioned_write_ia": 0.00081,
     },
     "us-west-2": {
-        "on_demand_read": 1.25e-07, "on_demand_write": 6.25e-07,
-        "provisioned_read": 0.00013, "provisioned_write": 0.00065,
-        "on_demand_read_ia": 1.55e-07, "on_demand_write_ia": 7.8e-07,
-        "provisioned_read_ia": 0.00016, "provisioned_write_ia": 0.00081,
+        "on_demand_read": 1.25e-07,
+        "on_demand_write": 6.25e-07,
+        "provisioned_read": 0.00013,
+        "provisioned_write": 0.00065,
+        "on_demand_read_ia": 1.55e-07,
+        "on_demand_write_ia": 7.8e-07,
+        "provisioned_read_ia": 0.00016,
+        "provisioned_write_ia": 0.00081,
     },
     "eu-west-1": {
-        "on_demand_read": 1.415e-07, "on_demand_write": 7.05e-07,
-        "provisioned_read": 0.000147, "provisioned_write": 0.000735,
-        "on_demand_read_ia": 1.77e-07, "on_demand_write_ia": 8.85e-07,
-        "provisioned_read_ia": 0.000184, "provisioned_write_ia": 0.000919,
+        "on_demand_read": 1.415e-07,
+        "on_demand_write": 7.05e-07,
+        "provisioned_read": 0.000147,
+        "provisioned_write": 0.000735,
+        "on_demand_read_ia": 1.77e-07,
+        "on_demand_write_ia": 8.85e-07,
+        "provisioned_read_ia": 0.000184,
+        "provisioned_write_ia": 0.000919,
     },
 }
 
 
 def expected_for(analyzer_cls, region_code: str) -> dict:
-    """CapacityModeAnalyzer returns Standard + IA keys; UtilizationAnalyzer only Standard."""
+    """CapacityModeAnalyzer returns Standard + IA keys; Utilization only Standard."""
     prices = EXPECTED[region_code]
     if analyzer_cls is UtilizationAnalyzer:
         return {k: prices[k] for k in STANDARD}
@@ -52,7 +69,9 @@ def expected_for(analyzer_cls, region_code: str) -> dict:
 
 
 def load_products(region_code: str) -> list:
-    return json.loads((FIXTURES / f"get_products_{region_code}.json").read_text())["PriceList"]
+    return json.loads((FIXTURES / f"get_products_{region_code}.json").read_text())[
+        "PriceList"
+    ]
 
 
 def reserved_records(region_code: str) -> list[dict]:
@@ -63,33 +82,35 @@ def reserved_records(region_code: str) -> list[dict]:
         for term in product["terms"].get("Reserved", {}).values():
             term_attrs = term.get("termAttributes", {})
             for dim in term["priceDimensions"].values():
-                rows.append({
-                    "pricing_id": str(uuid.uuid4()),
-                    "sku": product["product"]["sku"],
-                    "region_code": region_code,
-                    "location": attrs.get("location"),
-                    "collected_at": datetime.now(),
-                    "price_per_unit": float(dim["pricePerUnit"]["USD"]),
-                    "unit": dim.get("unit"),
-                    "currency": "USD",
-                    "begin_range": dim.get("beginRange"),
-                    "end_range": dim.get("endRange"),
-                    "description": dim.get("description"),
-                    "term_type": "Reserved",
-                    "product_family": attrs.get("productFamily"),
-                    "service_code": attrs.get("servicecode"),
-                    "service_name": attrs.get("servicename"),
-                    "location_type": attrs.get("locationType"),
-                    "volume_type": attrs.get("volumeType"),
-                    "usage_type": attrs.get("usagetype"),
-                    "region": region_code,
-                    "group_name": attrs.get("group"),
-                    "group_description": attrs.get("groupDescription"),
-                    "operation": attrs.get("operation"),
-                    "lease_contract_length": term_attrs.get("LeaseContractLength"),
-                    "purchase_option": term_attrs.get("PurchaseOption"),
-                    "offering_class": term_attrs.get("OfferingClass"),
-                })
+                rows.append(
+                    {
+                        "pricing_id": str(uuid.uuid4()),
+                        "sku": product["product"]["sku"],
+                        "region_code": region_code,
+                        "location": attrs.get("location"),
+                        "collected_at": datetime.now(),
+                        "price_per_unit": float(dim["pricePerUnit"]["USD"]),
+                        "unit": dim.get("unit"),
+                        "currency": "USD",
+                        "begin_range": dim.get("beginRange"),
+                        "end_range": dim.get("endRange"),
+                        "description": dim.get("description"),
+                        "term_type": "Reserved",
+                        "product_family": attrs.get("productFamily"),
+                        "service_code": attrs.get("servicecode"),
+                        "service_name": attrs.get("servicename"),
+                        "location_type": attrs.get("locationType"),
+                        "volume_type": attrs.get("volumeType"),
+                        "usage_type": attrs.get("usagetype"),
+                        "region": region_code,
+                        "group_name": attrs.get("group"),
+                        "group_description": attrs.get("groupDescription"),
+                        "operation": attrs.get("operation"),
+                        "lease_contract_length": term_attrs.get("LeaseContractLength"),
+                        "purchase_option": term_attrs.get("PurchaseOption"),
+                        "offering_class": term_attrs.get("OfferingClass"),
+                    }
+                )
     assert rows, "fixture should contain Reserved terms"
     return rows
 
@@ -102,7 +123,9 @@ async def store(conn, region_code: str, include_reserved: bool) -> None:
     if include_reserved:
         # Reserved first, so a reader that doesn't filter on term_type picks
         # whichever row it sees last for the same key.
-        records = reserved_records(region_code) + records + reserved_records(region_code)
+        records = (
+            reserved_records(region_code) + records + reserved_records(region_code)
+        )
     await collector.store_pricing_in_database(region_code, records, conn)
 
 
@@ -120,7 +143,9 @@ class TestPricingReaders:
         )
 
     @pytest.mark.asyncio
-    async def test_reserved_rows_do_not_change_prices(self, analyzer_cls, region_code, db_connection):
+    async def test_reserved_rows_do_not_change_prices(
+        self, analyzer_cls, region_code, db_connection
+    ):
         await store(db_connection, region_code, include_reserved=True)
 
         assert analyzer_cls(db_connection)._get_pricing(region_code) == pytest.approx(
