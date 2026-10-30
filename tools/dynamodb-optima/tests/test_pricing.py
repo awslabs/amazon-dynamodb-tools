@@ -125,6 +125,11 @@ class TestGetRegionPricing:
         with pytest.raises(MissingPricingError, match="us-west-2"):
             get_region_pricing(db_connection, "us-west-2")
 
+    def test_missing_pricing_is_a_value_error(self, db_connection):
+        """Callers that already catch ValueError for missing pricing keep working."""
+        with pytest.raises(ValueError):
+            get_region_pricing(db_connection, "us-west-2")
+
     @pytest.mark.asyncio
     async def test_missing_required_price_raises_naming_it(self, db_connection):
         await store_fixture(db_connection, "us-west-2")
