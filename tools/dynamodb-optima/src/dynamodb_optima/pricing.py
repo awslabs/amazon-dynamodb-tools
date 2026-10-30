@@ -112,7 +112,7 @@ _ALWAYS_PREFIXED = re.compile(
 )
 
 
-class MissingPricingError(LookupError):
+class MissingPricingError(ValueError):
     """Raised when required prices are not in pricing_data for a region."""
 
     def __init__(self, region_code: str, missing: List[str]):
