@@ -85,6 +85,62 @@ class TestPricingCollector:
             assert r["operation"] == "CommittedThroughput"
             assert r["lease_contract_length"] is None
 
+    def test_parse_reserved_dimensions(self, collector):
+        """Reserved terms are stored with their lease and both price dimensions."""
+        product = product_for("us-west-2", "USW2-WriteCapacityUnit-Hrs")
+        records = collector._parse_product(product, "us-west-2", [])
+        reserved = [r for r in records if r["term_type"] == "Reserved"]
+
+        assert sorted(
+            (r["lease_contract_length"], r["unit"], r["price_per_unit"]) for r in reserved
+        ) == [
+            ("1yr", "Quantity", 1.5),
+            ("1yr", "WriteCapacityUnit-Hrs", 0.000128),
+            ("3yr", "Quantity", 1.8),
+            ("3yr", "WriteCapacityUnit-Hrs", 0.000081),
+        ]
+        for r in reserved:
+            assert r["purchase_option"] == "Heavy Utilization"
+            assert r["usage_type"] == "USW2-WriteCapacityUnit-Hrs"
+            assert r["operation"] == "CommittedThroughput"
+        hourly = [r for r in reserved if r["unit"] != "Quantity"]
+        assert {(r["begin_range"], r["end_range"]) for r in hourly} == {("0", "Inf")}
+
+    def test_parse_product_without_reserved_terms(self, collector):
+        records = collector._parse_product(
+            product_for("us-west-2", "USW2-ReadRequestUnits"), "us-west-2", []
+        )
+        assert {r["term_type"] for r in records} == {"OnDemand"}
+
+    def test_parse_every_on_demand_term(self, collector):
+        """All OnDemand terms are parsed, not only the first one."""
+        product = product_for("us-west-2", "USW2-ReadRequestUnits")
+        (term_key, term), = product["terms"]["OnDemand"].items()
+        second = json.loads(json.dumps(term))
+        for dim in second["priceDimensions"].values():
+            dim["pricePerUnit"]["USD"] = "0.0000009999"
+        product["terms"]["OnDemand"]["second-term"] = second
+
+        prices = {r["price_per_unit"] for r in collector._parse_product(product, "us-west-2", [])}
+
+        assert prices == {0.000000125, 0.0000009999}
+
+    def test_on_demand_records_unchanged_for_reserved_products(self, collector):
+        """Adding Reserved parsing must not alter the On-Demand rows."""
+        product = product_for("us-west-2", "USW2-WriteCapacityUnit-Hrs")
+        on_demand_only = json.loads(json.dumps(product))
+        del on_demand_only["terms"]["Reserved"]
+
+        def comparable(records):
+            return sorted(
+                tuple(sorted((k, v) for k, v in r.items() if k not in ("pricing_id", "collected_at")))
+                for r in records if r["term_type"] == "OnDemand"
+            )
+
+        assert comparable(collector._parse_product(product, "us-west-2", [])) == comparable(
+            collector._parse_product(on_demand_only, "us-west-2", [])
+        )
+
     @pytest.mark.asyncio
     async def test_collect_region_pricing_follows_pagination(self, collector):
         products = load_products("us-west-2")

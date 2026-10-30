@@ -184,13 +184,15 @@ class PricingCollector:
         """
         Parse a product from the pricing API response.
         
-        Returns ALL price dimensions (including free tier) as separate records.
-        
+        Returns ALL price dimensions (including free tier) of every OnDemand and
+        Reserved term as separate records. Reserved terms carry an hourly rate
+        and an upfront fee (unit 'Quantity') as two dimensions.
+
         Args:
             product: Raw product JSON from AWS
             region_code: Region code for this product
             available_attributes: List of available attributes
-        
+
         Returns:
             List of parsed pricing records (one per price dimension)
         """
@@ -198,69 +200,50 @@ class PricingCollector:
             # Extract product attributes
             attrs = product.get("product", {}).get("attributes", {})
             sku = product.get("product", {}).get("sku")
-            
-            # Extract pricing from terms
-            # We focus on OnDemand pricing (Reserved can be added later if needed)
             terms = product.get("terms", {})
-            on_demand_terms = terms.get("OnDemand", {})
-            
-            if not on_demand_terms:
-                # No pricing terms available
-                return []
-            
-            # Get the first term (usually only one)
-            term_key = list(on_demand_terms.keys())[0]
-            term_data = on_demand_terms[term_key]
-            
-            # Extract ALL price dimensions (not just first one!)
-            price_dims = term_data.get("priceDimensions", {})
-            if not price_dims:
-                return []
-            
-            # Process EACH price dimension as a separate record
+
             records = []
-            for dim_key, dim_data in price_dims.items():
-                # Extract price and unit
-                price_str = dim_data.get("pricePerUnit", {}).get("USD", "0")
-                price = Decimal(price_str)
-                unit = dim_data.get("unit", "")
-                
-                # Extract tiered pricing ranges
-                begin_range = dim_data.get("beginRange", "")
-                end_range = dim_data.get("endRange", "")
-                description = dim_data.get("description", "")
-                
-                # Build record with all available attributes
-                record = {
-                    "pricing_id": str(uuid.uuid4()),
-                    "sku": sku,
-                    "region_code": region_code,
-                    "location": attrs.get("location"),
-                    "collected_at": datetime.now(),
-                    "price_per_unit": float(price),
-                    "unit": unit,
-                    "currency": "USD",
-                    "begin_range": begin_range,
-                    "end_range": end_range,
-                    "description": description,
-                    "term_type": "OnDemand",
-                    "product_family": attrs.get("productFamily"),
-                    "service_code": attrs.get("servicecode"),
-                    "service_name": attrs.get("servicename"),
-                    "location_type": attrs.get("locationType"),
-                    "volume_type": attrs.get("volumeType"),
-                    "usage_type": attrs.get("usagetype"),
-                    "region": region_code,  # AWS region code (fixed from friendly name)
-                    "group_name": attrs.get("group"),  # Maps from 'group'
-                    "group_description": attrs.get("groupDescription"),
-                    "operation": attrs.get("operation"),
-                    "lease_contract_length": None,  # NULL for OnDemand
-                    "purchase_option": None,  # NULL for OnDemand
-                    "offering_class": None,  # NULL for OnDemand
-                }
-                
-                records.append(record)
-            
+            for term_type in ("OnDemand", "Reserved"):
+                for term_data in terms.get(term_type, {}).values():
+                    # Lease attributes are only present on Reserved terms (NULL for OnDemand)
+                    term_attrs = term_data.get("termAttributes", {}) if term_type == "Reserved" else {}
+
+                    # Process EACH price dimension as a separate record
+                    for dim_data in term_data.get("priceDimensions", {}).values():
+                        # Extract price and unit
+                        price_str = dim_data.get("pricePerUnit", {}).get("USD", "0")
+                        price = Decimal(price_str)
+
+                        # Build record with all available attributes
+                        records.append({
+                            "pricing_id": str(uuid.uuid4()),
+                            "sku": sku,
+                            "region_code": region_code,
+                            "location": attrs.get("location"),
+                            "collected_at": datetime.now(),
+                            "price_per_unit": float(price),
+                            "unit": dim_data.get("unit", ""),
+                            "currency": "USD",
+                            # Tiered pricing ranges (absent on Reserved upfront fees)
+                            "begin_range": dim_data.get("beginRange", ""),
+                            "end_range": dim_data.get("endRange", ""),
+                            "description": dim_data.get("description", ""),
+                            "term_type": term_type,
+                            "product_family": attrs.get("productFamily"),
+                            "service_code": attrs.get("servicecode"),
+                            "service_name": attrs.get("servicename"),
+                            "location_type": attrs.get("locationType"),
+                            "volume_type": attrs.get("volumeType"),
+                            "usage_type": attrs.get("usagetype"),
+                            "region": region_code,  # AWS region code (fixed from friendly name)
+                            "group_name": attrs.get("group"),  # Maps from 'group'
+                            "group_description": attrs.get("groupDescription"),
+                            "operation": attrs.get("operation"),
+                            "lease_contract_length": term_attrs.get("LeaseContractLength"),
+                            "purchase_option": term_attrs.get("PurchaseOption"),
+                            "offering_class": term_attrs.get("OfferingClass"),
+                        })
+
             return records
             
         except (KeyError, ValueError, IndexError) as e:
