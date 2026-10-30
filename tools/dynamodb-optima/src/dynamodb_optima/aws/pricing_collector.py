@@ -241,7 +241,9 @@ class PricingCollector:
             for term_type in self.terms:
                 for term_data in terms.get(term_type, {}).values():
                     # Lease attributes are only present on Reserved terms (NULL for OnDemand)
-                    term_attrs = term_data.get("termAttributes", {}) if term_type == "Reserved" else {}
+                    term_attrs = (
+                        term_data.get("termAttributes", {}) if term_type == "Reserved" else {}
+                    )
 
                     # Process EACH price dimension as a separate record
                     for dim_data in term_data.get("priceDimensions", {}).values():
