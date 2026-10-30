@@ -156,6 +156,31 @@ class TestGetRegionPricing:
             )
 
     @pytest.mark.asyncio
+    async def test_missing_reserved_prices_explain_how_to_collect_them(
+        self, db_connection
+    ):
+        await store_fixture(db_connection, "us-west-2")
+        db_connection.execute("DELETE FROM pricing_data WHERE term_type = 'Reserved'")
+
+        with pytest.raises(MissingPricingError, match="--pricing-terms all"):
+            get_region_pricing(
+                db_connection, "us-west-2", required=("reserved_3yr_read_upfront",)
+            )
+
+    @pytest.mark.asyncio
+    async def test_missing_on_demand_prices_do_not_mention_reserved_terms(
+        self, db_connection
+    ):
+        await store_fixture(db_connection, "us-west-2")
+        db_connection.execute(
+            "DELETE FROM pricing_data WHERE usage_type = 'USW2-ReadRequestUnits'"
+        )
+
+        with pytest.raises(MissingPricingError) as exc:
+            get_region_pricing(db_connection, "us-west-2")
+        assert "--pricing-terms" not in str(exc.value)
+
+    @pytest.mark.asyncio
     async def test_legacy_rows_without_term_type_count_as_on_demand(
         self, db_connection
     ):
