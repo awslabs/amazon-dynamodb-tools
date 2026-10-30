@@ -195,7 +195,8 @@ class CapacityModeAnalyzer:
         
         Filters out free tier and returns actual paid prices.
         """
-        # Query for non-free-tier pricing (where begin_range != "0" or price > 0 and end_range = "Inf")
+        # Query for non-free-tier pricing (where begin_range != "0" or price > 0 and end_range = "Inf").
+        # Reserved rows share usage_type/operation/end_range with On-Demand ones, so filter them out.
         results = self.connection.execute(
             """
             SELECT usage_type, operation, price_per_unit
@@ -203,6 +204,7 @@ class CapacityModeAnalyzer:
             WHERE region = ?
               AND price_per_unit > 0
               AND end_range = 'Inf'
+              AND COALESCE(term_type, 'OnDemand') = 'OnDemand'
             """,
             (region,)
         ).fetchall()
