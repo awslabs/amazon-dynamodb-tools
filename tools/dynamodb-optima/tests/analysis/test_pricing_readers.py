@@ -151,3 +151,26 @@ class TestPricingReaders:
         assert analyzer_cls(db_connection)._get_pricing(region_code) == pytest.approx(
             expected_for(analyzer_cls, region_code)
         )
+
+
+@pytest.mark.unit
+class TestReadersWithoutPricing:
+    """Behavior when a region has no pricing rows, kept as released."""
+
+    def test_utilization_raises_value_error(self, db_connection):
+        with pytest.raises(ValueError, match="us-west-2"):
+            UtilizationAnalyzer(db_connection)._get_pricing("us-west-2")
+
+    def test_capacity_mode_returns_empty(self, db_connection):
+        assert CapacityModeAnalyzer(db_connection)._get_pricing("us-west-2") == {}
+
+    @pytest.mark.asyncio
+    async def test_capacity_mode_omits_missing_keys(self, db_connection):
+        await store(db_connection, "us-west-2", include_reserved=False)
+        db_connection.execute(
+            "DELETE FROM pricing_data WHERE usage_type LIKE 'USW2-IA-%'"
+        )
+
+        assert CapacityModeAnalyzer(db_connection)._get_pricing("us-west-2") == (
+            pytest.approx({k: EXPECTED["us-west-2"][k] for k in STANDARD})
+        )
