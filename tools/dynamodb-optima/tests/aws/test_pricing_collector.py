@@ -225,6 +225,34 @@ class TestPricingCollector:
         assert await collector.is_pricing_stale("us-west-2", db_connection) is True
 
     @pytest.mark.asyncio
+    async def test_opting_in_to_reserved_makes_on_demand_only_data_stale(
+        self, collector, all_terms_collector, db_connection
+    ):
+        """Switching to ALL_TERMS refetches now instead of after the refresh window."""
+        product = product_for("us-west-2", "USW2-WriteCapacityUnit-Hrs")
+        await collector.store_pricing_in_database(
+            "us-west-2",
+            collector._parse_product(product, "us-west-2", []),
+            db_connection,
+        )
+
+        assert await collector.is_pricing_stale("us-west-2", db_connection) is False
+        assert (
+            await all_terms_collector.is_pricing_stale("us-west-2", db_connection)
+            is True
+        )
+
+        await all_terms_collector.store_pricing_in_database(
+            "us-west-2",
+            all_terms_collector._parse_product(product, "us-west-2", []),
+            db_connection,
+        )
+        assert (
+            await all_terms_collector.is_pricing_stale("us-west-2", db_connection)
+            is False
+        )
+
+    @pytest.mark.asyncio
     async def test_collect_and_store_skips_fresh(self, collector, db_connection):
         records = collector._parse_product(
             product_for("us-west-2", "USW2-ReadRequestUnits"), "us-west-2", []

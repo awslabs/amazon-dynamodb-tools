@@ -392,7 +392,20 @@ class PricingCollector:
             
             refresh_threshold = datetime.now() - timedelta(days=refresh_days)
             is_stale = last_collected < refresh_threshold
-            
+
+            # Opting in to more term types refetches now rather than after the
+            # refresh window. (A region that offers no Reserved prices is then
+            # refetched on every run; that is one get-products call.)
+            if not is_stale and "Reserved" in self.terms:
+                has_reserved = connection.execute(
+                    """
+                    SELECT COUNT(*) FROM pricing_data
+                    WHERE region_code = ? AND term_type = 'Reserved'
+                    """,
+                    (region_code,)
+                ).fetchone()[0]
+                is_stale = has_reserved == 0
+
             logger.debug(
                 "Pricing staleness check",
                 region=region_code,
