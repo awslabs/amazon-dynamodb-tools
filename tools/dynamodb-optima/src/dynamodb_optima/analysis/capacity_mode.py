@@ -16,6 +16,19 @@ from ..logging import get_logger
 from ..aws.pricing_collector import PricingCollector
 from ..database import lake
 from .autoscaling_sim import AutoscalingSimulator, MetricDataPoint
+from ..pricing import MissingPricingError, get_region_pricing
+
+# Prices this analyzer uses (Standard and Standard-IA throughput)
+THROUGHPUT_PRICE_KEYS = (
+    "on_demand_read",
+    "on_demand_write",
+    "on_demand_read_ia",
+    "on_demand_write_ia",
+    "provisioned_read",
+    "provisioned_write",
+    "provisioned_read_ia",
+    "provisioned_write_ia",
+)
 
 logger = get_logger(__name__)
 
@@ -193,51 +206,19 @@ class CapacityModeAnalyzer:
         """
         Get pricing data for the region (cached).
         
-        Filters out free tier and returns actual paid prices.
+        Filters out free tier and returns actual paid prices. Keys without data are
+        omitted (and an empty dict is returned when the region has no pricing).
         """
-        # Query for non-free-tier pricing (where begin_range != "0" or price > 0 and end_range = "Inf").
-        # Reserved rows share usage_type/operation/end_range with On-Demand ones, so filter them out.
-        results = self.connection.execute(
-            """
-            SELECT usage_type, operation, price_per_unit
-            FROM pricing_data
-            WHERE region = ?
-              AND price_per_unit > 0
-              AND end_range = 'Inf'
-              AND COALESCE(term_type, 'OnDemand') = 'OnDemand'
-            """,
-            (region,)
-        ).fetchall()
-        
-        # Map usage_type and operation to logical pricing keys
-        pricing = {}
-        
-        for usage_type, operation, price in results:
-            if not usage_type:
-                continue
-                
-            # On-Demand pricing (PayPerRequestThroughput)
-            if operation == "PayPerRequestThroughput":
-                if "ReadRequestUnits" in usage_type and "IA" not in usage_type and "Repl" not in usage_type:
-                    pricing["on_demand_read"] = float(price)
-                elif "WriteRequestUnits" in usage_type and "IA" not in usage_type and "Repl" not in usage_type:
-                    pricing["on_demand_write"] = float(price)
-                elif "IA-ReadRequestUnits" in usage_type:
-                    pricing["on_demand_read_ia"] = float(price)
-                elif "IA-WriteRequestUnits" in usage_type:
-                    pricing["on_demand_write_ia"] = float(price)
-            
-            # Provisioned pricing (CommittedThroughput)
-            elif operation == "CommittedThroughput":
-                if "ReadCapacityUnit-Hrs" in usage_type and "IA" not in usage_type and "Repl" not in usage_type:
-                    pricing["provisioned_read"] = float(price)
-                elif "WriteCapacityUnit-Hrs" in usage_type and "IA" not in usage_type and "Repl" not in usage_type:
-                    pricing["provisioned_write"] = float(price)
-                elif "IA-ReadCapacityUnit-Hrs" in usage_type:
-                    pricing["provisioned_read_ia"] = float(price)
-                elif "IA-WriteCapacityUnit-Hrs" in usage_type:
-                    pricing["provisioned_write_ia"] = float(price)
-        
+        try:
+            region_pricing = get_region_pricing(self.connection, region, required=())
+        except MissingPricingError:
+            region_pricing = None
+        pricing = {
+            k: region_pricing.prices[k]
+            for k in THROUGHPUT_PRICE_KEYS
+            if region_pricing is not None and k in region_pricing.prices
+        }
+
         logger.debug(f"Loaded pricing for {region}", pricing_keys=list(pricing.keys()))
         return pricing
     
