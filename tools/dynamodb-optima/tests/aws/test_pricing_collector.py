@@ -9,7 +9,7 @@ free-tier dimensions, prefixed and unprefixed usage types).
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -20,18 +20,21 @@ FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "pricing"
 
 def load_products(region_code: str) -> list:
     """Recorded get-products PriceList items (already JSON-decoded) for a region."""
-    return json.loads((FIXTURES / f"get_products_{region_code}.json").read_text())["PriceList"]
+    return json.loads((FIXTURES / f"get_products_{region_code}.json").read_text())[
+        "PriceList"
+    ]
 
 
 def product_for(region_code: str, usage_type: str) -> dict:
     return next(
-        p for p in load_products(region_code)
+        p
+        for p in load_products(region_code)
         if p["product"]["attributes"].get("usagetype") == usage_type
     )
 
 
 def mock_pricing_session(pages: list[list[dict]]) -> MagicMock:
-    """A session whose pricing client returns `pages` from successive get_products calls."""
+    """Session whose pricing client returns `pages` from successive get_products."""
     client = MagicMock()
     responses = []
     for i, page in enumerate(pages):
@@ -75,7 +78,9 @@ class TestPricingCollector:
         records = collector._parse_product(product, "us-west-2", [])
         on_demand = [r for r in records if r["term_type"] == "OnDemand"]
 
-        assert sorted((r["begin_range"], r["end_range"], r["price_per_unit"]) for r in on_demand) == [
+        assert sorted(
+            (r["begin_range"], r["end_range"], r["price_per_unit"]) for r in on_demand
+        ) == [
             ("0", "18600", 0.0),
             ("18600", "Inf", 0.00065),
         ]
@@ -92,7 +97,8 @@ class TestPricingCollector:
         reserved = [r for r in records if r["term_type"] == "Reserved"]
 
         assert sorted(
-            (r["lease_contract_length"], r["unit"], r["price_per_unit"]) for r in reserved
+            (r["lease_contract_length"], r["unit"], r["price_per_unit"])
+            for r in reserved
         ) == [
             ("1yr", "Quantity", 1.5),
             ("1yr", "WriteCapacityUnit-Hrs", 0.000128),
@@ -115,13 +121,16 @@ class TestPricingCollector:
     def test_parse_every_on_demand_term(self, collector):
         """All OnDemand terms are parsed, not only the first one."""
         product = product_for("us-west-2", "USW2-ReadRequestUnits")
-        (term_key, term), = product["terms"]["OnDemand"].items()
+        ((term_key, term),) = product["terms"]["OnDemand"].items()
         second = json.loads(json.dumps(term))
         for dim in second["priceDimensions"].values():
             dim["pricePerUnit"]["USD"] = "0.0000009999"
         product["terms"]["OnDemand"]["second-term"] = second
 
-        prices = {r["price_per_unit"] for r in collector._parse_product(product, "us-west-2", [])}
+        prices = {
+            r["price_per_unit"]
+            for r in collector._parse_product(product, "us-west-2", [])
+        }
 
         assert prices == {0.000000125, 0.0000009999}
 
@@ -133,13 +142,20 @@ class TestPricingCollector:
 
         def comparable(records):
             return sorted(
-                tuple(sorted((k, v) for k, v in r.items() if k not in ("pricing_id", "collected_at")))
-                for r in records if r["term_type"] == "OnDemand"
+                tuple(
+                    sorted(
+                        (k, v)
+                        for k, v in r.items()
+                        if k not in ("pricing_id", "collected_at")
+                    )
+                )
+                for r in records
+                if r["term_type"] == "OnDemand"
             )
 
-        assert comparable(collector._parse_product(product, "us-west-2", [])) == comparable(
-            collector._parse_product(on_demand_only, "us-west-2", [])
-        )
+        assert comparable(
+            collector._parse_product(product, "us-west-2", [])
+        ) == comparable(collector._parse_product(on_demand_only, "us-west-2", []))
 
     @pytest.mark.asyncio
     async def test_collect_region_pricing_follows_pagination(self, collector):
@@ -199,7 +215,9 @@ class TestPricingCollector:
         await collector.store_pricing_in_database("us-west-2", records, db_connection)
         collector.session = mock_pricing_session([load_products("us-west-2")])
 
-        await collector.collect_and_store_pricing("us-west-2", db_connection, force_refresh=True)
+        await collector.collect_and_store_pricing(
+            "us-west-2", db_connection, force_refresh=True
+        )
 
         assert stored_count(db_connection, "us-west-2") > len(records)
 
