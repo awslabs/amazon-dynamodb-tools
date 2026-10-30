@@ -13,6 +13,7 @@ from functools import lru_cache
 from ..logging import get_logger
 from ..aws.pricing_collector import PricingCollector
 from ..database import lake
+from ..pricing import get_region_pricing
 
 logger = get_logger(__name__)
 
@@ -321,50 +322,11 @@ class UtilizationAnalyzer:
         
         Filters out free tier and returns actual paid prices.
         """
-        # Query for non-free-tier pricing.
-        # Reserved rows share usage_type/operation/end_range with On-Demand ones, so filter them out.
-        results = self.connection.execute(
-            """
-            SELECT usage_type, operation, price_per_unit
-            FROM pricing_data
-            WHERE region = ?
-              AND price_per_unit > 0
-              AND end_range = 'Inf'
-              AND COALESCE(term_type, 'OnDemand') = 'OnDemand'
-            """,
-            (region,)
-        ).fetchall()
-        
-        # Map usage_type and operation to logical pricing keys
-        pricing = {}
-        
-        for usage_type, operation, price in results:
-            if not usage_type:
-                continue
-                
-            # On-Demand pricing (PayPerRequestThroughput)
-            if operation == "PayPerRequestThroughput":
-                if "ReadRequestUnits" in usage_type and "IA" not in usage_type and "Repl" not in usage_type:
-                    pricing["on_demand_read"] = float(price)
-                elif "WriteRequestUnits" in usage_type and "IA" not in usage_type and "Repl" not in usage_type:
-                    pricing["on_demand_write"] = float(price)
-            
-            # Provisioned pricing (CommittedThroughput)
-            elif operation == "CommittedThroughput":
-                if "ReadCapacityUnit-Hrs" in usage_type and "IA" not in usage_type and "Repl" not in usage_type:
-                    pricing["provisioned_read"] = float(price)
-                elif "WriteCapacityUnit-Hrs" in usage_type and "IA" not in usage_type and "Repl" not in usage_type:
-                    pricing["provisioned_write"] = float(price)
-        
-        # STRICT VALIDATION - no defaults!
-        required_keys = ['provisioned_read', 'provisioned_write', 'on_demand_read', 'on_demand_write']
-        missing = [k for k in required_keys if k not in pricing]
-        if missing:
-            raise ValueError(
-                f"Missing required pricing data for {region}: {missing}. "
-                "Run pricing collection first with: dynamodb-optima collect-pricing"
-            )
-        
+        # STRICT VALIDATION - no defaults! (MissingPricingError is a ValueError)
+        required_keys = ('provisioned_read', 'provisioned_write', 'on_demand_read', 'on_demand_write')
+        region_pricing = get_region_pricing(self.connection, region, required=required_keys)
+        pricing = {k: region_pricing[k] for k in required_keys}
+
         logger.debug(f"Loaded pricing for {region}", pricing_keys=list(pricing.keys()))
         return pricing
     
