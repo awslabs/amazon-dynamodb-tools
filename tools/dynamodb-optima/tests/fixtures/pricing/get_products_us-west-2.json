@@ -1,0 +1,1345 @@
+{
+ "PriceList": [
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReadUnitsIA",
+     "groupDescription": "DynamoDB Provisioned Read Units IA",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "CommittedThroughput",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-IA-ReadCapacityUnit-Hrs"
+    },
+    "productFamily": "Provisioned IOPS",
+    "sku": "3UPHCSRYPYQNZZFB"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "3UPHCSRYPYQNZZFB.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "3UPHCSRYPYQNZZFB.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.0001600 per hour for units of IA read capacity in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0001600000"
+        },
+        "rateCode": "3UPHCSRYPYQNZZFB.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ReadCapacityUnit-Hrs"
+       }
+      },
+      "sku": "3UPHCSRYPYQNZZFB",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReplicatedWriteUnits",
+     "groupDescription": "DynamoDB PayPerRequest Replicated Write Request Units",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "PayPerRequestThroughput",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-ReplWriteRequestUnits"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "3VHHM5XHVVVUCGAJ"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "3VHHM5XHVVVUCGAJ.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "3VHHM5XHVVVUCGAJ.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.625 per million replicated write request units (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000006250"
+        },
+        "rateCode": "3VHHM5XHVVVUCGAJ.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ReplicatedWriteRequestUnits"
+       }
+      },
+      "sku": "3VHHM5XHVVVUCGAJ",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-Kinesis",
+     "groupDescription": "Change Data Capture Units for Kinesis Data Streams",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "DelegatedOperations",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-ChangeDataCaptureUnits-Kinesis"
+    },
+    "sku": "4FHMADHT95PDVFGQ"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "4FHMADHT95PDVFGQ.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "4FHMADHT95PDVFGQ.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.10000 per million change data capture units for Kinesis Data Streams in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000001000"
+        },
+        "rateCode": "4FHMADHT95PDVFGQ.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ChangeDataCaptureUnits"
+       }
+      },
+      "sku": "4FHMADHT95PDVFGQ",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-WriteUnits",
+     "groupDescription": "DynamoDB PayPerRequest Write Request Units",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "PayPerRequestThroughput",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-WriteRequestUnits"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "4G4G98VBTENWGY5R"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "4G4G98VBTENWGY5R.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "4G4G98VBTENWGY5R.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.625 per million write request units (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000006250"
+        },
+        "rateCode": "4G4G98VBTENWGY5R.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "WriteRequestUnits"
+       }
+      },
+      "sku": "4G4G98VBTENWGY5R",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReadUnitsIA",
+     "groupDescription": "DynamoDB PayPerRequest Read Request Units IA",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "PayPerRequestThroughput",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-IA-ReadRequestUnits"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "75AU3C9PDZSEBJ7B"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "75AU3C9PDZSEBJ7B.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "75AU3C9PDZSEBJ7B.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.155 per million IA read request units in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000001550"
+        },
+        "rateCode": "75AU3C9PDZSEBJ7B.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ReadRequestUnits"
+       }
+      },
+      "sku": "75AU3C9PDZSEBJ7B",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReplicatedWriteUnitsIA",
+     "groupDescription": "DynamoDB PayPerRequest Replicated Write Request Units IA",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "PayPerRequestThroughput",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-IA-ReplWriteRequestUnits"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "9VVQSPQ8YDGDZS9D"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "9VVQSPQ8YDGDZS9D.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "9VVQSPQ8YDGDZS9D.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.78 per million replicated IA write request units in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000007800"
+        },
+        "rateCode": "9VVQSPQ8YDGDZS9D.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ReplicatedWriteRequestUnits"
+       }
+      },
+      "sku": "9VVQSPQ8YDGDZS9D",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-WriteUnitsIA",
+     "groupDescription": "DynamoDB Provisioned Write Units IA",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "CommittedThroughput",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-IA-WriteCapacityUnit-Hrs"
+    },
+    "productFamily": "Provisioned IOPS",
+    "sku": "AB8443CJPJ6K7CNA"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "AB8443CJPJ6K7CNA.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "AB8443CJPJ6K7CNA.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.0008100 per hour for units of IA write capacity in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0008100000"
+        },
+        "rateCode": "AB8443CJPJ6K7CNA.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "WriteCapacityUnit-Hrs"
+       }
+      },
+      "sku": "AB8443CJPJ6K7CNA",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReplicatedWriteUnits",
+     "groupDescription": "DynamoDB Provisioned Replicated Write Units",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "CommittedThroughput",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-ReplWriteCapacityUnit-Hrs"
+    },
+    "productFamily": "DDB-Operation-ReplicatedWrite",
+    "sku": "AU9AE8JMKEYP6Q3W"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "AU9AE8JMKEYP6Q3W.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "AU9AE8JMKEYP6Q3W.JRTCKXETXF.E63J5HTPNN": {
+        "appliesTo": [],
+        "beginRange": "18600",
+        "description": "$0.00065 per hour for units of replicated write capacity beyond the free tier",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0006500000"
+        },
+        "rateCode": "AU9AE8JMKEYP6Q3W.JRTCKXETXF.E63J5HTPNN",
+        "unit": "ReplicatedWriteCapacityUnit-Hrs"
+       },
+       "AU9AE8JMKEYP6Q3W.JRTCKXETXF.HBHVWY47CM": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.00 per hour for 25 units of replicated write capacity for a month (free tier)",
+        "endRange": "18600",
+        "pricePerUnit": {
+         "USD": "0.0000000000"
+        },
+        "rateCode": "AU9AE8JMKEYP6Q3W.JRTCKXETXF.HBHVWY47CM",
+        "unit": "ReplicatedWriteCapacityUnit-Hrs"
+       }
+      },
+      "sku": "AU9AE8JMKEYP6Q3W",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-VectorWriteRequest-IA",
+     "groupDescription": "DynamoDB PayPerRequest Write Request Units IA",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-IA-VectorWriteRequest"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "BSCZKG49S5D6TSA4"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "BSCZKG49S5D6TSA4.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "BSCZKG49S5D6TSA4.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.65 per GB of IA vector write requests in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.6500000000"
+        },
+        "rateCode": "BSCZKG49S5D6TSA4.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "BSCZKG49S5D6TSA4",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ElasticViews",
+     "groupDescription": "Change Data Capture Units for AWS Glue Elastic Views",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "DelegatedOperations",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-ChangeDataCaptureUnits-ElasticViews"
+    },
+    "sku": "EJBJJKEKPGW7XH2H"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "EJBJJKEKPGW7XH2H.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "EJBJJKEKPGW7XH2H.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.10000 per million change data capture units for AWS Glue Elastic Views in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000001000"
+        },
+        "rateCode": "EJBJJKEKPGW7XH2H.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ChangeDataCaptureUnits"
+       }
+      },
+      "sku": "EJBJJKEKPGW7XH2H",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReplicatedWriteUnitsIA",
+     "groupDescription": "DynamoDB Provisioned Replicated Write Units IA",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "CommittedThroughput",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-IA-ReplWriteCapacityUnit-Hrs"
+    },
+    "productFamily": "DDB-Operation-ReplicatedWrite",
+    "sku": "FKADSHRX49BYUMRC"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "FKADSHRX49BYUMRC.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "FKADSHRX49BYUMRC.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.00081 per hour for units of IA replicated write capacity in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0008100000"
+        },
+        "rateCode": "FKADSHRX49BYUMRC.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ReplicatedWriteCapacityUnit-Hrs"
+       }
+      },
+      "sku": "FKADSHRX49BYUMRC",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-TimedBackupStorage-ByteHrs",
+     "volumeType": "Amazon DynamoDB - On-Demand Backup Storage"
+    },
+    "productFamily": "Amazon DynamoDB On-Demand Backup Storage",
+    "sku": "GTC4K5DV2VGGRJ8K"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "GTC4K5DV2VGGRJ8K.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "GTC4K5DV2VGGRJ8K.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.10 per GB-Month of storage used for on-demand backup",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.1000000000"
+        },
+        "rateCode": "GTC4K5DV2VGGRJ8K.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB-Month"
+       }
+      },
+      "sku": "GTC4K5DV2VGGRJ8K",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-ExportDataSize-Bytes",
+     "volumeType": "Amazon DynamoDB - Export Size"
+    },
+    "productFamily": "Amazon DynamoDB Export Data Size",
+    "sku": "JHQJGS8K9HCUMYG2"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "JHQJGS8K9HCUMYG2.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "JHQJGS8K9HCUMYG2.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.10000 per GB of data exported in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.1000000000"
+        },
+        "rateCode": "JHQJGS8K9HCUMYG2.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "JHQJGS8K9HCUMYG2",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReadUnits",
+     "groupDescription": "DynamoDB PayPerRequest Read Request Units",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "PayPerRequestThroughput",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-ReadRequestUnits"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "K6UMRY3TVDVCBP56"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "K6UMRY3TVDVCBP56.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "K6UMRY3TVDVCBP56.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.125 per million read request units (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000001250"
+        },
+        "rateCode": "K6UMRY3TVDVCBP56.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ReadRequestUnits"
+       }
+      },
+      "sku": "K6UMRY3TVDVCBP56",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-RestoreDataSize-Bytes",
+     "volumeType": "Amazon DynamoDB - Backup Restore Size"
+    },
+    "productFamily": "Amazon DynamoDB Restore Data Size",
+    "sku": "P93X3G5BVPQ4SDHE"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "P93X3G5BVPQ4SDHE.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "P93X3G5BVPQ4SDHE.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.15 per GB of data restored",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.1500000000"
+        },
+        "rateCode": "P93X3G5BVPQ4SDHE.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "P93X3G5BVPQ4SDHE",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-ImportDataSize-Bytes",
+     "volumeType": "Amazon DynamoDB - Import Size"
+    },
+    "productFamily": "Amazon DynamoDB Import Data Size",
+    "sku": "PPDKWPKVEXU6663K"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "PPDKWPKVEXU6663K.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "PPDKWPKVEXU6663K.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.1500 per GB for data import in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.1500000000"
+        },
+        "rateCode": "PPDKWPKVEXU6663K.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "PPDKWPKVEXU6663K",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-VectorWriteRequest",
+     "groupDescription": "DynamoDB PayPerRequest Vector Write Request",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "tableclass": "Standard",
+     "usagetype": "USW2-VectorWriteRequest"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "R5727KNRMRDP5YTZ"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "R5727KNRMRDP5YTZ.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "R5727KNRMRDP5YTZ.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.52 per GB of vector write requests in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.5200000000"
+        },
+        "rateCode": "R5727KNRMRDP5YTZ.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "R5727KNRMRDP5YTZ",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-IncrementalExportDataSize-Bytes",
+     "volumeType": "Amazon DynamoDB - Incremental Export"
+    },
+    "productFamily": "Amazon DynamoDB Export Data Size",
+    "sku": "RAJR3PG5HAUVDC9E"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "RAJR3PG5HAUVDC9E.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "RAJR3PG5HAUVDC9E.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.1000 per GB of incremental data exported in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.1000000000"
+        },
+        "rateCode": "RAJR3PG5HAUVDC9E.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "RAJR3PG5HAUVDC9E",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-IA-TimedStorage-ByteHrs",
+     "volumeType": "Amazon DynamoDB - Indexed DataStore - IA"
+    },
+    "productFamily": "Database Storage",
+    "sku": "TF2793YJYNZQTHQX"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "TF2793YJYNZQTHQX.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "TF2793YJYNZQTHQX.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.10000 per GB-Month of IA storage in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.1000000000"
+        },
+        "rateCode": "TF2793YJYNZQTHQX.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB-Mo"
+       }
+      },
+      "sku": "TF2793YJYNZQTHQX",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-TimedPITRStorage-ByteHrs",
+     "volumeType": "Amazon DynamoDB - Point-In-Time-Restore (PITR) Backup Storage"
+    },
+    "productFamily": "Database Storage",
+    "sku": "UKQHCFER4QFSMKMD"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "UKQHCFER4QFSMKMD.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "UKQHCFER4QFSMKMD.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.20 per GB-Month of storage used for DynamoDB PITR backup",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.2000000000"
+        },
+        "rateCode": "UKQHCFER4QFSMKMD.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB-Mo"
+       }
+      },
+      "sku": "UKQHCFER4QFSMKMD",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-TimedStorage-ByteHrs",
+     "volumeType": "Amazon DynamoDB - Indexed DataStore"
+    },
+    "productFamily": "Database Storage",
+    "sku": "UNCJFSHZ2ZQGDPJV"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "UNCJFSHZ2ZQGDPJV.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "UNCJFSHZ2ZQGDPJV.JRTCKXETXF.G2A93NZ7DT": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.00 per GB-Month of storage for first 25 free GB-Months",
+        "endRange": "25",
+        "pricePerUnit": {
+         "USD": "0.0000000000"
+        },
+        "rateCode": "UNCJFSHZ2ZQGDPJV.JRTCKXETXF.G2A93NZ7DT",
+        "unit": "GB-Mo"
+       },
+       "UNCJFSHZ2ZQGDPJV.JRTCKXETXF.VYAP54KATQ": {
+        "appliesTo": [],
+        "beginRange": "25",
+        "description": "$0.25 per GB-Month of storage used beyond first 25 free GB-Months",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.2500000000"
+        },
+        "rateCode": "UNCJFSHZ2ZQGDPJV.JRTCKXETXF.VYAP54KATQ",
+        "unit": "GB-Mo"
+       }
+      },
+      "sku": "UNCJFSHZ2ZQGDPJV",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-VectorSearch-IA",
+     "groupDescription": "DynamoDB PayPerRequest Vector Search IA",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-IA-VectorSearch"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "UNYP9JHTNU39Q48W"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "UNYP9JHTNU39Q48W.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "UNYP9JHTNU39Q48W.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.0025 per GB of IA vector data searched in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0025000000"
+        },
+        "rateCode": "UNYP9JHTNU39Q48W.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "UNYP9JHTNU39Q48W",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReadUnits",
+     "groupDescription": "DynamoDB Provisioned Read Units",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "CommittedThroughput",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-ReadCapacityUnit-Hrs"
+    },
+    "productFamily": "Provisioned IOPS",
+    "sku": "W7QHZRBMSZ94SXJ5"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "W7QHZRBMSZ94SXJ5.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "W7QHZRBMSZ94SXJ5.JRTCKXETXF.E63J5HTPNN": {
+        "appliesTo": [],
+        "beginRange": "18600",
+        "description": "$0.00013 per hour for units of read capacity beyond the free tier",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0001300000"
+        },
+        "rateCode": "W7QHZRBMSZ94SXJ5.JRTCKXETXF.E63J5HTPNN",
+        "unit": "ReadCapacityUnit-Hrs"
+       },
+       "W7QHZRBMSZ94SXJ5.JRTCKXETXF.HBHVWY47CM": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.00 per hour for 25 units of read capacity for a month (free tier)",
+        "endRange": "18600",
+        "pricePerUnit": {
+         "USD": "0.0000000000"
+        },
+        "rateCode": "W7QHZRBMSZ94SXJ5.JRTCKXETXF.HBHVWY47CM",
+        "unit": "ReadCapacityUnit-Hrs"
+       }
+      },
+      "sku": "W7QHZRBMSZ94SXJ5",
+      "termAttributes": {}
+     }
+    },
+    "Reserved": {
+     "W7QHZRBMSZ94SXJ5.VG8YD49WWM": {
+      "effectiveDate": "2026-09-11T12:44:26Z",
+      "offerTermCode": "VG8YD49WWM",
+      "priceDimensions": {
+       "W7QHZRBMSZ94SXJ5.VG8YD49WWM.2TG2D8R56U": {
+        "appliesTo": [],
+        "description": "Upfront Fee",
+        "pricePerUnit": {
+         "USD": "0.36"
+        },
+        "rateCode": "W7QHZRBMSZ94SXJ5.VG8YD49WWM.2TG2D8R56U",
+        "unit": "Quantity"
+       },
+       "W7QHZRBMSZ94SXJ5.VG8YD49WWM.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "Amazon DynamoDB, Reserved Read Capacity used this month",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000160000"
+        },
+        "rateCode": "W7QHZRBMSZ94SXJ5.VG8YD49WWM.6YS6EN2CT7",
+        "unit": "ReadCapacityUnit-Hrs"
+       }
+      },
+      "sku": "W7QHZRBMSZ94SXJ5",
+      "termAttributes": {
+       "LeaseContractLength": "3yr",
+       "OfferingClass": "standard",
+       "PurchaseOption": "Heavy Utilization"
+      }
+     },
+     "W7QHZRBMSZ94SXJ5.YTVHEVGPBZ": {
+      "effectiveDate": "2026-09-11T12:44:26Z",
+      "offerTermCode": "YTVHEVGPBZ",
+      "priceDimensions": {
+       "W7QHZRBMSZ94SXJ5.YTVHEVGPBZ.2TG2D8R56U": {
+        "appliesTo": [],
+        "description": "Upfront Fee",
+        "pricePerUnit": {
+         "USD": "0.3"
+        },
+        "rateCode": "W7QHZRBMSZ94SXJ5.YTVHEVGPBZ.2TG2D8R56U",
+        "unit": "Quantity"
+       },
+       "W7QHZRBMSZ94SXJ5.YTVHEVGPBZ.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "Amazon DynamoDB, Reserved Read Capacity used this month",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000250000"
+        },
+        "rateCode": "W7QHZRBMSZ94SXJ5.YTVHEVGPBZ.6YS6EN2CT7",
+        "unit": "ReadCapacityUnit-Hrs"
+       }
+      },
+      "sku": "W7QHZRBMSZ94SXJ5",
+      "termAttributes": {
+       "LeaseContractLength": "1yr",
+       "OfferingClass": "standard",
+       "PurchaseOption": "Heavy Utilization"
+      }
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-WriteUnitsIA",
+     "groupDescription": "DynamoDB PayPerRequest Write Request Units IA",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "PayPerRequestThroughput",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-IA-WriteRequestUnits"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "XD2FN4QWFKZNBWCV"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "XD2FN4QWFKZNBWCV.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "XD2FN4QWFKZNBWCV.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.78 per million IA write request units in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000007800"
+        },
+        "rateCode": "XD2FN4QWFKZNBWCV.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "WriteRequestUnits"
+       }
+      },
+      "sku": "XD2FN4QWFKZNBWCV",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-StreamsReadRequests",
+     "groupDescription": "DynamoDB Streams read request (GetRecords API)",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "GetRecords",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-Streams-Requests"
+    },
+    "productFamily": "API Request",
+    "sku": "YMQRM65S8TD2QXME"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "YMQRM65S8TD2QXME.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "YMQRM65S8TD2QXME.JRTCKXETXF.AUKFMGQW43": {
+        "appliesTo": [],
+        "beginRange": "2500000",
+        "description": "$0.0000002 per DynamoDB Streams read request unit beyond free tier (US West (Oregon))",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000002000"
+        },
+        "rateCode": "YMQRM65S8TD2QXME.JRTCKXETXF.AUKFMGQW43",
+        "unit": "Requests"
+       },
+       "YMQRM65S8TD2QXME.JRTCKXETXF.M9QGYPQ72M": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.00 for 2.5 million DynamoDB Streams read request units for a month (free tier) (US West (Oregon))",
+        "endRange": "2500000",
+        "pricePerUnit": {
+         "USD": "0.0000000000"
+        },
+        "rateCode": "YMQRM65S8TD2QXME.JRTCKXETXF.M9QGYPQ72M",
+        "unit": "Requests"
+       }
+      },
+      "sku": "YMQRM65S8TD2QXME",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-WriteUnits",
+     "groupDescription": "DynamoDB Provisioned Write Units",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "CommittedThroughput",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "USW2-WriteCapacityUnit-Hrs"
+    },
+    "productFamily": "Provisioned IOPS",
+    "sku": "YSHGCBPMUVPMDF79"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "YSHGCBPMUVPMDF79.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "YSHGCBPMUVPMDF79.JRTCKXETXF.E63J5HTPNN": {
+        "appliesTo": [],
+        "beginRange": "18600",
+        "description": "$0.00065 per hour for units of write capacity beyond the free tier",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0006500000"
+        },
+        "rateCode": "YSHGCBPMUVPMDF79.JRTCKXETXF.E63J5HTPNN",
+        "unit": "WriteCapacityUnit-Hrs"
+       },
+       "YSHGCBPMUVPMDF79.JRTCKXETXF.HBHVWY47CM": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.00 per hour for 25 units of write capacity for a month (free tier)",
+        "endRange": "18600",
+        "pricePerUnit": {
+         "USD": "0.0000000000"
+        },
+        "rateCode": "YSHGCBPMUVPMDF79.JRTCKXETXF.HBHVWY47CM",
+        "unit": "WriteCapacityUnit-Hrs"
+       }
+      },
+      "sku": "YSHGCBPMUVPMDF79",
+      "termAttributes": {}
+     }
+    },
+    "Reserved": {
+     "YSHGCBPMUVPMDF79.VG8YD49WWM": {
+      "effectiveDate": "2026-09-11T12:44:26Z",
+      "offerTermCode": "VG8YD49WWM",
+      "priceDimensions": {
+       "YSHGCBPMUVPMDF79.VG8YD49WWM.2TG2D8R56U": {
+        "appliesTo": [],
+        "description": "Upfront Fee",
+        "pricePerUnit": {
+         "USD": "1.8"
+        },
+        "rateCode": "YSHGCBPMUVPMDF79.VG8YD49WWM.2TG2D8R56U",
+        "unit": "Quantity"
+       },
+       "YSHGCBPMUVPMDF79.VG8YD49WWM.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "Amazon DynamoDB, Reserved Write Capacity used this month",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000810000"
+        },
+        "rateCode": "YSHGCBPMUVPMDF79.VG8YD49WWM.6YS6EN2CT7",
+        "unit": "WriteCapacityUnit-Hrs"
+       }
+      },
+      "sku": "YSHGCBPMUVPMDF79",
+      "termAttributes": {
+       "LeaseContractLength": "3yr",
+       "OfferingClass": "standard",
+       "PurchaseOption": "Heavy Utilization"
+      }
+     },
+     "YSHGCBPMUVPMDF79.YTVHEVGPBZ": {
+      "effectiveDate": "2026-09-11T12:44:26Z",
+      "offerTermCode": "YTVHEVGPBZ",
+      "priceDimensions": {
+       "YSHGCBPMUVPMDF79.YTVHEVGPBZ.2TG2D8R56U": {
+        "appliesTo": [],
+        "description": "Upfront Fee",
+        "pricePerUnit": {
+         "USD": "1.5"
+        },
+        "rateCode": "YSHGCBPMUVPMDF79.YTVHEVGPBZ.2TG2D8R56U",
+        "unit": "Quantity"
+       },
+       "YSHGCBPMUVPMDF79.YTVHEVGPBZ.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "Amazon DynamoDB, Reserved Write Capacity used this month",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0001280000"
+        },
+        "rateCode": "YSHGCBPMUVPMDF79.YTVHEVGPBZ.6YS6EN2CT7",
+        "unit": "WriteCapacityUnit-Hrs"
+       }
+      },
+      "sku": "YSHGCBPMUVPMDF79",
+      "termAttributes": {
+       "LeaseContractLength": "1yr",
+       "OfferingClass": "standard",
+       "PurchaseOption": "Heavy Utilization"
+      }
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-VectorSearch",
+     "groupDescription": "DynamoDB PayPerRequest Vector Search",
+     "location": "US West (Oregon)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "us-west-2",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "tableclass": "Standard",
+     "usagetype": "USW2-VectorSearch"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "ZAGHGPSVWC72GFEV"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "ZAGHGPSVWC72GFEV.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "ZAGHGPSVWC72GFEV.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.002 per GB of vector data searched in US West (Oregon)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0020000000"
+        },
+        "rateCode": "ZAGHGPSVWC72GFEV.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "ZAGHGPSVWC72GFEV",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  }
+ ],
+ "source": "aws pricing get-products --service-code AmazonDynamoDB --filters regionCode=us-west-2 (format aws_v1)"
+}
