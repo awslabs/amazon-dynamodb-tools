@@ -37,6 +37,9 @@ dynamodb-optima discover --use-org --skip-accounts 111122223333,444455556666
 
 # Manual CUR location override
 dynamodb-optima discover --cur-override s3://my-bucket/cur-prefix
+
+# Also store Reserved Capacity (1yr/3yr) prices
+dynamodb-optima discover --regions us-east-1 --pricing-terms all
 ```
 
 **Options:**
@@ -48,6 +51,7 @@ dynamodb-optima discover --cur-override s3://my-bucket/cur-prefix
 - `--resume` - Resume from last checkpoint
 - `--operation-id TEXT` - Operation ID for resuming or tracking
 - `--cur-override TEXT` - Manual CUR S3 location override (s3://bucket/prefix)
+- `--pricing-terms [on-demand|all]` - Price List terms to collect. `on-demand` stores the same rows as earlier versions; `all` also stores Reserved Capacity prices (see [Reserved Capacity pricing](configuration.md#reserved-capacity-pricing)). Default: the `PRICING_TERMS` setting (`on-demand`)
 
 #### `collect`
 Collect CloudWatch metrics for discovered tables.
