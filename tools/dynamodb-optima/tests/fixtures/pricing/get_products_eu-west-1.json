@@ -1,0 +1,1345 @@
+{
+ "PriceList": [
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-WriteUnits",
+     "groupDescription": "DynamoDB Provisioned Write Units",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "CommittedThroughput",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-WriteCapacityUnit-Hrs"
+    },
+    "productFamily": "Provisioned IOPS",
+    "sku": "36CGV8QUHJZG65HD"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "36CGV8QUHJZG65HD.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "36CGV8QUHJZG65HD.JRTCKXETXF.E63J5HTPNN": {
+        "appliesTo": [],
+        "beginRange": "18600",
+        "description": "$0.000735 per hour for units of write capacity beyond the free tier",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0007350000"
+        },
+        "rateCode": "36CGV8QUHJZG65HD.JRTCKXETXF.E63J5HTPNN",
+        "unit": "WriteCapacityUnit-Hrs"
+       },
+       "36CGV8QUHJZG65HD.JRTCKXETXF.HBHVWY47CM": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.00 per hour for 25 units of write capacity for a month (free tier)",
+        "endRange": "18600",
+        "pricePerUnit": {
+         "USD": "0.0000000000"
+        },
+        "rateCode": "36CGV8QUHJZG65HD.JRTCKXETXF.HBHVWY47CM",
+        "unit": "WriteCapacityUnit-Hrs"
+       }
+      },
+      "sku": "36CGV8QUHJZG65HD",
+      "termAttributes": {}
+     }
+    },
+    "Reserved": {
+     "36CGV8QUHJZG65HD.VG8YD49WWM": {
+      "effectiveDate": "2026-09-11T12:44:26Z",
+      "offerTermCode": "VG8YD49WWM",
+      "priceDimensions": {
+       "36CGV8QUHJZG65HD.VG8YD49WWM.2TG2D8R56U": {
+        "appliesTo": [],
+        "description": "Upfront Fee",
+        "pricePerUnit": {
+         "USD": "2.034"
+        },
+        "rateCode": "36CGV8QUHJZG65HD.VG8YD49WWM.2TG2D8R56U",
+        "unit": "Quantity"
+       },
+       "36CGV8QUHJZG65HD.VG8YD49WWM.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "Amazon DynamoDB, Reserved Write Capacity used this month",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000920000"
+        },
+        "rateCode": "36CGV8QUHJZG65HD.VG8YD49WWM.6YS6EN2CT7",
+        "unit": "WriteCapacityUnit-Hrs"
+       }
+      },
+      "sku": "36CGV8QUHJZG65HD",
+      "termAttributes": {
+       "LeaseContractLength": "3yr",
+       "OfferingClass": "standard",
+       "PurchaseOption": "Heavy Utilization"
+      }
+     },
+     "36CGV8QUHJZG65HD.YTVHEVGPBZ": {
+      "effectiveDate": "2026-09-11T12:44:26Z",
+      "offerTermCode": "YTVHEVGPBZ",
+      "priceDimensions": {
+       "36CGV8QUHJZG65HD.YTVHEVGPBZ.2TG2D8R56U": {
+        "appliesTo": [],
+        "description": "Upfront Fee",
+        "pricePerUnit": {
+         "USD": "1.695"
+        },
+        "rateCode": "36CGV8QUHJZG65HD.YTVHEVGPBZ.2TG2D8R56U",
+        "unit": "Quantity"
+       },
+       "36CGV8QUHJZG65HD.YTVHEVGPBZ.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "Amazon DynamoDB, Reserved Write Capacity used this month",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0001450000"
+        },
+        "rateCode": "36CGV8QUHJZG65HD.YTVHEVGPBZ.6YS6EN2CT7",
+        "unit": "WriteCapacityUnit-Hrs"
+       }
+      },
+      "sku": "36CGV8QUHJZG65HD",
+      "termAttributes": {
+       "LeaseContractLength": "1yr",
+       "OfferingClass": "standard",
+       "PurchaseOption": "Heavy Utilization"
+      }
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-WriteUnitsIA",
+     "groupDescription": "DynamoDB Provisioned Write Units IA",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "CommittedThroughput",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-IA-WriteCapacityUnit-Hrs"
+    },
+    "productFamily": "Provisioned IOPS",
+    "sku": "39X6PM3G4DJ9BBY5"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "39X6PM3G4DJ9BBY5.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "39X6PM3G4DJ9BBY5.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.0009190 per hour for units of IA write capacity in EU (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0009190000"
+        },
+        "rateCode": "39X6PM3G4DJ9BBY5.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "WriteCapacityUnit-Hrs"
+       }
+      },
+      "sku": "39X6PM3G4DJ9BBY5",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReadUnits",
+     "groupDescription": "DynamoDB PayPerRequest Read Request Units",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "PayPerRequestThroughput",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-ReadRequestUnits"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "3ERQSZWPAMX2JWHN"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "3ERQSZWPAMX2JWHN.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "3ERQSZWPAMX2JWHN.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.1415 per million read request units (EU (Ireland))",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000001415"
+        },
+        "rateCode": "3ERQSZWPAMX2JWHN.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ReadRequestUnits"
+       }
+      },
+      "sku": "3ERQSZWPAMX2JWHN",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-ExportDataSize-Bytes",
+     "volumeType": "Amazon DynamoDB - Export Size"
+    },
+    "productFamily": "Amazon DynamoDB Export Data Size",
+    "sku": "5BWYTFWVWVT4826T"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "5BWYTFWVWVT4826T.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "5BWYTFWVWVT4826T.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.11000 per GB of data exported in EU (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.1100000000"
+        },
+        "rateCode": "5BWYTFWVWVT4826T.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "5BWYTFWVWVT4826T",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReplicatedWriteUnitsIA",
+     "groupDescription": "DynamoDB PayPerRequest Replicated Write Request Units IA",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "PayPerRequestThroughput",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-IA-ReplWriteRequestUnits"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "6JYFQM9NETS5W42R"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "6JYFQM9NETS5W42R.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "6JYFQM9NETS5W42R.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.885 per million replicated IA write request units in EU (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000008850"
+        },
+        "rateCode": "6JYFQM9NETS5W42R.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ReplicatedWriteRequestUnits"
+       }
+      },
+      "sku": "6JYFQM9NETS5W42R",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReplicatedWriteUnitsIA",
+     "groupDescription": "DynamoDB Provisioned Replicated Write Units IA",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "CommittedThroughput",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-IA-ReplWriteCapacityUnit-Hrs"
+    },
+    "productFamily": "DDB-Operation-ReplicatedWrite",
+    "sku": "6NPJE4VHYPZG657F"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "6NPJE4VHYPZG657F.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "6NPJE4VHYPZG657F.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.000919 per hour for units of IA replicated write capacity in EU (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0009190000"
+        },
+        "rateCode": "6NPJE4VHYPZG657F.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ReplicatedWriteCapacityUnit-Hrs"
+       }
+      },
+      "sku": "6NPJE4VHYPZG657F",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-Kinesis",
+     "groupDescription": "Change Data Capture Units for Kinesis Data Streams",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "DelegatedOperations",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-ChangeDataCaptureUnits-Kinesis"
+    },
+    "sku": "7HJRMNFMKCHMCRU3"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "7HJRMNFMKCHMCRU3.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "7HJRMNFMKCHMCRU3.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.11308 per million change data capture units for Kinesis Data Streams in EU (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000001131"
+        },
+        "rateCode": "7HJRMNFMKCHMCRU3.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ChangeDataCaptureUnits"
+       }
+      },
+      "sku": "7HJRMNFMKCHMCRU3",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReadUnitsIA",
+     "groupDescription": "DynamoDB Provisioned Read Units IA",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "CommittedThroughput",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-IA-ReadCapacityUnit-Hrs"
+    },
+    "productFamily": "Provisioned IOPS",
+    "sku": "929YHNJB836DANWG"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "929YHNJB836DANWG.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "929YHNJB836DANWG.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.0001840 per hour for units of IA read capacity in EU (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0001840000"
+        },
+        "rateCode": "929YHNJB836DANWG.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ReadCapacityUnit-Hrs"
+       }
+      },
+      "sku": "929YHNJB836DANWG",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-VectorSearch",
+     "groupDescription": "DynamoDB PayPerRequest Vector Search",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "tableclass": "Standard",
+     "usagetype": "EU-VectorSearch"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "AKUA55MWTA27K436"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "AKUA55MWTA27K436.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "AKUA55MWTA27K436.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.00226 per GB of vector data searched in EU (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0022600000"
+        },
+        "rateCode": "AKUA55MWTA27K436.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "AKUA55MWTA27K436",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-IA-TimedStorage-ByteHrs",
+     "volumeType": "Amazon DynamoDB - Indexed DataStore - IA"
+    },
+    "productFamily": "Database Storage",
+    "sku": "B2BBU98HJ8KQJDE2"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "B2BBU98HJ8KQJDE2.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "B2BBU98HJ8KQJDE2.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.11320 per GB-Month of IA storage in EU (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.1132000000"
+        },
+        "rateCode": "B2BBU98HJ8KQJDE2.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB-Mo"
+       }
+      },
+      "sku": "B2BBU98HJ8KQJDE2",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-ImportDataSize-Bytes",
+     "volumeType": "Amazon DynamoDB - Import Size"
+    },
+    "productFamily": "Amazon DynamoDB Import Data Size",
+    "sku": "CCFHSCBB9JKMVKXZ"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "CCFHSCBB9JKMVKXZ.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "CCFHSCBB9JKMVKXZ.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.1700 per GB for data import in EU (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.1700000000"
+        },
+        "rateCode": "CCFHSCBB9JKMVKXZ.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "CCFHSCBB9JKMVKXZ",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-VectorWriteRequest-IA",
+     "groupDescription": "DynamoDB PayPerRequest Write Request Units IA",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-IA-VectorWriteRequest"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "DSWRAJR4TTSXM46K"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "DSWRAJR4TTSXM46K.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "DSWRAJR4TTSXM46K.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.7375 per GB of IA vector write requests in EU (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.7375000000"
+        },
+        "rateCode": "DSWRAJR4TTSXM46K.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "DSWRAJR4TTSXM46K",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-TimedStorage-ByteHrs",
+     "volumeType": "Amazon DynamoDB - Indexed DataStore"
+    },
+    "productFamily": "Database Storage",
+    "sku": "E6MS5SS3AMMHBJC6"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "E6MS5SS3AMMHBJC6.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "E6MS5SS3AMMHBJC6.JRTCKXETXF.G2A93NZ7DT": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.00 per GB-Month of storage for first 25 free GB-Months",
+        "endRange": "25",
+        "pricePerUnit": {
+         "USD": "0.0000000000"
+        },
+        "rateCode": "E6MS5SS3AMMHBJC6.JRTCKXETXF.G2A93NZ7DT",
+        "unit": "GB-Mo"
+       },
+       "E6MS5SS3AMMHBJC6.JRTCKXETXF.VYAP54KATQ": {
+        "appliesTo": [],
+        "beginRange": "25",
+        "description": "$0.283 per GB-Month of storage used beyond first 25 free GB-Months",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.2830000000"
+        },
+        "rateCode": "E6MS5SS3AMMHBJC6.JRTCKXETXF.VYAP54KATQ",
+        "unit": "GB-Mo"
+       }
+      },
+      "sku": "E6MS5SS3AMMHBJC6",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-WriteUnits",
+     "groupDescription": "DynamoDB PayPerRequest Write Request Units",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "PayPerRequestThroughput",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-WriteRequestUnits"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "F4EZE5SAMS3D49NJ"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "F4EZE5SAMS3D49NJ.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "F4EZE5SAMS3D49NJ.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.705 per million write request units (EU (Ireland))",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000007050"
+        },
+        "rateCode": "F4EZE5SAMS3D49NJ.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "WriteRequestUnits"
+       }
+      },
+      "sku": "F4EZE5SAMS3D49NJ",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-StreamsReadRequests",
+     "groupDescription": "DynamoDB Streams read request (GetRecords API)",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "GetRecords",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-Streams-Requests"
+    },
+    "productFamily": "API Request",
+    "sku": "F9Z7FWVDM8TCTC76"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "F9Z7FWVDM8TCTC76.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "F9Z7FWVDM8TCTC76.JRTCKXETXF.AUKFMGQW43": {
+        "appliesTo": [],
+        "beginRange": "2500000",
+        "description": "$0.0000002264 per DynamoDB Streams read request unit beyond free tier (EU (Ireland))",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000002260"
+        },
+        "rateCode": "F9Z7FWVDM8TCTC76.JRTCKXETXF.AUKFMGQW43",
+        "unit": "Requests"
+       },
+       "F9Z7FWVDM8TCTC76.JRTCKXETXF.M9QGYPQ72M": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.00 for 2.5 million DynamoDB Streams read request units for a month (free tier) (EU (Ireland))",
+        "endRange": "2500000",
+        "pricePerUnit": {
+         "USD": "0.0000000000"
+        },
+        "rateCode": "F9Z7FWVDM8TCTC76.JRTCKXETXF.M9QGYPQ72M",
+        "unit": "Requests"
+       }
+      },
+      "sku": "F9Z7FWVDM8TCTC76",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-TimedBackupStorage-ByteHrs",
+     "volumeType": "Amazon DynamoDB - On-Demand Backup Storage"
+    },
+    "productFamily": "Amazon DynamoDB On-Demand Backup Storage",
+    "sku": "FCKG4HDBNTADKURG"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "FCKG4HDBNTADKURG.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "FCKG4HDBNTADKURG.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.11 per GB-Month of storage used for on-demand backup",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.1100000000"
+        },
+        "rateCode": "FCKG4HDBNTADKURG.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB-Month"
+       }
+      },
+      "sku": "FCKG4HDBNTADKURG",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-VectorSearch-IA",
+     "groupDescription": "DynamoDB PayPerRequest Vector Search IA",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-IA-VectorSearch"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "GXSPM8KQCF3WJZ3A"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "GXSPM8KQCF3WJZ3A.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "GXSPM8KQCF3WJZ3A.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.00285 per GB of IA vector data searched in EU (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0028500000"
+        },
+        "rateCode": "GXSPM8KQCF3WJZ3A.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "GXSPM8KQCF3WJZ3A",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReadUnits",
+     "groupDescription": "DynamoDB Provisioned Read Units",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "CommittedThroughput",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-ReadCapacityUnit-Hrs"
+    },
+    "productFamily": "Provisioned IOPS",
+    "sku": "J7FH9ZNSN6J2RR9Q"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "J7FH9ZNSN6J2RR9Q.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "J7FH9ZNSN6J2RR9Q.JRTCKXETXF.E63J5HTPNN": {
+        "appliesTo": [],
+        "beginRange": "18600",
+        "description": "$0.000147 per hour for units of read capacity beyond the free tier",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0001470000"
+        },
+        "rateCode": "J7FH9ZNSN6J2RR9Q.JRTCKXETXF.E63J5HTPNN",
+        "unit": "ReadCapacityUnit-Hrs"
+       },
+       "J7FH9ZNSN6J2RR9Q.JRTCKXETXF.HBHVWY47CM": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.00 per hour for 25 units of read capacity for a month (free tier)",
+        "endRange": "18600",
+        "pricePerUnit": {
+         "USD": "0.0000000000"
+        },
+        "rateCode": "J7FH9ZNSN6J2RR9Q.JRTCKXETXF.HBHVWY47CM",
+        "unit": "ReadCapacityUnit-Hrs"
+       }
+      },
+      "sku": "J7FH9ZNSN6J2RR9Q",
+      "termAttributes": {}
+     }
+    },
+    "Reserved": {
+     "J7FH9ZNSN6J2RR9Q.VG8YD49WWM": {
+      "effectiveDate": "2026-09-11T12:44:26Z",
+      "offerTermCode": "VG8YD49WWM",
+      "priceDimensions": {
+       "J7FH9ZNSN6J2RR9Q.VG8YD49WWM.2TG2D8R56U": {
+        "appliesTo": [],
+        "description": "Upfront Fee",
+        "pricePerUnit": {
+         "USD": "0.4068"
+        },
+        "rateCode": "J7FH9ZNSN6J2RR9Q.VG8YD49WWM.2TG2D8R56U",
+        "unit": "Quantity"
+       },
+       "J7FH9ZNSN6J2RR9Q.VG8YD49WWM.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "Amazon DynamoDB, Reserved Read Capacity used this month",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000180000"
+        },
+        "rateCode": "J7FH9ZNSN6J2RR9Q.VG8YD49WWM.6YS6EN2CT7",
+        "unit": "ReadCapacityUnit-Hrs"
+       }
+      },
+      "sku": "J7FH9ZNSN6J2RR9Q",
+      "termAttributes": {
+       "LeaseContractLength": "3yr",
+       "OfferingClass": "standard",
+       "PurchaseOption": "Heavy Utilization"
+      }
+     },
+     "J7FH9ZNSN6J2RR9Q.YTVHEVGPBZ": {
+      "effectiveDate": "2026-09-11T12:44:26Z",
+      "offerTermCode": "YTVHEVGPBZ",
+      "priceDimensions": {
+       "J7FH9ZNSN6J2RR9Q.YTVHEVGPBZ.2TG2D8R56U": {
+        "appliesTo": [],
+        "description": "Upfront Fee",
+        "pricePerUnit": {
+         "USD": "0.339"
+        },
+        "rateCode": "J7FH9ZNSN6J2RR9Q.YTVHEVGPBZ.2TG2D8R56U",
+        "unit": "Quantity"
+       },
+       "J7FH9ZNSN6J2RR9Q.YTVHEVGPBZ.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "Amazon DynamoDB, Reserved Read Capacity used this month",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000290000"
+        },
+        "rateCode": "J7FH9ZNSN6J2RR9Q.YTVHEVGPBZ.6YS6EN2CT7",
+        "unit": "ReadCapacityUnit-Hrs"
+       }
+      },
+      "sku": "J7FH9ZNSN6J2RR9Q",
+      "termAttributes": {
+       "LeaseContractLength": "1yr",
+       "OfferingClass": "standard",
+       "PurchaseOption": "Heavy Utilization"
+      }
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReplicatedWriteUnits",
+     "groupDescription": "DynamoDB Provisioned Replicated Write Units",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "CommittedThroughput",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-ReplWriteCapacityUnit-Hrs"
+    },
+    "productFamily": "DDB-Operation-ReplicatedWrite",
+    "sku": "KRCBWB5SWCK6EEE5"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "KRCBWB5SWCK6EEE5.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "KRCBWB5SWCK6EEE5.JRTCKXETXF.E63J5HTPNN": {
+        "appliesTo": [],
+        "beginRange": "18600",
+        "description": "$0.000735 per hour for units of replicated write capacity beyond the free tier",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0007350000"
+        },
+        "rateCode": "KRCBWB5SWCK6EEE5.JRTCKXETXF.E63J5HTPNN",
+        "unit": "ReplicatedWriteCapacityUnit-Hrs"
+       },
+       "KRCBWB5SWCK6EEE5.JRTCKXETXF.HBHVWY47CM": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.00 per hour for 25 units of replicated write capacity for a month (free tier)",
+        "endRange": "18600",
+        "pricePerUnit": {
+         "USD": "0.0000000000"
+        },
+        "rateCode": "KRCBWB5SWCK6EEE5.JRTCKXETXF.HBHVWY47CM",
+        "unit": "ReplicatedWriteCapacityUnit-Hrs"
+       }
+      },
+      "sku": "KRCBWB5SWCK6EEE5",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-VectorWriteRequest",
+     "groupDescription": "DynamoDB PayPerRequest Vector Write Request",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "tableclass": "Standard",
+     "usagetype": "EU-VectorWriteRequest"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "MEMP4ZA2TASGCTHX"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "MEMP4ZA2TASGCTHX.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "MEMP4ZA2TASGCTHX.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.58656 per GB of vector write requests in EU (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.5865600000"
+        },
+        "rateCode": "MEMP4ZA2TASGCTHX.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "MEMP4ZA2TASGCTHX",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ElasticViews",
+     "groupDescription": "Change Data Capture Units for AWS Glue Elastic Views",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "DelegatedOperations",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-ChangeDataCaptureUnits-ElasticViews"
+    },
+    "sku": "NS3M59KZMTPT7BTY"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "NS3M59KZMTPT7BTY.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "NS3M59KZMTPT7BTY.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.11308 per million change data capture units for AWS Glue Elastic Views in EU (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000001131"
+        },
+        "rateCode": "NS3M59KZMTPT7BTY.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ChangeDataCaptureUnits"
+       }
+      },
+      "sku": "NS3M59KZMTPT7BTY",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReadUnitsIA",
+     "groupDescription": "DynamoDB PayPerRequest Read Request Units IA",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "PayPerRequestThroughput",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-IA-ReadRequestUnits"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "NZ66EMFUXA9Q8VMN"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "NZ66EMFUXA9Q8VMN.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "NZ66EMFUXA9Q8VMN.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.177 per million IA read request units in EU (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000001770"
+        },
+        "rateCode": "NZ66EMFUXA9Q8VMN.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ReadRequestUnits"
+       }
+      },
+      "sku": "NZ66EMFUXA9Q8VMN",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-RestoreDataSize-Bytes",
+     "volumeType": "Amazon DynamoDB - Backup Restore Size"
+    },
+    "productFamily": "Amazon DynamoDB Restore Data Size",
+    "sku": "Q5UBG7UUKU2DGAJK"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "Q5UBG7UUKU2DGAJK.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "Q5UBG7UUKU2DGAJK.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.17 per GB of data restored",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.1700000000"
+        },
+        "rateCode": "Q5UBG7UUKU2DGAJK.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "Q5UBG7UUKU2DGAJK",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-IncrementalExportDataSize-Bytes",
+     "volumeType": "Amazon DynamoDB - Incremental Export"
+    },
+    "productFamily": "Amazon DynamoDB Export Data Size",
+    "sku": "RZDPTTU47YYRR4PR"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "RZDPTTU47YYRR4PR.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "RZDPTTU47YYRR4PR.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.1100 per GB of incremental data exported in Europe (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.1100000000"
+        },
+        "rateCode": "RZDPTTU47YYRR4PR.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB"
+       }
+      },
+      "sku": "RZDPTTU47YYRR4PR",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-TimedPITRStorage-ByteHrs",
+     "volumeType": "Amazon DynamoDB - Point-In-Time-Restore (PITR) Backup Storage"
+    },
+    "productFamily": "Database Storage",
+    "sku": "W73KZTNZ7UBXFD8S"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "W73KZTNZ7UBXFD8S.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "W73KZTNZ7UBXFD8S.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.22 per GB-Month of storage used for DynamoDB PITR backup",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.2200000000"
+        },
+        "rateCode": "W73KZTNZ7UBXFD8S.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "GB-Mo"
+       }
+      },
+      "sku": "W73KZTNZ7UBXFD8S",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-ReplicatedWriteUnits",
+     "groupDescription": "DynamoDB PayPerRequest Replicated Write Request Units",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "PayPerRequestThroughput",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-ReplWriteRequestUnits"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "Y8RETJA3NHS97536"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "Y8RETJA3NHS97536.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "Y8RETJA3NHS97536.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.705 per million replicated write request units (EU (Ireland))",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000007050"
+        },
+        "rateCode": "Y8RETJA3NHS97536.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "ReplicatedWriteRequestUnits"
+       }
+      },
+      "sku": "Y8RETJA3NHS97536",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  },
+  {
+   "product": {
+    "attributes": {
+     "group": "DDB-WriteUnitsIA",
+     "groupDescription": "DynamoDB PayPerRequest Write Request Units IA",
+     "location": "EU (Ireland)",
+     "locationType": "AWS Region",
+     "operation": "PayPerRequestThroughput",
+     "regionCode": "eu-west-1",
+     "servicecode": "AmazonDynamoDB",
+     "servicename": "Amazon DynamoDB",
+     "usagetype": "EU-IA-WriteRequestUnits"
+    },
+    "productFamily": "Amazon DynamoDB PayPerRequest Throughput",
+    "sku": "ZHRGYS37PRKU6NZT"
+   },
+   "publicationDate": "2026-09-11T12:44:22Z",
+   "serviceCode": "AmazonDynamoDB",
+   "terms": {
+    "OnDemand": {
+     "ZHRGYS37PRKU6NZT.JRTCKXETXF": {
+      "effectiveDate": "2026-08-01T00:00:00Z",
+      "offerTermCode": "JRTCKXETXF",
+      "priceDimensions": {
+       "ZHRGYS37PRKU6NZT.JRTCKXETXF.6YS6EN2CT7": {
+        "appliesTo": [],
+        "beginRange": "0",
+        "description": "$0.885 per million IA write request units in EU (Ireland)",
+        "endRange": "Inf",
+        "pricePerUnit": {
+         "USD": "0.0000008850"
+        },
+        "rateCode": "ZHRGYS37PRKU6NZT.JRTCKXETXF.6YS6EN2CT7",
+        "unit": "WriteRequestUnits"
+       }
+      },
+      "sku": "ZHRGYS37PRKU6NZT",
+      "termAttributes": {}
+     }
+    }
+   },
+   "version": "20260911124422"
+  }
+ ],
+ "source": "aws pricing get-products --service-code AmazonDynamoDB --filters regionCode=eu-west-1 (format aws_v1)"
+}
