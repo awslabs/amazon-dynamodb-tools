@@ -93,6 +93,22 @@ settings = Settings(
 |---------------------|---------|-------------|
 | `PRICING_API_REGION` | `"us-east-1"` | Region for Pricing API (us-east-1 or ap-south-1) |
 | `PRICING_REFRESH_DAYS` | `30` | Days before refreshing pricing data |
+| `PRICING_TERMS` | `"on-demand"` | Price List terms to collect: `on-demand`, or `all` to also store Reserved Capacity (1yr/3yr) prices. See [Reserved Capacity pricing](#reserved-capacity-pricing) |
+
+#### Reserved Capacity pricing
+
+By default only On-Demand price terms are stored in `pricing_data`, the same rows
+earlier versions store. With `PRICING_TERMS=all` (or `discover --pricing-terms all`)
+Reserved Capacity terms are stored too: for each lease (`1yr`, `3yr`) an hourly
+rate row and an upfront fee row (`unit = 'Quantity'`), with `term_type = 'Reserved'`
+and `lease_contract_length` / `purchase_option` filled in. Switching to `all`
+refetches pricing on the next collection instead of waiting for
+`PRICING_REFRESH_DAYS`.
+
+Reserved hourly rows share `usage_type`, `operation` and `end_range = 'Inf'` with
+the On-Demand provisioned rows. If you query `pricing_data` directly and enable
+`all`, add `term_type = 'OnDemand'` to keep getting On-Demand prices, or use
+`dynamodb_optima.pricing.get_region_pricing()`, which returns named prices.
 
 ### Metrics Collection Settings
 

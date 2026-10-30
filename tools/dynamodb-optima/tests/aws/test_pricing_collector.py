@@ -18,6 +18,7 @@ from dynamodb_optima.aws.pricing_collector import (
     AMERICAN_REGIONS,
     ON_DEMAND_TERMS,
     PricingCollector,
+    terms_for,
 )
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "pricing"
@@ -114,6 +115,30 @@ class TestPricingCollector:
     def test_terms_must_include_on_demand(self):
         with pytest.raises(ValueError, match="OnDemand"):
             PricingCollector(terms=("Reserved",))
+
+    def test_terms_names(self):
+        assert terms_for("on-demand") == ON_DEMAND_TERMS
+        assert terms_for("all") == ALL_TERMS
+        with pytest.raises(ValueError, match="reserved-only"):
+            terms_for("reserved-only")
+
+    def test_default_terms_follow_settings(self, monkeypatch):
+        from dynamodb_optima import config
+
+        monkeypatch.setattr(config.settings, "pricing_terms", "all")
+        assert PricingCollector().terms == ALL_TERMS
+        assert PricingCollector(terms=ON_DEMAND_TERMS).terms == ON_DEMAND_TERMS
+
+    def test_pricing_terms_setting(self, monkeypatch):
+        from pydantic import ValidationError
+
+        from dynamodb_optima.config import Settings
+
+        assert Settings().pricing_terms == "on-demand"
+        monkeypatch.setenv("PRICING_TERMS", "all")
+        assert Settings().pricing_terms == "all"
+        with pytest.raises(ValidationError):
+            Settings(pricing_terms="reserved-only")
 
     def test_parse_reserved_dimensions(self, all_terms_collector):
         """Reserved terms are stored with their lease and both price dimensions."""

@@ -10,7 +10,7 @@ The documentation should reflect all available environment variables and their
 default values, types, and descriptions.
 """
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
@@ -126,6 +126,13 @@ class Settings(BaseSettings):
     pricing_refresh_days: int = Field(
         default=30,
         description="Days before refreshing pricing data from AWS Pricing API"
+    )
+    pricing_terms: Literal["on-demand", "all"] = Field(
+        default="on-demand",
+        description=(
+            "Price List terms to collect: 'on-demand' (default) or 'all' "
+            "(also Reserved Capacity)"
+        ),
     )
 
     # API settings
