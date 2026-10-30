@@ -118,10 +118,16 @@ class MissingPricingError(ValueError):
     def __init__(self, region_code: str, missing: List[str]):
         self.region_code = region_code
         self.missing = missing
-        super().__init__(
+        message = (
             f"Missing DynamoDB pricing for {region_code}: {', '.join(missing)}. "
             "Run pricing collection for this region first."
         )
+        if any(PRICE_KEYS.get(k, PriceSpec("")).term_type == RESERVED for k in missing):
+            message += (
+                " Reserved Capacity prices are only collected with "
+                "PRICING_TERMS=all or discover --pricing-terms all."
+            )
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
