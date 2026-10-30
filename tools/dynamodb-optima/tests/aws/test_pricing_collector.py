@@ -13,7 +13,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from dynamodb_optima.aws.pricing_collector import PricingCollector, AMERICAN_REGIONS
+from dynamodb_optima.aws.pricing_collector import (
+    ALL_TERMS,
+    AMERICAN_REGIONS,
+    ON_DEMAND_TERMS,
+    PricingCollector,
+)
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "pricing"
 
@@ -57,6 +62,11 @@ def collector():
     return PricingCollector()
 
 
+@pytest.fixture
+def all_terms_collector():
+    return PricingCollector(terms=ALL_TERMS)
+
+
 def stored_count(conn, region_code: str) -> int:
     return conn.execute(
         "SELECT COUNT(*) FROM pricing_data WHERE region_code = ?", (region_code,)
@@ -90,10 +100,25 @@ class TestPricingCollector:
             assert r["operation"] == "CommittedThroughput"
             assert r["lease_contract_length"] is None
 
-    def test_parse_reserved_dimensions(self, collector):
-        """Reserved terms are stored with their lease and both price dimensions."""
+    def test_default_terms_are_on_demand_only(self, collector):
+        """By default the collector stores exactly what released versions store."""
+        assert collector.terms == ON_DEMAND_TERMS
         product = product_for("us-west-2", "USW2-WriteCapacityUnit-Hrs")
         records = collector._parse_product(product, "us-west-2", [])
+        assert {r["term_type"] for r in records} == {"OnDemand"}
+
+    def test_unknown_terms_are_rejected(self):
+        with pytest.raises(ValueError, match="Spot"):
+            PricingCollector(terms=("OnDemand", "Spot"))
+
+    def test_terms_must_include_on_demand(self):
+        with pytest.raises(ValueError, match="OnDemand"):
+            PricingCollector(terms=("Reserved",))
+
+    def test_parse_reserved_dimensions(self, all_terms_collector):
+        """Reserved terms are stored with their lease and both price dimensions."""
+        product = product_for("us-west-2", "USW2-WriteCapacityUnit-Hrs")
+        records = all_terms_collector._parse_product(product, "us-west-2", [])
         reserved = [r for r in records if r["term_type"] == "Reserved"]
 
         assert sorted(
@@ -134,8 +159,10 @@ class TestPricingCollector:
 
         assert prices == {0.000000125, 0.0000009999}
 
-    def test_on_demand_records_unchanged_for_reserved_products(self, collector):
-        """Adding Reserved parsing must not alter the On-Demand rows."""
+    def test_on_demand_records_unchanged_for_reserved_products(
+        self, collector, all_terms_collector
+    ):
+        """Opting in to Reserved terms must not alter the On-Demand rows."""
         product = product_for("us-west-2", "USW2-WriteCapacityUnit-Hrs")
         on_demand_only = json.loads(json.dumps(product))
         del on_demand_only["terms"]["Reserved"]
@@ -154,8 +181,11 @@ class TestPricingCollector:
             )
 
         assert comparable(
-            collector._parse_product(product, "us-west-2", [])
+            all_terms_collector._parse_product(product, "us-west-2", [])
         ) == comparable(collector._parse_product(on_demand_only, "us-west-2", []))
+        assert comparable(
+            all_terms_collector._parse_product(product, "us-west-2", [])
+        ) == comparable(collector._parse_product(product, "us-west-2", []))
 
     @pytest.mark.asyncio
     async def test_collect_region_pricing_follows_pagination(self, collector):

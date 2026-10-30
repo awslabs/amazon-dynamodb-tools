@@ -9,7 +9,7 @@ import json
 import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Dict, List, Optional, Set
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import aioboto3
 from botocore.exceptions import ClientError
@@ -27,19 +27,41 @@ AMERICAN_REGIONS = [
     "ca-central-1", "ca-west-1", "sa-east-1"
 ]
 
+# Price List term types the collector can store. On-Demand only is the default,
+# which is exactly what released versions store; Reserved is opt-in.
+ON_DEMAND_TERMS = ("OnDemand",)
+ALL_TERMS = ("OnDemand", "Reserved")
+
 
 class PricingCollector:
     """
     Comprehensive collector for DynamoDB pricing data from AWS Pricing API.
-    
+
     Discovers available attributes dynamically and collects all SKUs for all regions.
     """
-    
-    def __init__(self):
-        """Initialize pricing collector."""
+
+    def __init__(self, terms: Optional[Iterable[str]] = None):
+        """Initialize pricing collector.
+
+        Args:
+            terms: Price List term types to store (default: ON_DEMAND_TERMS).
+                Pass ALL_TERMS to also store Reserved Capacity prices.
+        """
         self.settings = get_settings()
         self.session = aioboto3.Session()
         self._available_attributes: Optional[List[str]] = None
+        self.terms = self._validate_terms(ON_DEMAND_TERMS if terms is None else terms)
+
+    @staticmethod
+    def _validate_terms(terms: Iterable[str]) -> Tuple[str, ...]:
+        requested = set(terms)
+        unknown = sorted(requested - set(ALL_TERMS))
+        if unknown:
+            raise ValueError(f"Unknown pricing terms: {', '.join(unknown)}")
+        if "OnDemand" not in requested:
+            raise ValueError("Pricing terms must include OnDemand")
+        # Canonical order, so ("Reserved", "OnDemand") == ALL_TERMS
+        return tuple(t for t in ALL_TERMS if t in requested)
     
     def _get_pricing_api_region(self, target_region: str) -> str:
         """
@@ -184,9 +206,9 @@ class PricingCollector:
         """
         Parse a product from the pricing API response.
         
-        Returns ALL price dimensions (including free tier) of every OnDemand and
-        Reserved term as separate records. Reserved terms carry an hourly rate
-        and an upfront fee (unit 'Quantity') as two dimensions.
+        Returns ALL price dimensions (including free tier) of every term of the
+        configured term types (self.terms) as separate records. Reserved terms
+        carry an hourly rate and an upfront fee (unit 'Quantity') as two dimensions.
 
         Args:
             product: Raw product JSON from AWS
@@ -203,7 +225,7 @@ class PricingCollector:
             terms = product.get("terms", {})
 
             records = []
-            for term_type in ("OnDemand", "Reserved"):
+            for term_type in self.terms:
                 for term_data in terms.get(term_type, {}).values():
                     # Lease attributes are only present on Reserved terms (NULL for OnDemand)
                     term_attrs = term_data.get("termAttributes", {}) if term_type == "Reserved" else {}

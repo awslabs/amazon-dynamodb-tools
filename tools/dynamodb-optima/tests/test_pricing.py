@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from dynamodb_optima.aws.pricing_collector import PricingCollector
+from dynamodb_optima.aws.pricing_collector import ALL_TERMS, PricingCollector
 from dynamodb_optima.pricing import (
     DEFAULT_REQUIRED,
     PRICE_KEYS,
@@ -20,7 +20,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "pricing"
 
 
 async def store_fixture(conn, region_code: str) -> None:
-    collector = PricingCollector()
+    collector = PricingCollector(terms=ALL_TERMS)
     products = json.loads((FIXTURES / f"get_products_{region_code}.json").read_text())[
         "PriceList"
     ]
