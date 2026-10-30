@@ -31,6 +31,16 @@ AMERICAN_REGIONS = [
 # which is exactly what released versions store; Reserved is opt-in.
 ON_DEMAND_TERMS = ("OnDemand",)
 ALL_TERMS = ("OnDemand", "Reserved")
+TERMS_BY_NAME = {"on-demand": ON_DEMAND_TERMS, "all": ALL_TERMS}
+
+
+def terms_for(name: str) -> Tuple[str, ...]:
+    """Term types for a CLI/config name ('on-demand' or 'all')."""
+    if name not in TERMS_BY_NAME:
+        raise ValueError(
+            f"Unknown pricing terms '{name}'; expected one of: {', '.join(TERMS_BY_NAME)}"
+        )
+    return TERMS_BY_NAME[name]
 
 
 class PricingCollector:
@@ -44,13 +54,16 @@ class PricingCollector:
         """Initialize pricing collector.
 
         Args:
-            terms: Price List term types to store (default: ON_DEMAND_TERMS).
-                Pass ALL_TERMS to also store Reserved Capacity prices.
+            terms: Price List term types to store. Defaults to the pricing_terms
+                setting ('on-demand' unless configured). Pass ALL_TERMS to also
+                store Reserved Capacity prices.
         """
         self.settings = get_settings()
         self.session = aioboto3.Session()
         self._available_attributes: Optional[List[str]] = None
-        self.terms = self._validate_terms(ON_DEMAND_TERMS if terms is None else terms)
+        if terms is None:
+            terms = terms_for(self.settings.pricing_terms)
+        self.terms = self._validate_terms(terms)
 
     @staticmethod
     def _validate_terms(terms: Iterable[str]) -> Tuple[str, ...]:
