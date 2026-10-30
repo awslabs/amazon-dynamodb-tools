@@ -9,18 +9,16 @@ import pytest
 from unittest.mock import Mock, MagicMock
 from datetime import datetime, timedelta
 import duckdb
-from pathlib import Path
-import tempfile
 
 
 @pytest.fixture
-def temp_db_path():
-    """Create a temporary database path for testing."""
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        db_path = f.name
-    yield db_path
-    # Cleanup
-    Path(db_path).unlink(missing_ok=True)
+def temp_db_path(tmp_path):
+    """Path for a temporary database file that does not exist yet.
+
+    DuckDB refuses to open an existing empty file, so the path must not be
+    pre-created (e.g. by NamedTemporaryFile).
+    """
+    return str(tmp_path / "test.db")
 
 
 @pytest.fixture
