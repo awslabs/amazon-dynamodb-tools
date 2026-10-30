@@ -19,13 +19,36 @@ from dynamodb_optima.aws.pricing_collector import PricingCollector
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "pricing"
 
-# us-west-2 On-Demand list prices from the recorded fixture.
-EXPECTED_ON_DEMAND = {
-    "on_demand_read": 0.000000125,
-    "on_demand_write": 0.000000625,
-    "provisioned_read": 0.00013,
-    "provisioned_write": 0.00065,
+# On-Demand list prices from the recorded fixtures, as each reader returns them.
+STANDARD = ("on_demand_read", "on_demand_write", "provisioned_read", "provisioned_write")
+EXPECTED = {
+    "us-east-1": {
+        "on_demand_read": 1.25e-07, "on_demand_write": 6.25e-07,
+        "provisioned_read": 0.00013, "provisioned_write": 0.00065,
+        "on_demand_read_ia": 1.55e-07, "on_demand_write_ia": 7.8e-07,
+        "provisioned_read_ia": 0.00016, "provisioned_write_ia": 0.00081,
+    },
+    "us-west-2": {
+        "on_demand_read": 1.25e-07, "on_demand_write": 6.25e-07,
+        "provisioned_read": 0.00013, "provisioned_write": 0.00065,
+        "on_demand_read_ia": 1.55e-07, "on_demand_write_ia": 7.8e-07,
+        "provisioned_read_ia": 0.00016, "provisioned_write_ia": 0.00081,
+    },
+    "eu-west-1": {
+        "on_demand_read": 1.415e-07, "on_demand_write": 7.05e-07,
+        "provisioned_read": 0.000147, "provisioned_write": 0.000735,
+        "on_demand_read_ia": 1.77e-07, "on_demand_write_ia": 8.85e-07,
+        "provisioned_read_ia": 0.000184, "provisioned_write_ia": 0.000919,
+    },
 }
+
+
+def expected_for(analyzer_cls, region_code: str) -> dict:
+    """CapacityModeAnalyzer returns Standard + IA keys; UtilizationAnalyzer only Standard."""
+    prices = EXPECTED[region_code]
+    if analyzer_cls is UtilizationAnalyzer:
+        return {k: prices[k] for k in STANDARD}
+    return prices
 
 
 def load_products(region_code: str) -> list:
@@ -83,26 +106,23 @@ async def store(conn, region_code: str, include_reserved: bool) -> None:
     await collector.store_pricing_in_database(region_code, records, conn)
 
 
-def subset(pricing: dict) -> dict:
-    return {k: pricing[k] for k in EXPECTED_ON_DEMAND}
-
-
 @pytest.mark.unit
+@pytest.mark.parametrize("region_code", sorted(EXPECTED))
 @pytest.mark.parametrize("analyzer_cls", [CapacityModeAnalyzer, UtilizationAnalyzer])
 class TestPricingReaders:
 
     @pytest.mark.asyncio
-    async def test_on_demand_prices(self, analyzer_cls, db_connection):
-        await store(db_connection, "us-west-2", include_reserved=False)
+    async def test_on_demand_prices(self, analyzer_cls, region_code, db_connection):
+        await store(db_connection, region_code, include_reserved=False)
 
-        assert subset(analyzer_cls(db_connection)._get_pricing("us-west-2")) == pytest.approx(
-            EXPECTED_ON_DEMAND
+        assert analyzer_cls(db_connection)._get_pricing(region_code) == pytest.approx(
+            expected_for(analyzer_cls, region_code)
         )
 
     @pytest.mark.asyncio
-    async def test_reserved_rows_do_not_change_prices(self, analyzer_cls, db_connection):
-        await store(db_connection, "us-west-2", include_reserved=True)
+    async def test_reserved_rows_do_not_change_prices(self, analyzer_cls, region_code, db_connection):
+        await store(db_connection, region_code, include_reserved=True)
 
-        assert subset(analyzer_cls(db_connection)._get_pricing("us-west-2")) == pytest.approx(
-            EXPECTED_ON_DEMAND
+        assert analyzer_cls(db_connection)._get_pricing(region_code) == pytest.approx(
+            expected_for(analyzer_cls, region_code)
         )
