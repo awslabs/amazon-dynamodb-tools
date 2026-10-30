@@ -12,12 +12,45 @@ import click
 from ..aws.discovery import DiscoveryManager
 from ..aws.cur_discovery import CURDiscovery
 from ..aws.organizations import OrganizationsManager
-from ..aws.pricing_collector import PricingCollector
+from ..aws.pricing_collector import PricingCollector, terms_for
 from ..config import get_settings
 from ..database.connection import get_connection
 from ..logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _collect_pricing(region_list, pricing_terms: Optional[str]) -> None:
+    """Collect pricing for the regions; failures are reported, not raised.
+
+    Args:
+        region_list: AWS region codes to collect pricing for
+        pricing_terms: "on-demand", "all", or None to use the PRICING_TERMS setting
+    """
+    click.echo("💰 Collecting DynamoDB pricing data...")
+    click.echo()
+
+    try:
+        terms = terms_for(pricing_terms) if pricing_terms else None
+        pricing_collector = PricingCollector(terms=terms)
+        conn = get_connection()
+
+        asyncio.run(
+            pricing_collector.collect_all_regions(
+                regions=region_list,
+                connection=conn,
+                force_refresh=False  # Only refresh if stale
+            )
+        )
+
+        click.echo("✅ Pricing data collection complete!")
+        click.echo()
+
+    except Exception as e:
+        logger.error(f"Pricing collection failed: {e}", exc_info=True)
+        click.echo(f"⚠️  Pricing collection failed: {e}")
+        click.echo("   Analysis commands may fail without pricing data")
+        click.echo()
 
 
 @click.command(name="discover")
@@ -57,6 +90,13 @@ logger = get_logger(__name__)
     "--cur-override",
     help="Manual CUR S3 location override (s3://bucket/prefix)",
 )
+@click.option(
+    "--pricing-terms",
+    type=click.Choice(["on-demand", "all"]),
+    default=None,
+    help="Price List terms to collect: on-demand, or all to also store Reserved "
+    "Capacity prices (default: PRICING_TERMS setting, on-demand)",
+)
 @click.pass_context
 def discover(
     ctx: click.Context,
@@ -69,6 +109,7 @@ def discover(
     resume: bool,
     operation_id: Optional[str],
     cur_override: Optional[str],
+    pricing_terms: Optional[str],
 ) -> None:
     """Discover DynamoDB tables and GSIs across AWS regions.
     
@@ -259,29 +300,7 @@ def discover(
             click.echo()
         
         # Collect comprehensive pricing data for all discovered regions
-        click.echo("💰 Collecting DynamoDB pricing data...")
-        click.echo()
-        
-        try:
-            pricing_collector = PricingCollector()
-            conn = get_connection()
-            
-            asyncio.run(
-                pricing_collector.collect_all_regions(
-                    regions=region_list,
-                    connection=conn,
-                    force_refresh=False  # Only refresh if stale
-                )
-            )
-            
-            click.echo("✅ Pricing data collection complete!")
-            click.echo()
-            
-        except Exception as e:
-            logger.error(f"Pricing collection failed: {e}", exc_info=True)
-            click.echo(f"⚠️  Pricing collection failed: {e}")
-            click.echo("   Analysis commands may fail without pricing data")
-            click.echo()
+        _collect_pricing(region_list, pricing_terms)
         
         # Get summary from database
         summary = discovery_manager.list_discovered_resources()
