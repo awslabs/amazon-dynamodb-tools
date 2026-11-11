@@ -19,9 +19,13 @@ from .connection import get_database_manager
 
 logger = get_logger("dynamodb_optima.database.lake")
 
+# A row is one CloudWatch series at one timestamp. Per-operation metrics (for example
+# SuccessfulRequestLatency) share every other key column, so operation and
+# operation_type are part of the key. NULLs group together, so table-level rows
+# still dedup.
 _DEDUP_KEY = (
-    "account_id, region, table_name, resource_name, metric_name, timestamp, "
-    "statistic, period_seconds"
+    "account_id, region, table_name, resource_name, metric_name, operation, "
+    "operation_type, timestamp, statistic, period_seconds"
 )
 
 
