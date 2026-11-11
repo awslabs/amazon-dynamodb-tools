@@ -149,7 +149,7 @@ def run_export_pipeline(spark_context, parsed_args, transform_package, post_vali
 
         current_phase = "data reading"
         records_rdd, export_load_type, parser, total_expected_items = read_and_parse(
-            spark_context, validation['manifest_data'], path_resolver, validation['key_schema']
+            spark_context, validation['manifest_data'], path_resolver, validation['key_schema'], error_accumulator
         )
 
         current_phase = "transform"
