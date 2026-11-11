@@ -1,0 +1,134 @@
+{
+  "_comment": "Reference IAM policy templates for tools/ddb_migration. deploy.sh inlines the StreamReplayLambda policy automatically; the others are documented references for cross-account and standalone use. Substitute placeholders: ACCOUNT, REGION, SOURCE_ACCOUNT, TARGET_ACCOUNT, SOURCE_TABLE, TARGET_TABLE, EXPORT_BUCKET, DLQ_ARN, SNS_TOPIC_ARN, TARGET_ROLE_ARN.",
+
+  "StreamReplayLambda": {
+    "_comment": "Inline policy attached to the stream-replay Lambda's execution role. deploy.sh creates this automatically. Cross-account variants add the AssumeTargetRole statement.",
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "ReadSourceStream",
+        "Effect": "Allow",
+        "Action": [
+          "dynamodb:DescribeStream",
+          "dynamodb:GetShardIterator",
+          "dynamodb:GetRecords",
+          "dynamodb:ListStreams"
+        ],
+        "Resource": "arn:aws:dynamodb:REGION:ACCOUNT:table/SOURCE_TABLE/stream/*"
+      },
+      {
+        "Sid": "WriteTarget",
+        "Effect": "Allow",
+        "Action": ["dynamodb:PutItem", "dynamodb:UpdateItem"],
+        "Resource": "arn:aws:dynamodb:REGION:TARGET_ACCOUNT:table/TARGET_TABLE"
+      },
+      {
+        "Sid": "Logs",
+        "Effect": "Allow",
+        "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+        "Resource": "arn:aws:logs:REGION:ACCOUNT:log-group:/aws/lambda/ddb-migration-stream-replay:*"
+      },
+      {
+        "Sid": "Dlq",
+        "Effect": "Allow",
+        "Action": ["sqs:SendMessage"],
+        "Resource": "DLQ_ARN"
+      },
+      {
+        "Sid": "AssumeTargetRole",
+        "_comment": "Only present in cross-account deployments.",
+        "Effect": "Allow",
+        "Action": "sts:AssumeRole",
+        "Resource": "TARGET_ROLE_ARN"
+      }
+    ]
+  },
+
+  "BackfillScript": {
+    "_comment": "Permissions needed to run scripts/backfill.py from a host or CodeBuild.",
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "ReadExport",
+        "Effect": "Allow",
+        "Action": ["s3:GetObject", "s3:ListBucket"],
+        "Resource": [
+          "arn:aws:s3:::EXPORT_BUCKET",
+          "arn:aws:s3:::EXPORT_BUCKET/*"
+        ]
+      },
+      {
+        "Sid": "WriteTarget",
+        "Effect": "Allow",
+        "Action": ["dynamodb:PutItem", "dynamodb:DescribeTable"],
+        "Resource": "arn:aws:dynamodb:REGION:TARGET_ACCOUNT:table/TARGET_TABLE"
+      },
+      {
+        "Sid": "MonitorIteratorAge",
+        "Effect": "Allow",
+        "Action": ["cloudwatch:GetMetricStatistics"],
+        "Resource": "*"
+      }
+    ]
+  },
+
+  "ConvergenceCheckScript": {
+    "_comment": "Permissions needed to run scripts/convergence_check.py.",
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": ["dynamodb:Scan", "dynamodb:DescribeTable"],
+        "Resource": [
+          "arn:aws:dynamodb:REGION:ACCOUNT:table/SOURCE_TABLE",
+          "arn:aws:dynamodb:REGION:TARGET_ACCOUNT:table/TARGET_TABLE"
+        ]
+      },
+      {
+        "Effect": "Allow",
+        "Action": ["cloudwatch:GetMetricStatistics"],
+        "Resource": "*"
+      },
+      {
+        "Effect": "Allow",
+        "Action": ["sqs:GetQueueAttributes"],
+        "Resource": "arn:aws:sqs:REGION:ACCOUNT:ddb-migration-dlq"
+      }
+    ]
+  },
+
+  "CrossAccountTargetTablePolicy": {
+    "_comment": "Resource-based policy attached to the TARGET table in the target account. Trusts the source account's stream-replay Lambda role.",
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowSourceAccountToWrite",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::SOURCE_ACCOUNT:role/ddb-migration-stream-replay-role"
+        },
+        "Action": ["dynamodb:PutItem", "dynamodb:UpdateItem"],
+        "Resource": "arn:aws:dynamodb:REGION:TARGET_ACCOUNT:table/TARGET_TABLE"
+      }
+    ]
+  },
+
+  "CrossAccountExportBucketPolicy": {
+    "_comment": "Bucket policy on the source-account export bucket allowing the target-account backfill role to read.",
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowTargetAccountToRead",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::TARGET_ACCOUNT:root"
+        },
+        "Action": ["s3:GetObject", "s3:ListBucket"],
+        "Resource": [
+          "arn:aws:s3:::EXPORT_BUCKET",
+          "arn:aws:s3:::EXPORT_BUCKET/*"
+        ]
+      }
+    ]
+  }
+}
