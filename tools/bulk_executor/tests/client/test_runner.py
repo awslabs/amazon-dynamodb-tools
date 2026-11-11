@@ -1178,6 +1178,10 @@ class TestWatchLogGroup:
 
         assert unhealthy.is_set()
         bulk_runner._stop_glue_job.assert_called_once_with('jr-1')
+        # #353: this return path used to skip closing the stream, leaving it to
+        # be garbage-collected -- which surfaces as a stray urllib3 traceback
+        # ("Exception ignored in") printed after the job's own output.
+        event_stream.close.assert_called_once()
 
         # Stopping without saying why is the bug this replaced: the matched line is on a
         # stream we never print, and a stopped run carries no ErrorMessage of its own, so
