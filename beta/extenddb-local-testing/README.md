@@ -20,9 +20,9 @@ arm64 laptop:
 | container ready | 536 ms | 803 ms |
 | runtime | no JVM needed | JVM |
 
-On GitHub Actions, with warm caches, the whole suite takes 11 s for the
+On GitHub Actions, with warm caches, job time is 11 s for the
 TypeScript launcher job (no container), and 22 s, 24 s and 34 s for the
-TypeScript, Python and Java container jobs. The GitLab template is verified on
+TypeScript, Python and Java container jobs, including setup. The GitLab template is verified on
 GitLab CI: TypeScript 24 s, Python 27 s, Java 53 s.
 
 ## The swap
@@ -83,7 +83,7 @@ spec), which is far too slow for a local test, so lower it as the harnesses do.
 ### 2. Secondary index reads can lag writes
 
 - **Global** secondary index reads are eventually consistent, and GSIs never
-  support `ConsistentRead`. On ExtendDB the default lag is about 10 ms. Real
+  support `ConsistentRead`. On ExtendDB the lag is about 10 ms by default. Real
   DynamoDB is allowed to lag too, so retry rather than assume. The harnesses'
   `eventually` helper does this.
 - **Local** secondary index reads are strongly consistent only when you pass
@@ -112,13 +112,22 @@ Two server settings model the real service's delays: `control_plane_delay_second
 immediate, which is stricter than DynamoDB Local. Measured: 0 of 25 stale index
 reads, against 25 of 25 with the defaults.
 
+This recipe is for a local container you started yourself. Capture the
+password from the container's startup log, then make the two calls:
+
 ```bash
+podman run -d --name edb -p 127.0.0.1:18080:18080 \
+  -e EXTENDDB__STORAGE__SQLITE__PATH=:memory: extenddb/extenddb-dev:0.1.14
+# once the container is healthy (see the TypeScript harness README):
+PW=$(podman logs edb 2>&1 | awk '/Password:/ {print $2}')
 curl -u admin:$PW -X PUT -H 'Content-Type: application/json' -d '{"value":"0"}' http://127.0.0.1:18080/management/settings/control_plane_delay_seconds
 curl -u admin:$PW -X PUT -H 'Content-Type: application/json' -d '{"value":"0"}' http://127.0.0.1:18080/management/settings/index_propagation_delay_ms
 ```
 
 An in-memory server's admin password is random and printed to stderr at
-startup (`podman logs <container>` shows it).
+startup, which is what the `PW=` line above reads from the container's log. A
+service container in CI or the npm launcher prints it the same way, but you
+would have to read it from that job's own log.
 
 We recommend keeping the defaults. They make eventual-consistency bugs show up
 on your laptop and in CI instead of in production.
@@ -128,9 +137,9 @@ on your laptop and in CI instead of in production.
 - **GitHub Actions:** [`.github/workflows/extenddb-local-testing.yml`](../../.github/workflows/extenddb-local-testing.yml)
   is a live example with two jobs. `container` runs a TypeScript, Python and
   Java matrix with ExtendDB as a service container. `launcher` is TypeScript
-  only and has no container: the npm launcher `@extenddb/dev` spawns the native
+  only and has no `services:` block and no container: the npm launcher `@extenddb/dev` spawns the native
   ExtendDB binary as a child process on an ephemeral port, so parallel runs
-  cannot collide. Its service block is:
+  cannot collide. The `container` job's service block is:
 
   ```yaml
   services:
@@ -155,11 +164,14 @@ both flavours.
 
 - [`harness/typescript`](harness/typescript/README.md): Vitest. With no
   `DDB_ENDPOINT` it starts the server through `@extenddb/dev`. Needs Node 22.12
-  or later. Run `npm install && npm test`.
+  or later. Run `npm install && npm test` from
+  `beta/extenddb-local-testing/harness/typescript`.
 - [`harness/python`](harness/python): pytest with boto3. With no
   `DDB_ENDPOINT` it starts the container with `docker` or `podman`. Run
-  `pip install -r requirements.txt && python -m pytest -q`.
-- [`harness/java`](harness/java): JUnit with AWS SDK v2. Run `mvn -q test`.
+  `pip install -r requirements.txt && python -m pytest -q`, from
+  `beta/extenddb-local-testing/harness/python`.
+- [`harness/java`](harness/java): JUnit with AWS SDK v2. Run `mvn -q test` from
+  `beta/extenddb-local-testing/harness/java`.
   With no `DDB_ENDPOINT` (local runs only) it starts the container through Testcontainers, which worked with no
   extra variables on a machine where `/var/run/docker.sock` points at the
   podman socket. Where that link does not exist, set

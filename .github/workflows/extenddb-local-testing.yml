@@ -44,8 +44,9 @@ jobs:
     env:
       DDB_ENDPOINT: http://localhost:18080
       AWS_REGION: us-east-1
-      # AWS's documented example credentials, not real secrets. ExtendDB accepts
-      # any pair, but the SDKs insist on finding one.
+      # AWS's documented example credentials, not real secrets. The ExtendDB dev
+      # image seeds this pair and verifies every request's SigV4 signature
+      # against it, so the job's credentials have to match it.
       AWS_ACCESS_KEY_ID: AKIAIOSFODNN7EXAMPLE
       AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 

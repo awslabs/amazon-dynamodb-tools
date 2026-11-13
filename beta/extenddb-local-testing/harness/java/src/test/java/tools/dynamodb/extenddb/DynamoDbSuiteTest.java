@@ -167,7 +167,7 @@ class DynamoDbSuiteTest {
   }
 
   // Unlike an LSI read, a GSI read never supports ConsistentRead: it is always
-  // eventually consistent. It lags by a few milliseconds on ExtendDB by default
+  // eventually consistent. It lags by about 10 ms on ExtendDB by default
   // and is allowed to on real DynamoDB. `eventually` is the portable answer.
   @Test
   void queriesAGlobalSecondaryIndexOnceCaughtUp() {

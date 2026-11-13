@@ -99,7 +99,7 @@ def test_queries_a_local_secondary_index(db, table):
 
 
 # Unlike an LSI read, a GSI read never supports ConsistentRead: it is always
-# eventually consistent. It lags by a few milliseconds on ExtendDB by default
+# eventually consistent. It lags by about 10 ms on ExtendDB by default
 # and is allowed to on real DynamoDB. `eventually` is the portable answer.
 def test_queries_a_global_secondary_index_once_caught_up(db, table):
     db.put_item(TableName=table, Item=item(40, "SHIPPED"))
