@@ -71,6 +71,132 @@ def test_read_metrics_dedup_key_distinguishes_resource_name(tmp_path, monkeypatc
     assert sorted(df["value"].tolist()) == [60.0, 999.0]
 
 
+def _op_row(operation, value, ts, operation_type=None):
+    """A SuccessfulRequestLatency row. Rows that differ only in operation and
+    operation_type are different CloudWatch series."""
+    return dict(
+        _row("a", "us-east-1", "t", "SuccessfulRequestLatency", ts, value,
+             stat="Average", period=300),
+        operation=operation,
+        operation_type=operation_type,
+        dimensions={"TableName": "t", "Operation": operation},
+    )
+
+
+def _by_operation(df):
+    return sorted(zip(df["operation"], df["value"]))
+
+
+def _series(df):
+    """(operation, operation_type, value) of every row, with NULL shown as ''."""
+    import pandas as pd
+
+    def blank(x):
+        return "" if pd.isna(x) else x
+
+    return sorted(
+        (blank(o), blank(t), v)
+        for o, t, v in zip(df["operation"], df["operation_type"], df["value"])
+    )
+
+
+def _table_row(value, ts):
+    """The same metric with no operation: a table-level series."""
+    return dict(_op_row(None, value, ts), dimensions={"TableName": "t"})
+
+
+# One flush of the collector can hold table-level rows (no operation) and per-operation
+# rows together (a --comprehensive run), so a single DataFrame mixes None and strings
+# in operation.
+MIXED_SERIES = [
+    ("", "", 5.0),
+    ("BatchWriteItem", "Delete", 2.0),
+    ("BatchWriteItem", "Put", 1.0),
+    ("GetItem", "", 3.0),
+]
+
+
+def _mixed_rows(ts):
+    return [
+        _table_row(5.0, ts),
+        _op_row("BatchWriteItem", 1.0, ts, operation_type="Put"),
+        _op_row("BatchWriteItem", 2.0, ts, operation_type="Delete"),
+        _op_row("GetItem", 3.0, ts),
+    ]
+
+
+def test_read_metrics_dedup_key_distinguishes_operation(tmp_path, monkeypatch):
+    """SuccessfulRequestLatency is reported once per Operation; those series share
+    account/region/table/metric/timestamp/statistic/period and differ only by
+    operation. Dedup must keep one row per operation, not one row in total."""
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics(
+        [_op_row("GetItem", 1.0, ts), _op_row("PutItem", 2.0, ts)], run_id="run1"
+    )
+    lake.write_metrics([_op_row("Query", 3.0, ts)], run_id="run2")
+
+    df = lake.read_metrics("a", "us-east-1", "t", ts, ts)
+    assert _by_operation(df) == [("GetItem", 1.0), ("PutItem", 2.0), ("Query", 3.0)]
+
+
+def test_read_metrics_dedup_keeps_latest_ingest_per_operation(tmp_path, monkeypatch):
+    """Re-ingesting one operation replaces only that operation's row."""
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics(
+        [_op_row("GetItem", 1.0, ts), _op_row("PutItem", 2.0, ts)], run_id="run1"
+    )
+    lake.write_metrics([_op_row("GetItem", 10.0, ts)], run_id="run2")
+
+    df = lake.read_metrics("a", "us-east-1", "t", ts, ts)
+    assert _by_operation(df) == [("GetItem", 10.0), ("PutItem", 2.0)]
+
+
+def test_read_metrics_dedup_key_distinguishes_operation_type(tmp_path, monkeypatch):
+    """operation_type is stored as its own CloudWatch dimension (OperationType), so it
+    separates series the same way operation does."""
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics(
+        [
+            _op_row("BatchWriteItem", 1.0, ts, operation_type="Put"),
+            _op_row("BatchWriteItem", 2.0, ts, operation_type="Delete"),
+        ],
+        run_id="run1",
+    )
+
+    df = lake.read_metrics("a", "us-east-1", "t", ts, ts)
+    assert sorted(zip(df["operation_type"], df["value"])) == [("Delete", 2.0), ("Put", 1.0)]
+
+
+def test_read_metrics_dedup_keeps_rows_with_and_without_operation(tmp_path, monkeypatch):
+    """A table-level row (no operation) and a per-operation row of the same metric are
+    different series, and a re-ingested table-level row still collapses to the latest.
+    Written one run at a time, so two files' operation column is all NULL and one
+    file's holds strings."""
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    table_level = _table_row(5.0, ts)
+    lake.write_metrics([table_level], run_id="run1")
+    lake.write_metrics([_op_row("Query", 7.0, ts)], run_id="run2")
+    lake.write_metrics([dict(table_level, value=6.0)], run_id="run3")
+
+    df = lake.read_metrics("a", "us-east-1", "t", ts, ts)
+    assert _series(df) == [("", "", 6.0), ("Query", "", 7.0)]
+
+
+def test_read_metrics_dedup_keeps_a_mixed_batch_apart(tmp_path, monkeypatch):
+    """Table-level rows, per-operation rows and operation_type rows written by one
+    flush are all kept."""
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics(_mixed_rows(ts), run_id="run1")
+
+    df = lake.read_metrics("a", "us-east-1", "t", ts, ts)
+    assert _series(df) == MIXED_SERIES
+
+
 def test_read_metrics_empty_partition_returns_empty(tmp_path, monkeypatch):
     lake = _lake(tmp_path, monkeypatch)
     ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
@@ -247,6 +373,67 @@ def test_compact_dedup_keeps_latest_ingest_vs_existing_served(tmp_path, monkeypa
     df = lake.read_metrics("a", "us-east-1", "t", ts, ts)
     assert df["value"].tolist() == [175.0]
     assert len(_served_files("a", "us-east-1", "t")) == 1
+
+
+def _shard_rows(account, region, table):
+    """Rows physically stored in the served shards, read without the reader's dedup."""
+    from dynamodb_optima.database.connection import get_database_manager
+    files = ", ".join(f"'{f}'" for f in _served_files(account, region, table))
+    with get_database_manager().get_connection_context() as conn:
+        return conn.execute(
+            "SELECT operation, operation_type, value "
+            f"FROM read_parquet([{files}], union_by_name=true)"
+        ).df()
+
+
+def test_compact_keeps_one_row_per_operation(tmp_path, monkeypatch):
+    """Compaction deletes the landing files, so a row it dedups away is gone for good.
+    Every operation of the same metric/statistic/timestamp must reach the shard."""
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics(
+        [_op_row("GetItem", 1.0, ts), _op_row("PutItem", 2.0, ts)], run_id="run1"
+    )
+    lake.write_metrics([_op_row("Query", 3.0, ts)], run_id="run2")
+    lake.compact_partition("a", "us-east-1", "t")
+
+    from dynamodb_optima import paths
+    landing = paths.get_lake_dir() / "landing" / "account=a" / "region=us-east-1" / "table=t"
+    assert list(landing.glob("*.parquet")) == []
+    assert _by_operation(_shard_rows("a", "us-east-1", "t")) == [
+        ("GetItem", 1.0), ("PutItem", 2.0), ("Query", 3.0),
+    ]
+    df = lake.read_metrics("a", "us-east-1", "t", ts, ts)
+    assert _by_operation(df) == [("GetItem", 1.0), ("PutItem", 2.0), ("Query", 3.0)]
+
+
+def test_compact_dedup_keeps_latest_ingest_per_operation_vs_existing_served(
+    tmp_path, monkeypatch
+):
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics(
+        [_op_row("GetItem", 1.0, ts), _op_row("PutItem", 2.0, ts)], run_id="run1"
+    )
+    lake.compact_partition("a", "us-east-1", "t")
+    lake.write_metrics([_op_row("GetItem", 10.0, ts)], run_id="run2")
+    lake.compact_partition("a", "us-east-1", "t")
+
+    assert _by_operation(_shard_rows("a", "us-east-1", "t")) == [
+        ("GetItem", 10.0), ("PutItem", 2.0),
+    ]
+    assert len(_served_files("a", "us-east-1", "t")) == 1
+
+
+def test_compact_keeps_a_mixed_batch_apart(tmp_path, monkeypatch):
+    """Compaction keeps table-level, per-operation and operation_type rows that one
+    flush wrote together."""
+    lake = _lake(tmp_path, monkeypatch)
+    ts = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    lake.write_metrics(_mixed_rows(ts), run_id="run1")
+    lake.compact_partition("a", "us-east-1", "t")
+
+    assert _series(_shard_rows("a", "us-east-1", "t")) == MIXED_SERIES
 
 
 def test_compact_ignores_tmp_files(tmp_path, monkeypatch):
