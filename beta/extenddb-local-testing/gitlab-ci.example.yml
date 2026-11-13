@@ -1,0 +1,66 @@
+# ExtendDB as a DynamoDB-compatible service for GitLab CI.
+#
+# Copy this to .gitlab-ci.yml in your own repository, or include it from one.
+# Unlike GitHub Actions, GitLab CI does not wait for a service's health check, so
+# each job waits for the endpoint itself before running tests.
+#
+# The service runs as a separate container on a shared network, so it is reached
+# by its alias (dynamodb), not localhost.
+#
+# Do not add a shell-form health command to the service. The image is distroless
+# and has no shell, so such a command would exit 1 forever.
+
+variables:
+  DDB_ENDPOINT: "http://dynamodb:18080"
+  AWS_REGION: "us-east-1"
+  # AWS's published example credentials, not real secrets. ExtendDB accepts any
+  # pair, but the SDKs insist on finding one.
+  AWS_ACCESS_KEY_ID: "AKIAIOSFODNN7EXAMPLE"
+  AWS_SECRET_ACCESS_KEY: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+  EXTENDDB__STORAGE__SQLITE__PATH: ":memory:"
+
+.extenddb:
+  services:
+    - name: extenddb/extenddb-dev:0.1.14
+      alias: dynamodb
+  before_script:
+    # Bounded wait: up to 60 seconds, then fail the job with a clear message.
+    # Any HTTP status other than 000 means the port answered.
+    - |
+      echo "Waiting for ExtendDB at $DDB_ENDPOINT"
+      for i in $(seq 1 60); do
+        code=$(curl -s -o /dev/null -w '%{http_code}' "$DDB_ENDPOINT" || true)
+        if [ "$code" != "000" ]; then
+          echo "ExtendDB answering (HTTP $code)"
+          break
+        fi
+        if [ "$i" = "60" ]; then
+          echo "ExtendDB never answered at $DDB_ENDPOINT after 60 seconds." >&2
+          echo "Check that the service alias is 'dynamodb', that the image can be pulled, and that curl exists in the job image." >&2
+          exit 1
+        fi
+        sleep 1
+      done
+
+typescript:
+  extends: .extenddb
+  image: node:22
+  script:
+    - cd harness/typescript
+    - npm ci
+    - npm test
+
+python:
+  extends: .extenddb
+  image: python:3.11
+  script:
+    - cd harness/python
+    - pip install -r requirements.txt
+    - python -m pytest -q
+
+java:
+  extends: .extenddb
+  image: maven:3.9-eclipse-temurin-17
+  script:
+    - cd harness/java
+    - mvn -q test
