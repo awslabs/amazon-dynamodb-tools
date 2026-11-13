@@ -23,8 +23,8 @@ export default async function setup({ provide }) {
     return;
   }
 
-  // Here server.credentials is what this server actually seeded, so it is
-  // authoritative and AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY are not used.
+  // Here server.credentials is the pair this server reports, which is the example
+  // pair, and AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY are not used.
   // Setting EXTENDDB_DEV_ACCESS_KEY_ID / EXTENDDB_DEV_SECRET_ACCESS_KEY makes
   // the server seed that pair in addition to the example pair, which is always
   // seeded. start() still reports the example pair in server.credentials, so to
