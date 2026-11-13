@@ -7,14 +7,26 @@
 # The service runs as a separate container on a shared network, so it is reached
 # by its alias (dynamodb), not localhost.
 #
+# The `cd harness/<lang>` lines are relative to your repository root. Point them
+# at wherever your own tests live.
+#
+# Pitfalls when adapting this file:
+# - A job-level `before_script:` replaces the inherited one, silently dropping the
+#   wait loop. Keep it by referencing it, for example:
+#     before_script:
+#       - !reference [.extenddb, before_script]
+#       - your own commands
+# - A job-level `services:` likewise replaces the inherited service list.
+#
 # Do not add a shell-form health command to the service. The image is distroless
 # and has no shell, so such a command would exit 1 forever.
 
 variables:
   DDB_ENDPOINT: "http://dynamodb:18080"
   AWS_REGION: "us-east-1"
-  # AWS's published example credentials, not real secrets. ExtendDB accepts any
-  # pair, but the SDKs insist on finding one.
+  # AWS's published example credentials, not real secrets. ExtendDB seeds this
+  # pair and verifies every request's SigV4 signature against it, so the job's
+  # credentials must match it.
   AWS_ACCESS_KEY_ID: "AKIAIOSFODNN7EXAMPLE"
   AWS_SECRET_ACCESS_KEY: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
   EXTENDDB__STORAGE__SQLITE__PATH: ":memory:"
@@ -29,7 +41,7 @@ variables:
     - |
       echo "Waiting for ExtendDB at $DDB_ENDPOINT"
       for i in $(seq 1 60); do
-        code=$(curl -s -o /dev/null -w '%{http_code}' "$DDB_ENDPOINT" || true)
+        code=$(curl -s --max-time 2 -o /dev/null -w '%{http_code}' "$DDB_ENDPOINT" || true)
         if [ "$code" != "000" ]; then
           echo "ExtendDB answering (HTTP $code)"
           break
