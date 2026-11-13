@@ -151,10 +151,12 @@ class DynamoDbSuiteTest {
   @Test
   void queriesALocalSecondaryIndex() {
     db.putItem(r -> r.tableName(table).item(item(30, "NEW")));
-    // A local secondary index is strongly consistent: no retry needed.
+    // An LSI read can be strongly consistent when asked for, so this test asks
+    // (consistentRead) and asserts directly instead of retrying.
     var res = db.query(QueryRequest.builder()
         .tableName(table)
         .indexName("byAmount")
+        .consistentRead(true)
         .keyConditionExpression("pk = :p AND #a > :a")
         .expressionAttributeNames(Map.of("#a", "amount"))
         .expressionAttributeValues(Map.of(
@@ -164,13 +166,13 @@ class DynamoDbSuiteTest {
     assertEquals(1, res.count());
   }
 
-  // Unlike a local index, a GSI read right after a write is eventually
-  // consistent: it lags by a few milliseconds on ExtendDB by default and is
-  // allowed to on real DynamoDB. `eventually` is the portable answer.
+  // Unlike an LSI read, a GSI read never supports ConsistentRead: it is always
+  // eventually consistent. It lags by a few milliseconds on ExtendDB by default
+  // and is allowed to on real DynamoDB. `eventually` is the portable answer.
   @Test
   void queriesAGlobalSecondaryIndexOnceCaughtUp() {
     db.putItem(r -> r.tableName(table).item(item(40, "SHIPPED")));
-    QueryResponse res = ExtendDbSupport.eventually(() -> {
+    ExtendDbSupport.eventually(() -> {
       QueryResponse r = db.query(QueryRequest.builder()
           .tableName(table)
           .indexName("byStatus")
@@ -181,7 +183,6 @@ class DynamoDbSuiteTest {
       assertEquals(1, r.count());
       return r;
     });
-    assertEquals(1, res.count());
   }
 
   @Test

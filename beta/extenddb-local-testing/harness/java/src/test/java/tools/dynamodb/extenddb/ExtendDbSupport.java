@@ -59,9 +59,12 @@ public final class ExtendDbSupport {
         .withExposedPorts(CONTAINER_PORT)
         .withEnv("EXTENDDB__STORAGE__SQLITE__PATH", ":memory:")
         .waitingFor(Wait.forHealthcheck().withStartupTimeout(Duration.ofSeconds(60)));
-    container.start();
+    // Register cleanup before start() so a partly started container is stopped
+    // whatever happens next.
+    GenericContainer<?> started = container;
+    Runtime.getRuntime().addShutdownHook(new Thread(started::stop));
+    started.start();
     endpoint = "http://" + container.getHost() + ":" + container.getMappedPort(CONTAINER_PORT);
-    Runtime.getRuntime().addShutdownHook(new Thread(() -> container.stop()));
     return endpoint;
   }
 

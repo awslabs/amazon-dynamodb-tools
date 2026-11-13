@@ -85,10 +85,12 @@ def test_queries_the_base_table(db, table):
 
 def test_queries_a_local_secondary_index(db, table):
     db.put_item(TableName=table, Item=item(30))
-    # A local secondary index is strongly consistent: no retry needed.
+    # An LSI read can be strongly consistent when asked for, so this test asks
+    # (ConsistentRead) and asserts directly instead of retrying.
     res = db.query(
         TableName=table,
         IndexName="byAmount",
+        ConsistentRead=True,
         KeyConditionExpression="pk = :p AND #a > :a",
         ExpressionAttributeNames={"#a": "amount"},
         ExpressionAttributeValues={":p": {"S": "CUST#30"}, ":a": {"N": "0"}},
@@ -96,9 +98,9 @@ def test_queries_a_local_secondary_index(db, table):
     assert res["Count"] == 1
 
 
-# Unlike a local index, a GSI read right after a write is eventually
-# consistent: it lags by a few milliseconds on ExtendDB by default and is
-# always allowed to on real DynamoDB. `eventually` is the portable answer.
+# Unlike an LSI read, a GSI read never supports ConsistentRead: it is always
+# eventually consistent. It lags by a few milliseconds on ExtendDB by default
+# and is allowed to on real DynamoDB. `eventually` is the portable answer.
 def test_queries_a_global_secondary_index_once_caught_up(db, table):
     db.put_item(TableName=table, Item=item(40, "SHIPPED"))
 

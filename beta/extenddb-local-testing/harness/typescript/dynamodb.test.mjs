@@ -114,9 +114,10 @@ describe("queries", () => {
 
   it("queries a local secondary index", async () => {
     await db.send(new PutItemCommand({ TableName: TABLE, Item: item(30) }));
-    // A local secondary index is strongly consistent: no retry needed.
+    // An LSI read can be strongly consistent when asked for, so this test asks
+    // (ConsistentRead) and asserts directly instead of retrying.
     const res = await db.send(new QueryCommand({
-      TableName: TABLE, IndexName: "byAmount",
+      TableName: TABLE, IndexName: "byAmount", ConsistentRead: true,
       KeyConditionExpression: "pk = :p AND #a > :a",
       ExpressionAttributeNames: { "#a": "amount" },
       ExpressionAttributeValues: { ":p": { S: "CUST#30" }, ":a": { N: "0" } },
@@ -124,9 +125,9 @@ describe("queries", () => {
     expect(res.Count).toBe(1);
   });
 
-  // Unlike a local index, a GSI read right after a write is eventually
-  // consistent: it lags by a few milliseconds on ExtendDB by default and is
-  // always allowed to on real DynamoDB. `eventually` is the portable answer.
+  // Unlike an LSI read, a GSI read never supports ConsistentRead: it is always
+  // eventually consistent. It lags by a few milliseconds on ExtendDB by default
+  // and is allowed to on real DynamoDB. `eventually` is the portable answer.
   it("queries a global secondary index once it has caught up", async () => {
     await db.send(new PutItemCommand({ TableName: TABLE, Item: item(40, "SHIPPED") }));
     const res = await eventually(async () => {
