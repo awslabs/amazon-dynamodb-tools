@@ -25,8 +25,10 @@ export default async function setup({ provide }) {
 
   // Here server.credentials is what this server actually seeded, so it is
   // authoritative and AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY are not used.
-  // To force your own keys on a self-started server, set
-  // EXTENDDB_DEV_ACCESS_KEY_ID / EXTENDDB_DEV_SECRET_ACCESS_KEY instead.
+  // Setting EXTENDDB_DEV_ACCESS_KEY_ID / EXTENDDB_DEV_SECRET_ACCESS_KEY makes
+  // the server seed that pair in addition to the example pair, which is always
+  // seeded. start() still reports the example pair in server.credentials, so to
+  // sign with a custom key, pass it to the client explicitly.
   const server = await start({ memory: true });
   provide("ddb", {
     endpoint: server.endpoint,
