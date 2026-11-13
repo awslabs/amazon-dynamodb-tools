@@ -31,13 +31,23 @@ of starting anything. This is the pattern a CI service container uses. With no
 `DDB_ENDPOINT` set, `test:container` defaults to `http://127.0.0.1:18080`.
 
 The container takes about 2 s to become healthy, and the harness does not wait
-or retry, so wait for the container's health state before running the tests:
+or retry. The sequence below waits on the container's health state for up to
+30 s, runs the tests only if the container is healthy, and always removes the
+container, so a failed attempt does not block the next one:
 
 ```bash
+podman rm -f edb
 podman run -d --name edb -p 127.0.0.1:18080:18080 \
   -e EXTENDDB__STORAGE__SQLITE__PATH=:memory: extenddb/extenddb-dev:0.1.14
-until [ "$(podman inspect -f '{{.State.Health.Status}}' edb)" = "healthy" ]; do sleep 0.5; done
-npm run test:container
+for i in $(seq 60); do
+  [ "$(podman inspect -f '{{.State.Health.Status}}' edb 2>/dev/null)" = healthy ] && break
+  sleep 0.5
+done
+if [ "$(podman inspect -f '{{.State.Health.Status}}' edb 2>/dev/null)" = healthy ]; then
+  npm run test:container
+else
+  echo "edb did not become healthy within 30 s. Check 'podman logs edb' and that port 18080 is free." >&2
+fi
 podman rm -f edb
 ```
 
