@@ -41,6 +41,10 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.6.1</version>
+        <configuration>
+          <!-- A run that executes zero tests must fail, not pass vacuously. -->
+          <failIfNoTests>true</failIfNoTests>
+        </configuration>
       </plugin>
     </plugins>
   </build>

@@ -12,10 +12,15 @@ const EXAMPLE_SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
 
 export default async function setup({ provide }) {
   if (process.env.DDB_ENDPOINT) {
+    // Use both or neither: half a pair would sign with credentials that exist nowhere.
+    const keyId = process.env.AWS_ACCESS_KEY_ID;
+    const secret = process.env.AWS_SECRET_ACCESS_KEY;
+    const pair = keyId && secret
+      ? { accessKeyId: keyId, secretAccessKey: secret }
+      : { accessKeyId: EXAMPLE_KEY_ID, secretAccessKey: EXAMPLE_SECRET };
     provide("ddb", {
       endpoint: process.env.DDB_ENDPOINT,
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? EXAMPLE_KEY_ID,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? EXAMPLE_SECRET,
+      ...pair,
       // Must match the server's configured region: SigV4 includes the region in
       // the credential scope, so a mismatch surfaces as InvalidSignatureException.
       region: process.env.AWS_REGION ?? "us-east-1",

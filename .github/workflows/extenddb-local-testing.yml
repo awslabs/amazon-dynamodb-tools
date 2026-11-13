@@ -24,6 +24,7 @@ jobs:
   container:
     name: "container: ${{ matrix.language }}"
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -60,7 +61,7 @@ jobs:
         run: |
           for i in $(seq 1 30); do
             # Any HTTP status other than 000 means the port answered.
-            if [ "$(curl -s -o /dev/null -w '%{http_code}' "$DDB_ENDPOINT")" != "000" ]; then
+            if [ "$(curl -s --max-time 2 -o /dev/null -w '%{http_code}' "$DDB_ENDPOINT")" != "000" ]; then
               echo "ExtendDB answering at $DDB_ENDPOINT"
               exit 0
             fi
@@ -117,6 +118,7 @@ jobs:
     # shards cannot collide and there is no container to wait for.
     name: "launcher: typescript"
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v5

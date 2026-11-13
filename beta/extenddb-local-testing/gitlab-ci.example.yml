@@ -39,10 +39,15 @@ variables:
     # Bounded wait: 60 attempts (about 180 seconds at worst, with a 2 second curl timeout and a 1 second sleep), then fail the job with a clear message.
     # Any HTTP status other than 000 means the port answered.
     - |
+      if ! command -v curl >/dev/null 2>&1; then
+        echo "curl is not installed in the job image, so ExtendDB's readiness cannot be checked." >&2
+        exit 1
+      fi
       echo "Waiting for ExtendDB at $DDB_ENDPOINT"
       for i in $(seq 1 60); do
         code=$(curl -s --max-time 2 -o /dev/null -w '%{http_code}' "$DDB_ENDPOINT" || true)
-        if [ "$code" != "000" ]; then
+        # Only a real three-digit status other than 000 counts as answering.
+        if [ "$code" != "000" ] && printf '%s' "$code" | grep -Eq '^[0-9]{3}$'; then
           echo "ExtendDB answering (HTTP $code)"
           break
         fi

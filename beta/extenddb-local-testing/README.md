@@ -96,13 +96,20 @@ DynamoDB Local accepts any credentials. ExtendDB verifies the signature.
 
 - A known access key with the wrong secret gives `InvalidSignatureException`.
 - An unknown access key id gives `UnrecognizedClientException`.
-- `AWS_REGION` must match the server's region, because the region is part of
-  the signature's credential scope.
+- The region must match the server's region (`us-east-1` by default), because
+  it is part of the signature's credential scope. In your own tests, set
+  `AWS_REGION` accordingly. Among the harnesses only the TypeScript one reads
+  `AWS_REGION` (on its `DDB_ENDPOINT` path); the Python and Java harnesses use a
+  fixed `us-east-1`.
 
 The server always seeds AWS's documented example pair
 (`AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`), so use
-that in CI. Real credentials left in your shell are sent to the server and
-rejected.
+that in CI. Real credentials left in your shell are rejected, but how the
+harnesses react differs. The Python and Java harnesses use
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` when both are set, on every path
+including a container they start themselves, so real credentials in the shell
+fail there. The TypeScript harness does so only on its `DDB_ENDPOINT` path; when
+it starts its own server it always signs with the example pair.
 
 ## Determinism, opt-in
 
@@ -116,6 +123,7 @@ This recipe is for a local container you started yourself. Capture the
 password from the container's startup log, then make the two calls:
 
 ```bash
+ok=
 podman run -d --name edb -p 127.0.0.1:18080:18080 \
   -e EXTENDDB__STORAGE__SQLITE__PATH=:memory: extenddb/extenddb-dev:0.1.14
 for i in $(seq 60); do
@@ -177,7 +185,8 @@ both flavours.
   `pip install -r requirements.txt && python -m pytest -q`, from
   `beta/extenddb-local-testing/harness/python`.
 - [`harness/java`](harness/java): JUnit with AWS SDK v2. Run `mvn -q test` from
-  `beta/extenddb-local-testing/harness/java`.
+  `beta/extenddb-local-testing/harness/java`. `mvn -q` prints no test count;
+  the POM sets `failIfNoTests`, so a run that executes zero tests fails.
   With no `DDB_ENDPOINT` (local runs only) it starts the container through Testcontainers, which worked with no
   extra variables on a machine where `/var/run/docker.sock` points at the
   podman socket. Where that link does not exist, set
@@ -187,12 +196,25 @@ both flavours.
 To run any harness against a container you started yourself, set
 `DDB_ENDPOINT` as in the TypeScript README.
 
+## Isolating tests
+
+- Give every test its own table name (the harnesses' `tableName`/`table_name`
+  helpers append a unique suffix). This is portable to real DynamoDB and safe
+  for parallel shards sharing one server.
+- Isolating by account is an ExtendDB-only advanced option. It needs admin
+  credentials and does not carry over to real DynamoDB.
+- A standalone binary download for Python and Java is a possible future option.
+  It is not offered today because it would depend on undocumented package
+  internals.
+
 ## Scope
 
 - Classic DynamoDB API only. PartiQL is not covered.
 - Pinned to ExtendDB 0.1.14. To bump it, change the tag in the workflow, in the
-  GitLab template and in the harness defaults (`conftest.py`,
-  `ExtendDbSupport.java`, and the TypeScript README), and the `@extenddb/dev`
+  GitLab template, in the harness defaults (`conftest.py`,
+  `ExtendDbSupport.java`, and the TypeScript README), in this README's own
+  image tags (the swap example, the determinism recipe and the service block),
+  and the `@extenddb/dev`
   version in `harness/typescript/package.json` and its lockfile. A monthly
   scheduled run of the workflow catches a release that breaks these templates.
 

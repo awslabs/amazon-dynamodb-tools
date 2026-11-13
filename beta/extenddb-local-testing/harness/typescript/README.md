@@ -60,7 +60,7 @@ seeded by the server. Unlike DynamoDB Local, which accepts any credentials,
 ExtendDB rejects a pair it did not seed.
 
 - Against a running server, the harness uses `AWS_ACCESS_KEY_ID` and
-  `AWS_SECRET_ACCESS_KEY` if you set them, and otherwise the example pair.
+  `AWS_SECRET_ACCESS_KEY` if you set both, and otherwise the example pair.
   Real AWS credentials left in your shell are therefore sent to the server,
   which does not know that key ID, and the run fails with
   `UnrecognizedClientException`. Unset them, or export the example pair, before
