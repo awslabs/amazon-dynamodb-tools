@@ -2,7 +2,7 @@ name: "extenddb-local-testing: suite"
 
 on:
   push:
-    branches: [main]
+    branches: [main, extenddb-local-testing]
     paths:
       - 'beta/extenddb-local-testing/**'
       - '.github/workflows/extenddb-local-testing.yml'
