@@ -118,16 +118,18 @@ password from the container's startup log, then make the two calls:
 ```bash
 podman run -d --name edb -p 127.0.0.1:18080:18080 \
   -e EXTENDDB__STORAGE__SQLITE__PATH=:memory: extenddb/extenddb-dev:0.1.14
-# once the container is healthy (see the TypeScript harness README):
+for i in $(seq 60); do
+  [ "$(podman inspect -f '{{.State.Health.Status}}' edb 2>/dev/null)" = healthy ] && break
+  sleep 0.5
+done
 PW=$(podman logs edb 2>&1 | awk '/Password:/ {print $2}')
 curl -u admin:$PW -X PUT -H 'Content-Type: application/json' -d '{"value":"0"}' http://127.0.0.1:18080/management/settings/control_plane_delay_seconds
 curl -u admin:$PW -X PUT -H 'Content-Type: application/json' -d '{"value":"0"}' http://127.0.0.1:18080/management/settings/index_propagation_delay_ms
 ```
 
 An in-memory server's admin password is random and printed to stderr at
-startup, which is what the `PW=` line above reads from the container's log. A
-service container in CI or the npm launcher prints it the same way, but you
-would have to read it from that job's own log.
+startup, which is what the `PW=` line above reads from the container's log. The
+recipe applies to a container you started yourself.
 
 We recommend keeping the defaults. They make eventual-consistency bugs show up
 on your laptop and in CI instead of in production.
