@@ -25,10 +25,12 @@ REGION = "us-east-1"
 
 def credentials():
     """The (key id, secret) pair the suite signs with."""
-    return (
-        os.environ.get("AWS_ACCESS_KEY_ID", EXAMPLE_KEY_ID),
-        os.environ.get("AWS_SECRET_ACCESS_KEY", EXAMPLE_SECRET),
-    )
+    key_id = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    if key_id and secret:
+        return key_id, secret
+    # Use both or neither: half a pair would sign with credentials that exist nowhere.
+    return EXAMPLE_KEY_ID, EXAMPLE_SECRET
 
 
 def table_name(suffix):
@@ -40,8 +42,8 @@ def table_name(suffix):
 def eventually(fn, timeout=5.0, interval=0.025):
     """Retry an assertion until it stops raising.
 
-    Secondary index reads lag their writes: on ExtendDB by its default
-    propagation delay, on real DynamoDB always. Polling is the portable way to
+    Global secondary index reads can lag their writes: on ExtendDB by its
+    default propagation delay, and on real DynamoDB they are allowed to. Polling is the portable way to
     assert on an index without a sleep that is either flaky or slow.
     """
     deadline = time.monotonic() + timeout
@@ -65,7 +67,15 @@ def _container_runtime():
     for candidate in ("docker", "podman"):
         if shutil.which(candidate):
             return candidate
-    pytest.skip("neither docker nor podman is installed, and DDB_ENDPOINT is unset")
+    # Fail rather than skip: a skipped session exits 0 and would report success
+    # having verified nothing.
+    pytest.fail(
+        "No DynamoDB endpoint available: DDB_ENDPOINT is unset and neither docker "
+        "nor podman is installed. Either set DDB_ENDPOINT to a running ExtendDB "
+        "(or DynamoDB) server, or install a container runtime so the suite can "
+        "start one.",
+        pytrace=False,
+    )
 
 
 def _wait_ready(url, timeout=60.0):
@@ -76,13 +86,17 @@ def _wait_ready(url, timeout=60.0):
         config=Config(retries={"max_attempts": 1, "mode": "standard"}),
     )
     deadline = time.monotonic() + timeout
+    last = None
     while time.monotonic() < deadline:
         try:
             client.list_tables()
             return
-        except Exception:
+        except Exception as error:
+            last = error
             time.sleep(0.1)
-    raise RuntimeError(f"ExtendDB at {url} did not become ready in {timeout}s")
+    raise RuntimeError(
+        f"ExtendDB at {url} did not become ready in {timeout}s; last error: {last!r}"
+    ) from last
 
 
 @pytest.fixture(scope="session")
@@ -98,12 +112,17 @@ def endpoint():
     port = _free_port()
     name = f"extenddb-pytest-{uuid.uuid4().hex[:8]}"
     try:
-        subprocess.run(
-            [runtime, "run", "-d", "--name", name,
-             "-p", f"127.0.0.1:{port}:18080",
-             "-e", "EXTENDDB__STORAGE__SQLITE__PATH=:memory:", IMAGE],
-            check=True, capture_output=True,
-        )
+        try:
+            subprocess.run(
+                [runtime, "run", "-d", "--name", name,
+                 "-p", f"127.0.0.1:{port}:18080",
+                 "-e", "EXTENDDB__STORAGE__SQLITE__PATH=:memory:", IMAGE],
+                check=True, capture_output=True, text=True,
+            )
+        except subprocess.CalledProcessError as error:
+            raise RuntimeError(
+                f"`{runtime} run` failed (exit {error.returncode}): {error.stderr.strip()}"
+            ) from error
         url = f"http://127.0.0.1:{port}"
         _wait_ready(url)
         yield url

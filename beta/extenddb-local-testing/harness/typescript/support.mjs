@@ -75,8 +75,8 @@ export async function createTable(db, name) {
 /**
  * Retry an assertion until it stops throwing.
  *
- * Secondary index reads lag their writes: on ExtendDB by its default
- * propagation delay, on real DynamoDB always. Polling is the portable way to
+ * Global secondary index reads can lag their writes: on ExtendDB by its default
+ * propagation delay, and on real DynamoDB they are allowed to. Polling is the portable way to
  * assert on an index without a sleep that is either flaky or slow.
  */
 export async function eventually(fn, timeoutMs = 5000) {

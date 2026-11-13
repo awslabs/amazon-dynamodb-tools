@@ -4,7 +4,9 @@ import pytest
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from conftest import credentials, eventually, table_name
+# pytest puts this directory on sys.path (rootdir-based "prepend" import mode),
+# so conftest.py imports as a plain module.
+from conftest import REGION, credentials, eventually, table_name
 
 
 def item(n, status="NEW"):
@@ -132,7 +134,7 @@ def test_rejects_a_request_signed_with_the_wrong_secret(endpoint):
     bad = boto3.client(
         "dynamodb",
         endpoint_url=endpoint,
-        region_name="us-east-1",
+        region_name=REGION,
         aws_access_key_id=key_id,
         aws_secret_access_key="wrong",
         config=Config(retries={"max_attempts": 1, "mode": "standard"}),
