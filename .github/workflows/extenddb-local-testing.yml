@@ -44,12 +44,17 @@ jobs:
     env:
       DDB_ENDPOINT: http://localhost:18080
       AWS_REGION: us-east-1
+      # AWS's documented example credentials, not real secrets. ExtendDB accepts
+      # any pair, but the SDKs insist on finding one.
       AWS_ACCESS_KEY_ID: AKIAIOSFODNN7EXAMPLE
       AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 
     steps:
       - uses: actions/checkout@v5
 
+      # A belt-and-braces check. The real wait is the runner's own wait on the
+      # image's HEALTHCHECK, which finishes before the first step runs; this loop
+      # normally passes on its first iteration.
       - name: Confirm ExtendDB is reachable
         run: |
           for i in $(seq 1 30); do
@@ -68,12 +73,14 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: beta/extenddb-local-testing/harness/typescript/package-lock.json
 
       - name: Run the TypeScript suite
         if: matrix.language == 'typescript'
         working-directory: beta/extenddb-local-testing/harness/typescript
         run: |
-          npm install
+          npm ci
           npm test
 
       - name: Set up Python 3.11
@@ -101,3 +108,27 @@ jobs:
         if: matrix.language == 'java'
         working-directory: beta/extenddb-local-testing/harness/java
         run: mvn -q test
+
+  launcher:
+    # The Node-only flavour: no service container at all. With DDB_ENDPOINT unset,
+    # the harness calls start({ memory: true }) from @extenddb/dev, which spawns the
+    # ExtendDB native binary as a child process on an ephemeral port. Parallel
+    # shards cannot collide and there is no container to wait for.
+    name: "launcher: typescript"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: beta/extenddb-local-testing/harness/typescript/package-lock.json
+
+      - name: Run the TypeScript suite with no container
+        working-directory: beta/extenddb-local-testing/harness/typescript
+        run: |
+          npm ci
+          npm test
