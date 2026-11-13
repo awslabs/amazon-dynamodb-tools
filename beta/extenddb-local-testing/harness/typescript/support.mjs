@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { inject } from "vitest";
 import {
   DynamoDBClient, CreateTableCommand, waitUntilTableExists,
@@ -18,10 +19,11 @@ export function client() {
 
 /**
  * A table name unique to this test file and run, so parallel shards sharing one
- * server never collide. The same habit works against real DynamoDB.
+ * server never collide. The random component covers same-millisecond calls and
+ * parallel CI containers that share pids. The same habit works against real DynamoDB.
  */
 export function tableName(suffix) {
-  return `extenddb-ci-${suffix}-${process.pid}-${Date.now()}`;
+  return `extenddb-ci-${suffix}-${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}`;
 }
 
 /**
@@ -64,6 +66,9 @@ export async function createTable(db, name) {
       Projection: { ProjectionType: "ALL" },
     }],
   }));
+  // The DynamoDB waiter spec's default floor is 20 s between polls, which would
+  // dominate a local test run. These values keep the wait proportional to a
+  // local server, where a table leaves CREATING in about a second.
   await waitUntilTableExists({ client: db, maxWaitTime: 30, minDelay: 1, maxDelay: 2 }, { TableName: name });
 }
 

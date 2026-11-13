@@ -15,6 +15,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (!db) return; // beforeAll failed; let its own error surface
   await db.send(new DeleteTableCommand({ TableName: TABLE }));
 });
 
@@ -51,12 +52,14 @@ describe("item operations", () => {
         [TABLE]: [3, 4, 5].map((n) => ({ PutRequest: { Item: item(n) } })),
       },
     }));
-    const res = await db.send(new GetItemCommand({
-      TableName: TABLE,
-      Key: { pk: { S: "CUST#4" }, sk: { S: "ORDER#4" } },
-      ConsistentRead: true,
-    }));
-    expect(res.Item).toBeDefined();
+    for (const n of [3, 4, 5]) {
+      const res = await db.send(new GetItemCommand({
+        TableName: TABLE,
+        Key: { pk: { S: `CUST#${n}` }, sk: { S: `ORDER#${n}` } },
+        ConsistentRead: true,
+      }));
+      expect(res.Item).toBeDefined();
+    }
   });
 });
 
@@ -111,21 +114,19 @@ describe("queries", () => {
 
   it("queries a local secondary index", async () => {
     await db.send(new PutItemCommand({ TableName: TABLE, Item: item(30) }));
-    const res = await eventually(async () => {
-      const r = await db.send(new QueryCommand({
-        TableName: TABLE, IndexName: "byAmount",
-        KeyConditionExpression: "pk = :p AND #a > :a",
-        ExpressionAttributeNames: { "#a": "amount" },
-        ExpressionAttributeValues: { ":p": { S: "CUST#30" }, ":a": { N: "0" } },
-      }));
-      if (r.Count === 0) throw new Error("not in index yet");
-      return r;
-    });
+    // A local secondary index is strongly consistent: no retry needed.
+    const res = await db.send(new QueryCommand({
+      TableName: TABLE, IndexName: "byAmount",
+      KeyConditionExpression: "pk = :p AND #a > :a",
+      ExpressionAttributeNames: { "#a": "amount" },
+      ExpressionAttributeValues: { ":p": { S: "CUST#30" }, ":a": { N: "0" } },
+    }));
     expect(res.Count).toBe(1);
   });
 
-  // A GSI read right after a write is eventually consistent, on ExtendDB by
-  // default and on real DynamoDB always. `eventually` is the portable answer.
+  // Unlike a local index, a GSI read right after a write is eventually
+  // consistent: it lags by a few milliseconds on ExtendDB by default and is
+  // always allowed to on real DynamoDB. `eventually` is the portable answer.
   it("queries a global secondary index once it has caught up", async () => {
     await db.send(new PutItemCommand({ TableName: TABLE, Item: item(40, "SHIPPED") }));
     const res = await eventually(async () => {
@@ -167,8 +168,8 @@ describe("signature verification", () => {
 });
 
 describe("test isolation", () => {
-  it("gives each test file a distinct table name", () => {
-    expect(tableName("alpha")).not.toBe(tableName("beta"));
+  it("gives every call a distinct table name, even for the same suffix", () => {
+    expect(tableName("alpha")).not.toBe(tableName("alpha"));
     expect(tableName("alpha")).toMatch(/^extenddb-ci-alpha-/);
   });
 });
