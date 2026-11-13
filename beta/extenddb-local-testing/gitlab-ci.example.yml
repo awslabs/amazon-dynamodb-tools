@@ -36,7 +36,7 @@ variables:
     - name: extenddb/extenddb-dev:0.1.14
       alias: dynamodb
   before_script:
-    # Bounded wait: up to 60 seconds, then fail the job with a clear message.
+    # Bounded wait: 60 attempts (about 180 seconds at worst, with a 2 second curl timeout and a 1 second sleep), then fail the job with a clear message.
     # Any HTTP status other than 000 means the port answered.
     - |
       echo "Waiting for ExtendDB at $DDB_ENDPOINT"
@@ -47,7 +47,7 @@ variables:
           break
         fi
         if [ "$i" = "60" ]; then
-          echo "ExtendDB never answered at $DDB_ENDPOINT after 60 seconds." >&2
+          echo "ExtendDB never answered at $DDB_ENDPOINT after 60 attempts." >&2
           echo "Check that the service alias is 'dynamodb', that the image can be pulled, and that curl exists in the job image." >&2
           exit 1
         fi
