@@ -119,12 +119,16 @@ password from the container's startup log, then make the two calls:
 podman run -d --name edb -p 127.0.0.1:18080:18080 \
   -e EXTENDDB__STORAGE__SQLITE__PATH=:memory: extenddb/extenddb-dev:0.1.14
 for i in $(seq 60); do
-  [ "$(podman inspect -f '{{.State.Health.Status}}' edb 2>/dev/null)" = healthy ] && break
+  [ "$(podman inspect -f '{{.State.Health.Status}}' edb 2>/dev/null)" = healthy ] && ok=1 && break
   sleep 0.5
 done
-PW=$(podman logs edb 2>&1 | awk '/Password:/ {print $2}')
-curl -u admin:$PW -X PUT -H 'Content-Type: application/json' -d '{"value":"0"}' http://127.0.0.1:18080/management/settings/control_plane_delay_seconds
-curl -u admin:$PW -X PUT -H 'Content-Type: application/json' -d '{"value":"0"}' http://127.0.0.1:18080/management/settings/index_propagation_delay_ms
+PW=$(podman logs edb 2>&1 | awk '/Password:/ {print $2}' | head -1)
+if [ -n "$ok" ] && [ -n "$PW" ]; then
+  curl -u admin:$PW -X PUT -H 'Content-Type: application/json' -d '{"value":"0"}' http://127.0.0.1:18080/management/settings/control_plane_delay_seconds
+  curl -u admin:$PW -X PUT -H 'Content-Type: application/json' -d '{"value":"0"}' http://127.0.0.1:18080/management/settings/index_propagation_delay_ms
+else
+  echo "ExtendDB did not become healthy, or no admin password was found; check 'podman logs edb'" >&2
+fi
 ```
 
 An in-memory server's admin password is random and printed to stderr at
