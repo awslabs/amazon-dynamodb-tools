@@ -1,0 +1,13 @@
+{
+  "name": "extenddb-local-testing-typescript",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "3.1169.0",
+    "@extenddb/dev": "0.1.14",
+    "vitest": "5.1.0"
+  }
+}
