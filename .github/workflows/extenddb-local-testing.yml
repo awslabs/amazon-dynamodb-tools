@@ -1,0 +1,138 @@
+name: "extenddb-local-testing: suite"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'beta/extenddb-local-testing/**'
+      - '.github/workflows/extenddb-local-testing.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'beta/extenddb-local-testing/**'
+      - '.github/workflows/extenddb-local-testing.yml'
+  schedule:
+    # ExtendDB is pre-1.0; catch a release that breaks these templates before a
+    # reader does.
+    - cron: '0 6 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  container:
+    name: "container: ${{ matrix.language }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [typescript, python, java]
+
+    # ExtendDB as a service container. The image ships its own HEALTHCHECK and is
+    # distroless, so do NOT pass --health-cmd: there is no shell to run it in and
+    # the container would never report healthy. The runner waits on the image's
+    # own health check.
+    services:
+      dynamodb:
+        image: extenddb/extenddb-dev:0.1.14
+        ports:
+          - 18080:18080
+        env:
+          EXTENDDB__STORAGE__SQLITE__PATH: ":memory:"
+
+    env:
+      DDB_ENDPOINT: http://localhost:18080
+      AWS_REGION: us-east-1
+      # AWS's documented example credentials, not real secrets. The ExtendDB dev
+      # image seeds this pair and verifies every request's SigV4 signature
+      # against it, so the job's credentials have to match it.
+      AWS_ACCESS_KEY_ID: AKIAIOSFODNN7EXAMPLE
+      AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # A belt-and-braces check. The real wait is the runner's own wait on the
+      # image's HEALTHCHECK, which finishes before the first step runs; this loop
+      # normally passes on its first iteration.
+      - name: Confirm ExtendDB is reachable
+        run: |
+          for i in $(seq 1 30); do
+            # Any HTTP status other than 000 means the port answered.
+            if [ "$(curl -s --max-time 2 -o /dev/null -w '%{http_code}' "$DDB_ENDPOINT")" != "000" ]; then
+              echo "ExtendDB answering at $DDB_ENDPOINT"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "ExtendDB never answered at $DDB_ENDPOINT" >&2
+          exit 1
+
+      - name: Set up Node 22
+        if: matrix.language == 'typescript'
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: beta/extenddb-local-testing/harness/typescript/package-lock.json
+
+      - name: Run the TypeScript suite
+        if: matrix.language == 'typescript'
+        working-directory: beta/extenddb-local-testing/harness/typescript
+        run: |
+          npm ci
+          npm test
+
+      - name: Set up Python 3.11
+        if: matrix.language == 'python'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Run the Python suite
+        if: matrix.language == 'python'
+        working-directory: beta/extenddb-local-testing/harness/python
+        run: |
+          pip install -r requirements.txt
+          python -m pytest -q
+
+      - name: Set up JDK 17
+        if: matrix.language == 'java'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Run the Java suite
+        if: matrix.language == 'java'
+        working-directory: beta/extenddb-local-testing/harness/java
+        run: mvn -q test
+
+  launcher:
+    # The Node-only flavour: no service container at all. With DDB_ENDPOINT unset,
+    # the harness calls start({ memory: true }) from @extenddb/dev, which spawns the
+    # ExtendDB native binary as a child process on an ephemeral port. Parallel
+    # shards cannot collide and there is no container to wait for.
+    name: "launcher: typescript"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: beta/extenddb-local-testing/harness/typescript/package-lock.json
+
+      # No AWS_* variables here: globalSetup.mjs supplies the example credentials itself.
+      - name: Run the TypeScript suite with no container
+        working-directory: beta/extenddb-local-testing/harness/typescript
+        run: |
+          npm ci
+          npm test
