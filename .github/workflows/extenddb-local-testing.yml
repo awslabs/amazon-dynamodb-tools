@@ -127,6 +127,7 @@ jobs:
           cache: npm
           cache-dependency-path: beta/extenddb-local-testing/harness/typescript/package-lock.json
 
+      # No AWS_* variables here: globalSetup.mjs supplies the example credentials itself.
       - name: Run the TypeScript suite with no container
         working-directory: beta/extenddb-local-testing/harness/typescript
         run: |
