@@ -7,6 +7,9 @@ Covers `client/src/utils/module_zipper.py`:
   writes files, writes subdir entries to preserve empty dirs, skips symlinks),
   guard against zip_path inside source_path (raises ValueError → caught,
   returns False), exception during zipping (caught, log.error, returns False)
+- packaging the real server/src/python_modules tree: verb sub-packages
+  (copy/transform/) and shared/transform_loader.py land in the archive the
+  Glue job loads, and no __pycache__/.pyc leaks in
 
 Style notes:
 - Use the `tmp_path` fixture for filesystem tests so we exercise the real
@@ -20,6 +23,7 @@ Style notes:
 
 import os
 import zipfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -387,3 +391,50 @@ class TestZipModuleExclusions:
         assert 'modules/sub/__init__.py' in names
         assert 'modules/sub/helper.py' in names
         assert not any('__pycache__' in n for n in names)
+
+
+# --- Real server tree: verb sub-packages reach the bootstrap zip -------------
+
+class TestZipModulePackagesRealServerTree:
+    """The Glue job loads server/src/python_modules from the archive this
+    module builds (uploaded as --extra-py-files during bootstrap). os.walk is
+    generic, so a new verb sub-package like copy/transform/ is only actually
+    picked up if nothing in the walk excludes it. Zip the real tree and check.
+    """
+
+    SERVER_MODULES = Path(__file__).parents[3] / "server" / "src" / "python_modules"
+
+    def test_copy_transform_package_is_included(self, tmp_path):
+        assert self.SERVER_MODULES.is_dir(), self.SERVER_MODULES
+
+        zip_path = tmp_path / "python_modules.zip"
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(self.SERVER_MODULES), str(zip_path)) is True
+
+        with zipfile.ZipFile(zip_path) as zf:
+            names = set(zf.namelist())
+
+        for rel in (
+            "python_modules/copy/__init__.py",
+            "python_modules/copy/transform/__init__.py",
+            "python_modules/copy/transform/default.py",
+            "python_modules/copy/transform/attribute_filter.py",
+            "python_modules/copy/transform/pii_redact.py",
+        ):
+            assert rel in names, f"{rel} missing from bootstrap zip"
+
+    def test_shared_transform_loader_is_included(self, tmp_path):
+        zip_path = tmp_path / "python_modules.zip"
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(self.SERVER_MODULES), str(zip_path)) is True
+        with zipfile.ZipFile(zip_path) as zf:
+            names = set(zf.namelist())
+        assert "python_modules/shared/transform_loader.py" in names
+
+    def test_no_pycache_from_real_tree(self, tmp_path):
+        zip_path = tmp_path / "python_modules.zip"
+        with patch.object(module_zipper, 'log'):
+            assert module_zipper._zip_module(str(self.SERVER_MODULES), str(zip_path)) is True
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        assert not any('__pycache__' in n or n.endswith('.pyc') for n in names)

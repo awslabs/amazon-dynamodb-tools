@@ -1,5 +1,5 @@
 import importlib
-from ...bulk_executor_error import BulkExecutorError
+from .bulk_executor_error import BulkExecutorError
 
 
 def load_transform_module(module_name, transform_package):
