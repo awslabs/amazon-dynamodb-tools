@@ -12,16 +12,22 @@ class RateLimiterSharedConfig:
     This class encapsulates the shared configuration between worker and aggregator instances ensuring assigned values
     are consistent between both Aggregator and Worker.
     """
-    def __init__(self, bucket, job_run_id):
+    def __init__(self, bucket, job_run_id, scope=None):
         """
         Initialize the configuration.
-        
+
         Args:
             bucket (str): The S3 bucket name for rate limiter reporting
-            rate_limiter_prefix (str): The S3 prefix for rate limiter reporting
+            job_run_id (str): The job run the rate limiter reports belong to
+            scope (str, optional): Names a separate rate limit within the job run. Workers and
+                aggregators that share a scope share one limit, because the aggregator adds up
+                every worker report under the same S3 prefix. Leave it unset for a job that has
+                a single limit; give each table its own scope when each needs its own limit.
         """
         self.bucket = bucket
         self.prefix = f"server/rate-limiter/{job_run_id}"
+        if scope:
+            self.prefix = f"{self.prefix}/{scope}"
 
 
 class RateLimiterAggregator:
