@@ -8,15 +8,23 @@ import { client, tableName, createTable, eventually } from "./support.mjs";
 
 const TABLE = tableName("dynamodb");
 let db;
+let created = false;
 
 beforeAll(async () => {
   db = client();
   await createTable(db, TABLE);
+  created = true;
 });
 
 afterAll(async () => {
-  if (!db) return; // beforeAll failed; let its own error surface
-  await db.send(new DeleteTableCommand({ TableName: TABLE }));
+  if (!db) return;
+  try {
+    await db.send(new DeleteTableCommand({ TableName: TABLE }));
+  } catch (error) {
+    // If setup failed, beforeAll has already reported why. Clean up
+    // best-effort and report only that first error.
+    if (created) throw error;
+  }
 });
 
 const item = (n, status = "NEW") => ({
@@ -104,8 +112,10 @@ describe("transactions", () => {
 describe("queries", () => {
   it("queries the base table", async () => {
     await db.send(new PutItemCommand({ TableName: TABLE, Item: item(20) }));
+    // A base-table query is eventually consistent on real DynamoDB unless it
+    // asks for ConsistentRead, so this test asks.
     const res = await db.send(new QueryCommand({
-      TableName: TABLE,
+      TableName: TABLE, ConsistentRead: true,
       KeyConditionExpression: "pk = :p AND begins_with(sk, :s)",
       ExpressionAttributeValues: { ":p": { S: "CUST#20" }, ":s": { S: "ORDER#" } },
     }));
@@ -114,8 +124,8 @@ describe("queries", () => {
 
   it("queries a local secondary index", async () => {
     await db.send(new PutItemCommand({ TableName: TABLE, Item: item(30) }));
-    // An LSI read can be strongly consistent when asked for, so this test asks
-    // (ConsistentRead) and asserts directly instead of retrying.
+    // An LSI read is strongly consistent with ConsistentRead, so this test reads
+    // once with ConsistentRead.
     const res = await db.send(new QueryCommand({
       TableName: TABLE, IndexName: "byAmount", ConsistentRead: true,
       KeyConditionExpression: "pk = :p AND #a > :a",
@@ -125,9 +135,8 @@ describe("queries", () => {
     expect(res.Count).toBe(1);
   });
 
-  // Unlike an LSI read, a GSI read never supports ConsistentRead: it is always
-  // eventually consistent. It lags by about 10 ms on ExtendDB by default
-  // and is allowed to on real DynamoDB. `eventually` is the portable answer.
+  // GSIs do not support ConsistentRead, so this test polls. A GSI read lags by
+  // about 10 ms on ExtendDB by default, and real DynamoDB can lag too.
   it("queries a global secondary index once it has caught up", async () => {
     await db.send(new PutItemCommand({ TableName: TABLE, Item: item(40, "SHIPPED") }));
     const res = await eventually(async () => {
@@ -155,8 +164,7 @@ describe("table lifecycle", () => {
 });
 
 describe("signature verification", () => {
-  // ExtendDB verifies SigV4; DynamoDB Local accepts any credentials. A suite
-  // ported from DynamoDB Local with mismatched dummy keys fails here.
+  // DynamoDB Local would accept this request. ExtendDB checks the signature.
   it("rejects a request signed with the wrong secret", async () => {
     const cfg = inject("ddb");
     const bad = new DynamoDBClient({

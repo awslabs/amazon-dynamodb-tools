@@ -28,7 +28,7 @@ import software.amazon.awssdk.services.dynamodb.model.ScalarAttributeType;
  * <p>In CI with a service container, {@code DDB_ENDPOINT} is already set and this
  * class uses it. On a laptop with nothing running, it starts the ExtendDB dev
  * container through Testcontainers. There is no Maven artifact that embeds the
- * server, so the container is the portable answer for the JVM.
+ * server, so the JVM uses the container.
  */
 public final class ExtendDbSupport {
 
@@ -52,15 +52,14 @@ public final class ExtendDbSupport {
       endpoint = supplied;
       return endpoint;
     }
-    // The image is distroless and carries its own HEALTHCHECK, so wait on that
-    // rather than supplying a shell command of our own, which would have no
-    // shell to run in.
+    // Wait on the image's own HEALTHCHECK. The image is distroless and has no
+    // shell, so a custom health command could not run.
     container = new GenericContainer<>(IMAGE)
         .withExposedPorts(CONTAINER_PORT)
         .withEnv("EXTENDDB__STORAGE__SQLITE__PATH", ":memory:")
         .waitingFor(Wait.forHealthcheck().withStartupTimeout(Duration.ofSeconds(60)));
-    // Register cleanup before start() so a partly started container is stopped
-    // whatever happens next.
+    // Register the stop hook before start() so a failed start still cleans up.
+    // Testcontainers' Ryuk also cleans up, unless TESTCONTAINERS_RYUK_DISABLED=true.
     GenericContainer<?> started = container;
     Runtime.getRuntime().addShutdownHook(new Thread(started::stop));
     started.start();
@@ -80,7 +79,7 @@ public final class ExtendDbSupport {
     if (keyId != null && !keyId.isBlank() && secret != null && !secret.isBlank()) {
       return new String[] {keyId, secret};
     }
-    // Use both or neither: half a pair would sign with credentials that exist nowhere.
+    // Only use the environment pair if both halves are set.
     return new String[] {EXAMPLE_KEY_ID, EXAMPLE_SECRET};
   }
 
@@ -102,8 +101,8 @@ public final class ExtendDbSupport {
   }
 
   /**
-   * A table name unique to this caller and run, so parallel shards sharing one
-   * server never collide. The same habit works against real DynamoDB.
+   * A table name unique to this call, so parallel shards sharing one server get
+   * separate tables.
    */
   public static String tableName(String suffix) {
     return "extenddb-ci-" + suffix + "-" + UUID.randomUUID().toString().substring(0, 12);
@@ -113,8 +112,8 @@ public final class ExtendDbSupport {
    * Create the suite's table and wait until it is usable.
    *
    * <p>ExtendDB returns CREATING from CreateTable, as the real service does, so a
-   * write issued immediately fails with ResourceNotFoundException. The SDK's own
-   * waiter is the portable fix.
+   * write issued immediately fails with ResourceNotFoundException. The SDK waiter
+   * handles that, against DynamoDB Local and real DynamoDB too.
    */
   public static void createTable(DynamoDbClient db, String name) {
     db.createTable(CreateTableRequest.builder()
@@ -153,10 +152,9 @@ public final class ExtendDbSupport {
             .projection(Projection.builder().projectionType(ProjectionType.ALL).build())
             .build())
         .build());
-    // The DynamoDB waiter spec's default is 20 s between polls, which the SDK
-    // inherits and which would dominate a local run. These values keep the wait
-    // proportional to a local server, where a table leaves CREATING in about a
-    // second.
+    // The SDK inherits the DynamoDB waiter spec's default of 20 s between polls,
+    // which would dominate a local run. A local table leaves CREATING in well
+    // under a second, so poll every second.
     db.waiter().waitUntilTableExists(
         r -> r.tableName(name),
         o -> o.maxAttempts(30).backoffStrategy(FixedDelayBackoffStrategy.create(Duration.ofSeconds(1))));
@@ -165,9 +163,8 @@ public final class ExtendDbSupport {
   /**
    * Retry an assertion until it stops throwing.
    *
-   * <p>Global secondary index reads can lag their writes: on ExtendDB by its
-   * default propagation delay, and on real DynamoDB they are allowed to. Polling is the portable way to
-   * assert on an index without a sleep that is either flaky or slow.
+   * <p>GSI reads can lag writes, on ExtendDB and on real DynamoDB. Poll instead
+   * of sleeping.
    */
   public static <T> T eventually(Supplier<T> fn) {
     long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();

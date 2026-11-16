@@ -3,7 +3,7 @@
 In CI with a service container, DDB_ENDPOINT is already set and these fixtures
 just use it. On a laptop with nothing running, the session fixture starts the
 ExtendDB dev container and stops it afterwards. There is no Python launcher
-package, so the container is the portable answer for Python.
+package, so Python uses the container.
 """
 import os
 import shutil
@@ -15,36 +15,38 @@ import uuid
 import boto3
 import pytest
 from botocore.config import Config
+from botocore.exceptions import ClientError, HTTPClientError
+from botocore.exceptions import ConnectionError as BotoConnectionError
 
 IMAGE = "extenddb/extenddb-dev:0.1.14"
-# The AWS documentation's example credentials: public, and safe to commit.
+# AWS's published example credentials. They are public and safe to commit.
 EXAMPLE_KEY_ID = "AKIAIOSFODNN7EXAMPLE"
 EXAMPLE_SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 REGION = "us-east-1"
+AUTH_ERRORS = ("UnrecognizedClientException", "InvalidSignatureException")
 
 
 def credentials():
     """The (key id, secret) pair the suite signs with."""
     key_id = os.environ.get("AWS_ACCESS_KEY_ID")
     secret = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    # Only use the environment pair if both halves are set.
     if key_id and secret:
         return key_id, secret
-    # Use both or neither: half a pair would sign with credentials that exist nowhere.
     return EXAMPLE_KEY_ID, EXAMPLE_SECRET
 
 
 def table_name(suffix):
-    """A table name unique to this caller and run, so parallel shards sharing
-    one server never collide. The same habit works against real DynamoDB."""
+    """A table name unique to this call, so parallel shards sharing one server
+    get separate tables."""
     return f"extenddb-ci-{suffix}-{os.getpid()}-{uuid.uuid4().hex[:12]}"
 
 
 def eventually(fn, timeout=5.0, interval=0.025):
     """Retry an assertion until it stops raising.
 
-    Global secondary index reads can lag their writes: on ExtendDB by its
-    default propagation delay, and on real DynamoDB they are allowed to. Polling is the portable way to
-    assert on an index without a sleep that is either flaky or slow.
+    GSI reads can lag writes, on ExtendDB and on real DynamoDB. Poll instead
+    of sleeping.
     """
     deadline = time.monotonic() + timeout
     last = None
@@ -67,8 +69,7 @@ def _container_runtime():
     for candidate in ("docker", "podman"):
         if shutil.which(candidate):
             return candidate
-    # Fail rather than skip: a skipped session exits 0 and would report success
-    # having verified nothing.
+    # A skipped session exits 0, so fail instead.
     pytest.fail(
         "No DynamoDB endpoint available: DDB_ENDPOINT is unset and neither docker "
         "nor podman is installed. Either set DDB_ENDPOINT to a running ExtendDB "
@@ -79,6 +80,11 @@ def _container_runtime():
 
 
 def _wait_ready(url, timeout=60.0):
+    """Wait until the server at url answers a request.
+
+    Any reply counts, including an error. Only connection-level failures are
+    retried. A credentials error stops the run at once with a clear message.
+    """
     key_id, secret = credentials()
     client = boto3.client(
         "dynamodb", endpoint_url=url, region_name=REGION,
@@ -91,12 +97,25 @@ def _wait_ready(url, timeout=60.0):
         try:
             client.list_tables()
             return
-        except Exception as error:
+        except ClientError as error:
+            code = error.response.get("Error", {}).get("Code", "")
+            break
+        except (BotoConnectionError, HTTPClientError) as error:
             last = error
             time.sleep(0.1)
-    raise RuntimeError(
-        f"ExtendDB at {url} did not become ready in {timeout}s; last error: {last!r}"
-    ) from last
+    else:
+        raise RuntimeError(
+            f"ExtendDB at {url} did not become ready in {timeout}s; last error: {last!r}"
+        ) from last
+    # The server answered with an error, so it is up.
+    if code in AUTH_ERRORS:
+        pytest.fail(
+            f"ExtendDB at {url} rejected the credentials ({code}) for key id "
+            f"{key_id}. ExtendDB verifies SigV4 and seeds only the example pair "
+            f"{EXAMPLE_KEY_ID}. Unset AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, "
+            "or export the example pair.",
+            pytrace=False,
+        )
 
 
 @pytest.fixture(scope="session")
@@ -147,9 +166,9 @@ def table(db):
     """Create the suite's table and wait until it is usable.
 
     ExtendDB returns CREATING from CreateTable, as the real service does, so a
-    write issued immediately fails with ResourceNotFoundException. boto3's own
-    waiter is the portable fix: this same code is correct against DynamoDB Local
-    and against real DynamoDB.
+    write issued immediately fails with ResourceNotFoundException. boto3's
+    table_exists waiter handles that, against DynamoDB Local and real DynamoDB
+    too.
     """
     name = table_name("python")
     db.create_table(
@@ -184,16 +203,14 @@ def table(db):
         }],
     )
     try:
-        # The DynamoDB waiter spec's default is 20 s between polls, which boto3
-        # inherits and which would dominate a local run. These values keep the
-        # wait proportional to a local server, where a table leaves CREATING in
-        # about a second.
+        # boto3 inherits the DynamoDB waiter spec's default of 20 s between
+        # polls, which would dominate a local run. A local table leaves
+        # CREATING in well under a second, so poll every second.
         db.get_waiter("table_exists").wait(
             TableName=name, WaiterConfig={"Delay": 1, "MaxAttempts": 30}
         )
     except Exception:
-        # Setup failed: clean up best-effort, but let the waiter's own error
-        # surface rather than a secondary one from the cleanup.
+        # Clean up best-effort, and report the waiter's error, not a cleanup one.
         try:
             db.delete_table(TableName=name)
         except Exception:

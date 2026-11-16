@@ -33,21 +33,29 @@ class DynamoDbSuiteTest {
 
   private static DynamoDbClient db;
   private static String table;
+  private static boolean created;
 
   @BeforeAll
   static void setUp() {
     db = ExtendDbSupport.client();
     table = ExtendDbSupport.tableName("java");
     ExtendDbSupport.createTable(db, table);
+    created = true;
   }
 
   @AfterAll
   static void tearDown() {
     if (db == null) {
-      return; // setUp failed; let its own error surface
+      return;
     }
     try {
       db.deleteTable(DeleteTableRequest.builder().tableName(table).build());
+    } catch (RuntimeException error) {
+      // If setUp failed, JUnit has already reported why. Clean up best-effort
+      // and report only that first error.
+      if (created) {
+        throw error;
+      }
     } finally {
       db.close();
     }
@@ -138,8 +146,11 @@ class DynamoDbSuiteTest {
   @Test
   void queriesTheBaseTable() {
     db.putItem(r -> r.tableName(table).item(item(20, "NEW")));
+    // A base-table query is eventually consistent on real DynamoDB unless it
+    // asks for ConsistentRead, so this test asks.
     var res = db.query(QueryRequest.builder()
         .tableName(table)
+        .consistentRead(true)
         .keyConditionExpression("pk = :p AND begins_with(sk, :s)")
         .expressionAttributeValues(Map.of(
             ":p", AttributeValue.fromS("CUST#20"),
@@ -151,8 +162,8 @@ class DynamoDbSuiteTest {
   @Test
   void queriesALocalSecondaryIndex() {
     db.putItem(r -> r.tableName(table).item(item(30, "NEW")));
-    // An LSI read can be strongly consistent when asked for, so this test asks
-    // (consistentRead) and asserts directly instead of retrying.
+    // An LSI read is strongly consistent with ConsistentRead, so this test reads
+    // once with ConsistentRead.
     var res = db.query(QueryRequest.builder()
         .tableName(table)
         .indexName("byAmount")
@@ -166,9 +177,8 @@ class DynamoDbSuiteTest {
     assertEquals(1, res.count());
   }
 
-  // Unlike an LSI read, a GSI read never supports ConsistentRead: it is always
-  // eventually consistent. It lags by about 10 ms on ExtendDB by default
-  // and is allowed to on real DynamoDB. `eventually` is the portable answer.
+  // GSIs do not support ConsistentRead, so this test polls. A GSI read lags by
+  // about 10 ms on ExtendDB by default, and real DynamoDB can lag too.
   @Test
   void queriesAGlobalSecondaryIndexOnceCaughtUp() {
     db.putItem(r -> r.tableName(table).item(item(40, "SHIPPED")));
@@ -199,11 +209,10 @@ class DynamoDbSuiteTest {
 
   @Test
   void rejectsARequestSignedWithTheWrongSecret() {
-    // ExtendDB verifies SigV4; DynamoDB Local accepts any credentials. A suite
-    // ported from DynamoDB Local with mismatched dummy keys fails here. The key
-    // id is a known one, so the server reaches signature checking and reports
-    // InvalidSignatureException (an unknown key id would give
-    // UnrecognizedClientException instead).
+    // DynamoDB Local would accept this request. ExtendDB checks the signature.
+    // The key id is a known one, so the server reaches signature checking and
+    // reports InvalidSignatureException. An unknown key id would give
+    // UnrecognizedClientException.
     try (DynamoDbClient bad = ExtendDbSupport.clientWithSecret("wrong")) {
       AwsServiceException thrown = assertThrows(AwsServiceException.class, bad::listTables);
       assertEquals("InvalidSignatureException", thrown.awsErrorDetails().errorCode());

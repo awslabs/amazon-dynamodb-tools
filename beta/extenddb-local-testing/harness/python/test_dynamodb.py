@@ -1,11 +1,11 @@
-"""The shared suite, in Python. Mirrors the TypeScript suite's assertions."""
+"""The shared suite, in Python. Mirrors the TypeScript and Java suites test for test."""
 import boto3
 import pytest
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-# pytest puts this directory on sys.path (rootdir-based "prepend" import mode),
-# so conftest.py imports as a plain module.
+# pytest's default "prepend" import mode puts this test file's directory on
+# sys.path, so conftest.py imports as a plain module.
 from conftest import REGION, credentials, eventually, table_name
 
 
@@ -75,8 +75,11 @@ def test_transaction_cancels_when_one_condition_fails(db, table):
 
 def test_queries_the_base_table(db, table):
     db.put_item(TableName=table, Item=item(20))
+    # A base-table query is eventually consistent on real DynamoDB unless it
+    # asks for ConsistentRead, so this test asks.
     res = db.query(
         TableName=table,
+        ConsistentRead=True,
         KeyConditionExpression="pk = :p AND begins_with(sk, :s)",
         ExpressionAttributeValues={":p": {"S": "CUST#20"}, ":s": {"S": "ORDER#"}},
     )
@@ -85,8 +88,8 @@ def test_queries_the_base_table(db, table):
 
 def test_queries_a_local_secondary_index(db, table):
     db.put_item(TableName=table, Item=item(30))
-    # An LSI read can be strongly consistent when asked for, so this test asks
-    # (ConsistentRead) and asserts directly instead of retrying.
+    # An LSI read is strongly consistent with ConsistentRead, so this test reads
+    # once with ConsistentRead.
     res = db.query(
         TableName=table,
         IndexName="byAmount",
@@ -98,9 +101,8 @@ def test_queries_a_local_secondary_index(db, table):
     assert res["Count"] == 1
 
 
-# Unlike an LSI read, a GSI read never supports ConsistentRead: it is always
-# eventually consistent. It lags by about 10 ms on ExtendDB by default
-# and is allowed to on real DynamoDB. `eventually` is the portable answer.
+# GSIs do not support ConsistentRead, so this test polls. A GSI read lags by
+# about 10 ms on ExtendDB by default, and real DynamoDB can lag too.
 def test_queries_a_global_secondary_index_once_caught_up(db, table):
     db.put_item(TableName=table, Item=item(40, "SHIPPED"))
 
@@ -127,11 +129,10 @@ def test_enables_ttl(db, table):
 
 
 def test_rejects_a_request_signed_with_the_wrong_secret(endpoint):
-    # ExtendDB verifies SigV4; DynamoDB Local accepts any credentials. A suite
-    # ported from DynamoDB Local with mismatched dummy keys fails here. The key
-    # id is a known one, so the server reaches signature checking and reports
-    # InvalidSignatureException (an unknown key id would give
-    # UnrecognizedClientException instead).
+    # DynamoDB Local would accept this request. ExtendDB checks the signature.
+    # The key id is a known one, so the server reaches signature checking and
+    # reports InvalidSignatureException. An unknown key id would give
+    # UnrecognizedClientException.
     key_id, _ = credentials()
     bad = boto3.client(
         "dynamodb",

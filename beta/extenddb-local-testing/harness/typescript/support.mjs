@@ -18,9 +18,9 @@ export function client() {
 }
 
 /**
- * A table name unique to this test file and run, so parallel shards sharing one
- * server never collide. The random component covers same-millisecond calls and
- * parallel CI containers that share pids. The same habit works against real DynamoDB.
+ * A table name unique to this call, so parallel shards sharing one server get
+ * separate tables. The random part covers same-millisecond calls and parallel
+ * CI containers that share pids.
  */
 export function tableName(suffix) {
   return `extenddb-ci-${suffix}-${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}`;
@@ -30,9 +30,8 @@ export function tableName(suffix) {
  * Create the suite's table and wait until it is usable.
  *
  * ExtendDB returns CREATING from CreateTable, as the real service does, so a
- * write issued immediately fails with ResourceNotFoundException. The SDK's own
- * waiter is the portable fix: this same code is correct against DynamoDB Local
- * and against real DynamoDB.
+ * write issued immediately fails with ResourceNotFoundException. Use the SDK
+ * waiter. It works against DynamoDB Local and real DynamoDB too.
  */
 export async function createTable(db, name) {
   await db.send(new CreateTableCommand({
@@ -67,17 +66,16 @@ export async function createTable(db, name) {
     }],
   }));
   // The DynamoDB waiter spec's default floor is 20 s between polls, which would
-  // dominate a local test run. These values keep the wait proportional to a
-  // local server, where a table leaves CREATING in about a second.
+  // dominate a local run. A local table leaves CREATING in well under a second,
+  // so poll every 1 to 2 s.
   await waitUntilTableExists({ client: db, maxWaitTime: 30, minDelay: 1, maxDelay: 2 }, { TableName: name });
 }
 
 /**
  * Retry an assertion until it stops throwing.
  *
- * Global secondary index reads can lag their writes: on ExtendDB by its default
- * propagation delay, and on real DynamoDB they are allowed to. Polling is the portable way to
- * assert on an index without a sleep that is either flaky or slow.
+ * GSI reads can lag writes, on ExtendDB and on real DynamoDB. Poll instead of
+ * sleeping.
  */
 export async function eventually(fn, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
