@@ -25,7 +25,7 @@ The ephemeral port keeps the run clear of any other server on the machine. The i
 
 Set `DDB_ENDPOINT` and the harness uses it instead of starting anything. A CI service container works this way. With no `DDB_ENDPOINT` set, `npm run test:container` defaults to `http://127.0.0.1:18080`. The script uses POSIX shell syntax. On Windows `cmd`, set `DDB_ENDPOINT` yourself and run `npm test`.
 
-The harness does not wait or retry, so wait for the container first. Under podman on a laptop it reported healthy in about 2 s. The sequence below waits up to 30 s for the container's health state, runs the tests only if it is healthy, and always removes the container, so a failed attempt does not block the next one. `docker` works the same.
+The harness does not wait or retry, so wait for the container first. Under podman on a laptop it reported healthy in about 2 s. The sequence below waits up to 30 s for the container to report healthy and runs the tests only then. It always removes the container, so a failed attempt does not block the next one. `docker` works the same.
 
 ```bash
 podman rm -f edb >/dev/null 2>&1
@@ -48,6 +48,6 @@ podman rm -f edb
 
 ExtendDB verifies each request's SigV4 signature, so the harness has to sign with a pair the server seeds. The server always seeds the example pair `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`. ExtendDB rejects credentials it did not seed. DynamoDB Local accepts any.
 
-- Against a running server, the harness uses `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` if you set both, and otherwise the example pair. Real AWS credentials left in your shell are therefore sent to the server, which does not know that key id, and the run fails with `UnrecognizedClientException`. Unset them, or export the example pair, before `npm run test:container`.
+- Against a running server, the harness uses `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` if you set both, and otherwise the example pair. Real AWS credentials left in your shell are therefore sent to the server. It does not know that key id, so the run fails with `UnrecognizedClientException`. Unset them, or export the example pair, before `npm run test:container`.
 - When the harness starts its own server, it always signs with the example pair and ignores `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
-- On the `DDB_ENDPOINT` path the region comes from `AWS_REGION` and defaults to `us-east-1`. It must match the server's region, because SigV4 puts the region in the credential scope.
+- On the `DDB_ENDPOINT` path the region comes from `AWS_REGION` and defaults to `us-east-1`. ExtendDB 0.1.14 does not check the signing region. Real DynamoDB does, so keep the region consistent if you also run against the real service.

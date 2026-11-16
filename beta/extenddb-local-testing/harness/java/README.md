@@ -29,7 +29,7 @@ export TESTCONTAINERS_RYUK_DISABLED=true
 
 ### Against a running server
 
-Set `DDB_ENDPOINT` and the harness uses it instead of starting a container. The harness does not wait or retry, so wait for the container first. The sequence below waits up to 30 s for the container's health state, runs the tests only if it is healthy, and always removes the container. `docker` works the same.
+Set `DDB_ENDPOINT` and the harness uses it instead of starting a container. The harness does not wait or retry, so wait for the container first. The sequence below waits up to 30 s for the container to report healthy and runs the tests only then. It always removes the container. `docker` works the same.
 
 ```bash
 podman rm -f edb >/dev/null 2>&1
@@ -53,5 +53,5 @@ podman rm -f edb
 ExtendDB verifies each request's SigV4 signature, so the harness has to sign with a pair the server seeds. The server always seeds the example pair `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
 
 - The harness uses `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` if both are set, and otherwise the example pair. That holds on every path, including a container the harness starts itself.
-- Real AWS credentials left in your shell are rejected, and the suite fails in `@BeforeAll` with `UnrecognizedClientException`. Unset them, or export the example pair.
+- Real AWS credentials left in your shell are rejected, and the suite fails in `@BeforeAll` with `DynamoDbException: The security token included in the request is invalid`. Its error code is `UnrecognizedClientException`. Unset them, or export the example pair.
 - The region is fixed at `us-east-1`, the server's default.

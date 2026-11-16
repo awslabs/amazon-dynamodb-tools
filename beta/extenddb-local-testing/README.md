@@ -94,12 +94,25 @@ test:
 
 The AWS SDKs also read the service-specific variable `AWS_ENDPOINT_URL_DYNAMODB`. A client created with no endpoint in code then talks to ExtendDB, so your client code does not change. This works with all three SDK versions pinned here (`@aws-sdk/client-dynamodb` 3.1169.0, boto3 1.44.3 and AWS SDK for Java 2.59.0).
 
+On GitHub Actions the service is on `localhost`:
+
 ```yaml
 env:
   AWS_ENDPOINT_URL_DYNAMODB: http://localhost:18080
 ```
 
-boto3 1.44.3 reads the region from `AWS_DEFAULT_REGION` and ignores `AWS_REGION`. For a Python application, set `AWS_DEFAULT_REGION: us-east-1` too.
+On GitLab CI it is reached by its service alias:
+
+```yaml
+variables:
+  AWS_ENDPOINT_URL_DYNAMODB: "http://dynamodb:18080"
+```
+
+Each SDK needs some region to build a client. boto3 1.44.3 reads it from `AWS_DEFAULT_REGION` and does not read `AWS_REGION`, so for a Python application add this too:
+
+```yaml
+AWS_DEFAULT_REGION: us-east-1
+```
 
 ## Three things that differ from DynamoDB Local
 
@@ -107,7 +120,7 @@ boto3 1.44.3 reads the region from `AWS_DEFAULT_REGION` and ignores `AWS_REGION`
 
 A new table is `CREATING` for a short time, as on the real service. DynamoDB Local returns `ACTIVE` at once. Wait for the table with your SDK's waiter, which works against both.
 
-The waiters' default minimum delay is 20 s, from the DynamoDB waiter spec. That is far too slow for a local test, so lower it as the harnesses do.
+The waiters' default minimum delay is 20 s, from the DynamoDB waiter spec. That is too slow for a local test, so lower it as the harnesses do.
 
 JavaScript (AWS SDK v3):
 
@@ -126,6 +139,7 @@ client.get_waiter("table_exists").wait(TableName=name, WaiterConfig={"Delay": 1,
 Java (AWS SDK v2):
 
 ```java
+import java.time.Duration;
 import software.amazon.awssdk.core.retry.backoff.FixedDelayBackoffStrategy;
 
 db.waiter().waitUntilTableExists(
@@ -144,7 +158,7 @@ DynamoDB Local accepts any credentials. ExtendDB verifies the signature.
 
 - A known access key with the wrong secret gives `InvalidSignatureException`.
 - An unknown access key id gives `UnrecognizedClientException`.
-- The region must match the server's region (`us-east-1` by default), because it is part of the signature's credential scope.
+- ExtendDB 0.1.14 does not check the region a request is signed for. The suite passes with `AWS_REGION=eu-west-1`. Real DynamoDB does check it, so keep your region consistent if you also run against the real service.
 
 The server always seeds AWS's published example pair (`AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`), so sign with that pair in CI. On your own machine, unset real `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in your shell, or export the example pair. Each harness README says how that harness picks its credentials and region.
 
@@ -189,7 +203,7 @@ Each harness uses `DDB_ENDPOINT` if the environment sets it, and otherwise start
 
 ### TypeScript
 
-Vitest. Needs Node 22.12 or later. With no `DDB_ENDPOINT` it starts the server through `@extenddb/dev`. See [`harness/typescript/README.md`](harness/typescript/README.md).
+The suite runs on Vitest and needs Node 22.12 or later. Leave `DDB_ENDPOINT` unset and `@extenddb/dev` starts the server for you. See [`harness/typescript/README.md`](harness/typescript/README.md).
 
 ```bash
 cd beta/extenddb-local-testing/harness/typescript
@@ -199,7 +213,7 @@ npm test
 
 ### Python
 
-pytest with boto3. With no `DDB_ENDPOINT` it starts the container with `docker` or `podman`. See [`harness/python/README.md`](harness/python/README.md).
+pytest and boto3. If `DDB_ENDPOINT` is unset, the session fixture runs the container with `docker` or `podman`. See [`harness/python/README.md`](harness/python/README.md).
 
 ```bash
 cd beta/extenddb-local-testing/harness/python
@@ -209,7 +223,7 @@ python -m pytest -v
 
 ### Java
 
-JUnit with AWS SDK v2. With no `DDB_ENDPOINT` it starts the container through Testcontainers. The POM sets `failIfNoTests`, so a run that executes zero tests fails. See [`harness/java/README.md`](harness/java/README.md).
+This one uses JUnit and the AWS SDK for Java v2. Testcontainers starts the container when `DDB_ENDPOINT` is unset. The POM sets `failIfNoTests`, so a run that executes zero tests fails. See [`harness/java/README.md`](harness/java/README.md).
 
 ```bash
 cd beta/extenddb-local-testing/harness/java
@@ -225,7 +239,7 @@ mvn -B -ntp test
 
 - Classic DynamoDB API only. PartiQL is not covered.
 - A standalone binary download for Python and Java is a possible future option. It is not offered today because it would depend on undocumented package internals.
-- Pinned to ExtendDB 0.1.14. A monthly scheduled run of the workflow catches a release that breaks these templates.
+- Pinned to ExtendDB 0.1.14. Once a month, and on manual dispatch, the repository's own workflow also runs the suite against the newest ExtendDB release (`extenddb/extenddb-dev:latest` and `@extenddb/dev@latest`). A failure there means a new release broke the templates. That canary is repository maintenance and not part of the template you copy.
 
 To bump the version, change the image tag everywhere this search finds it, including this README. Then update the npm launcher, which also rewrites the lockfile.
 

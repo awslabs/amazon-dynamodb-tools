@@ -20,8 +20,8 @@ export default async function setup({ provide }) {
     provide("ddb", {
       endpoint: process.env.DDB_ENDPOINT,
       ...pair,
-      // SigV4 signs the region, so it has to match the server's. A mismatch
-      // fails with InvalidSignatureException.
+      // The SDK needs a region to sign with. ExtendDB 0.1.14 does not check it,
+      // but real DynamoDB does.
       region: process.env.AWS_REGION ?? "us-east-1",
     });
     return;
