@@ -141,7 +141,7 @@ jobs:
   # the templates. Copy the jobs above, not these.
   canary-container:
     name: "canary container: ${{ matrix.language }}"
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -214,7 +214,7 @@ jobs:
 
   canary-launcher:
     name: "canary launcher: typescript"
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
