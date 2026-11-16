@@ -190,7 +190,7 @@ fi
 
 ## The CI templates
 
-- [`.github/workflows/extenddb-local-testing.yml`](../../.github/workflows/extenddb-local-testing.yml) is a live GitHub Actions example. Two of its jobs are the template. `container` runs a TypeScript, Python and Java matrix with ExtendDB as a service container, using the service block from the swap above. `launcher` is TypeScript only and has no service container. The npm launcher `@extenddb/dev` spawns the native ExtendDB binary as a child process on an ephemeral port, so parallel runs do not clash. The file also has two canary jobs that run monthly against the newest ExtendDB release. They keep this repository honest and are not part of what you copy.
+- [`.github/workflows/extenddb-local-testing.yml`](../../.github/workflows/extenddb-local-testing.yml) is a live GitHub Actions example. Two of its jobs are the template. `container` runs a TypeScript, Python and Java matrix with ExtendDB as a service container, using the service block from the swap above. `launcher` is TypeScript only and has no service container. The npm launcher `@extenddb/dev` spawns the native ExtendDB binary as a child process on an ephemeral port, so parallel runs do not clash. The file also has two canary jobs that run monthly against the newest ExtendDB release. They catch a new release that breaks these templates. You do not need to copy them.
 - [`gitlab-ci.example.yml`](gitlab-ci.example.yml) is the GitLab CI template to copy. It is verified on GitLab CI.
 
 On GitHub Actions, with warm caches, the TypeScript launcher job takes 11 s. The TypeScript, Python and Java container jobs take 22 s, 24 s and 34 s, including setup. On GitLab CI the jobs take 24 s (TypeScript), 27 s (Python) and 53 s (Java).
