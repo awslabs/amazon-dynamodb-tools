@@ -1,10 +1,8 @@
 # TypeScript harness
 
-Runs the shared suite against ExtendDB with Vitest. Requires Node.js 22.12 or
-later.
+Runs the shared suite against ExtendDB with Vitest. Requires Node.js 22.12 or later.
 
-Run every command below from this directory. From the root of the repository
-checkout:
+Run every command below from this directory. From the root of the repository checkout:
 
 ```bash
 cd beta/extenddb-local-testing/harness/typescript
@@ -12,38 +10,33 @@ cd beta/extenddb-local-testing/harness/typescript
 
 ## Two ways to get a server
 
-**Self-started (no container).** The default. `globalSetup.mjs` calls
-`start({ memory: true })` from `@extenddb/dev`, which spawns the native ExtendDB
-binary as a child server process on an ephemeral port for the test run, and
-stops it afterwards. No container and no daemon are involved.
+### Self-started, with no container
+
+This is the default. `globalSetup.mjs` calls `start({ memory: true })` from `@extenddb/dev`, which spawns the native ExtendDB binary as a child process on an ephemeral port for the test run and stops it afterwards.
 
 ```bash
 npm install
 npm test
 ```
 
-The ephemeral port means the run never collides with another server on the
-machine, and the in-memory server is ready in about 190 ms on an Apple-silicon
-laptop.
+The ephemeral port keeps the run clear of any other server on the machine. The in-memory server started in about 190 ms on an Apple-silicon laptop. Vitest's verbose reporter, set in `vitest.config.mjs`, lists each test by name.
 
-**Against a running server.** Set `DDB_ENDPOINT` and the harness uses it instead
-of starting anything. This is the pattern a CI service container uses. With no
-`DDB_ENDPOINT` set, `test:container` defaults to `http://127.0.0.1:18080`.
+### Against a running server
 
-The container takes about 2 s to become healthy, and the harness does not wait
-or retry. The sequence below waits on the container's health state for up to
-30 s, runs the tests only if the container is healthy, and always removes the
-container, so a failed attempt does not block the next one:
+Set `DDB_ENDPOINT` and the harness uses it instead of starting anything. A CI service container works this way. With no `DDB_ENDPOINT` set, `npm run test:container` defaults to `http://127.0.0.1:18080`. The script uses POSIX shell syntax. On Windows `cmd`, set `DDB_ENDPOINT` yourself and run `npm test`.
+
+The harness does not wait or retry, so wait for the container first. Under podman on a laptop it reported healthy in about 2 s. The sequence below waits up to 30 s for the container's health state, runs the tests only if it is healthy, and always removes the container, so a failed attempt does not block the next one. `docker` works the same.
 
 ```bash
-podman rm -f edb
+podman rm -f edb >/dev/null 2>&1
 podman run -d --name edb -p 127.0.0.1:18080:18080 \
   -e EXTENDDB__STORAGE__SQLITE__PATH=:memory: extenddb/extenddb-dev:0.1.14
+ok=
 for i in $(seq 60); do
-  [ "$(podman inspect -f '{{.State.Health.Status}}' edb 2>/dev/null)" = healthy ] && break
+  [ "$(podman inspect -f '{{.State.Health.Status}}' edb 2>/dev/null)" = healthy ] && ok=1 && break
   sleep 0.5
 done
-if [ "$(podman inspect -f '{{.State.Health.Status}}' edb 2>/dev/null)" = healthy ]; then
+if [ -n "$ok" ]; then
   npm run test:container
 else
   echo "edb did not become healthy within 30 s. Check 'podman logs edb' and that port 18080 is free." >&2
@@ -53,19 +46,8 @@ podman rm -f edb
 
 ## Credentials
 
-The harness signs requests with SigV4, and ExtendDB verifies the signature, so
-the credentials must match a pair the server seeds. The example pair
-`AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY` is always
-seeded by the server. Unlike DynamoDB Local, which accepts any credentials,
-ExtendDB rejects a pair it did not seed.
+ExtendDB verifies each request's SigV4 signature, so the harness has to sign with a pair the server seeds. The server always seeds the example pair `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`. ExtendDB rejects credentials it did not seed. DynamoDB Local accepts any.
 
-- Against a running server, the harness uses `AWS_ACCESS_KEY_ID` and
-  `AWS_SECRET_ACCESS_KEY` if you set both, and otherwise the example pair.
-  Real AWS credentials left in your shell are therefore sent to the server,
-  which does not know that key ID, and the run fails with
-  `UnrecognizedClientException`. Unset them, or export the example pair, before
-  `npm run test:container`.
-- When the harness starts its own server, it always uses the example pair and
-  ignores `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
-- `AWS_REGION` defaults to `us-east-1` on the `DDB_ENDPOINT` path. It must match
-  the server's region, because SigV4 puts the region in the credential scope.
+- Against a running server, the harness uses `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` if you set both, and otherwise the example pair. Real AWS credentials left in your shell are therefore sent to the server, which does not know that key id, and the run fails with `UnrecognizedClientException`. Unset them, or export the example pair, before `npm run test:container`.
+- When the harness starts its own server, it always signs with the example pair and ignores `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
+- On the `DDB_ENDPOINT` path the region comes from `AWS_REGION` and defaults to `us-east-1`. It must match the server's region, because SigV4 puts the region in the credential scope.
