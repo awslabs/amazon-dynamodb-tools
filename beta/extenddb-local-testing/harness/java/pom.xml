@@ -42,8 +42,11 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.6.1</version>
         <configuration>
-          <!-- A run that executes zero tests must fail, not pass vacuously. -->
+          <!-- Fail the build if no tests ran. -->
           <failIfNoTests>true</failIfNoTests>
+          <!-- Print one line per test to the console. -->
+          <reportFormat>plain</reportFormat>
+          <useFile>false</useFile>
         </configuration>
       </plugin>
     </plugins>

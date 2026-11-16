@@ -12,8 +12,7 @@ on:
       - 'beta/extenddb-local-testing/**'
       - '.github/workflows/extenddb-local-testing.yml'
   schedule:
-    # ExtendDB is pre-1.0; catch a release that breaks these templates before a
-    # reader does.
+    # ExtendDB is pre-1.0. A monthly run shows a breaking release in CI first.
     - cron: '0 6 1 * *'
   workflow_dispatch:
 
@@ -30,10 +29,9 @@ jobs:
       matrix:
         language: [typescript, python, java]
 
-    # ExtendDB as a service container. The image ships its own HEALTHCHECK and is
-    # distroless, so do NOT pass --health-cmd: there is no shell to run it in and
-    # the container would never report healthy. The runner waits on the image's
-    # own health check.
+    # ExtendDB as a service container. The image has its own HEALTHCHECK, and the
+    # runner waits for it before the first step. Leave --health-cmd unset,
+    # because the image is distroless and has no shell to run one.
     services:
       dynamodb:
         image: extenddb/extenddb-dev:0.1.14
@@ -45,18 +43,17 @@ jobs:
     env:
       DDB_ENDPOINT: http://localhost:18080
       AWS_REGION: us-east-1
-      # AWS's documented example credentials, not real secrets. The ExtendDB dev
-      # image seeds this pair and verifies every request's SigV4 signature
-      # against it, so the job's credentials have to match it.
+      # These are AWS's published example credentials. The ExtendDB dev image
+      # seeds this pair and verifies each request's SigV4 signature against it,
+      # so the job signs with the same pair.
       AWS_ACCESS_KEY_ID: AKIAIOSFODNN7EXAMPLE
       AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 
     steps:
       - uses: actions/checkout@v5
 
-      # A belt-and-braces check. The real wait is the runner's own wait on the
-      # image's HEALTHCHECK, which finishes before the first step runs; this loop
-      # normally passes on its first iteration.
+      # Extra check. The runner has already waited for the image's HEALTHCHECK,
+      # so this loop normally passes on its first try.
       - name: Confirm ExtendDB is reachable
         run: |
           for i in $(seq 1 30); do
@@ -96,7 +93,7 @@ jobs:
         working-directory: beta/extenddb-local-testing/harness/python
         run: |
           pip install -r requirements.txt
-          python -m pytest -q
+          python -m pytest -v
 
       - name: Set up JDK 17
         if: matrix.language == 'java'
@@ -109,13 +106,13 @@ jobs:
       - name: Run the Java suite
         if: matrix.language == 'java'
         working-directory: beta/extenddb-local-testing/harness/java
-        run: mvn -q test
+        run: mvn -B -ntp test
 
   launcher:
-    # The Node-only flavour: no service container at all. With DDB_ENDPOINT unset,
-    # the harness calls start({ memory: true }) from @extenddb/dev, which spawns the
-    # ExtendDB native binary as a child process on an ephemeral port. Parallel
-    # shards cannot collide and there is no container to wait for.
+    # The Node-only flavor, with no service container. With DDB_ENDPOINT unset,
+    # the harness calls start({ memory: true }) from @extenddb/dev, which spawns
+    # the ExtendDB native binary as a child process on an ephemeral port. Each
+    # run gets its own server, and there is no container to wait for.
     name: "launcher: typescript"
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -130,7 +127,7 @@ jobs:
           cache: npm
           cache-dependency-path: beta/extenddb-local-testing/harness/typescript/package-lock.json
 
-      # No AWS_* variables here: globalSetup.mjs supplies the example credentials itself.
+      # No AWS_* variables here. globalSetup.mjs supplies the example credentials itself.
       - name: Run the TypeScript suite with no container
         working-directory: beta/extenddb-local-testing/harness/typescript
         run: |
