@@ -12,7 +12,8 @@ on:
       - 'beta/extenddb-local-testing/**'
       - '.github/workflows/extenddb-local-testing.yml'
   schedule:
-    # ExtendDB is pre-1.0. A monthly run shows a breaking release in CI first.
+    # Monthly. The pinned jobs catch drift in the runner and toolchains, and the
+    # canary jobs below run the suite against the newest ExtendDB release.
     - cron: '0 6 1 * *'
   workflow_dispatch:
 
@@ -132,4 +133,107 @@ jobs:
         working-directory: beta/extenddb-local-testing/harness/typescript
         run: |
           npm ci
+          npm test
+
+  # Repository maintenance, not part of the template. On the monthly schedule and
+  # on manual dispatch, these jobs run the same suite against the newest ExtendDB
+  # release instead of the pinned 0.1.14. A failure here means a new release broke
+  # the templates. Copy the jobs above, not these.
+  canary-container:
+    name: "canary container: ${{ matrix.language }}"
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [typescript, python, java]
+
+    services:
+      dynamodb:
+        image: extenddb/extenddb-dev:latest
+        ports:
+          - 18080:18080
+        env:
+          EXTENDDB__STORAGE__SQLITE__PATH: ":memory:"
+
+    env:
+      DDB_ENDPOINT: http://localhost:18080
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: AKIAIOSFODNN7EXAMPLE
+      AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Show the ExtendDB version under test
+        run: |
+          docker image inspect extenddb/extenddb-dev:latest \
+            --format 'extenddb/extenddb-dev:latest is version {{index .Config.Labels "org.opencontainers.image.version"}} ({{index .RepoDigests 0}})'
+
+      - name: Set up Node 22
+        if: matrix.language == 'typescript'
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: beta/extenddb-local-testing/harness/typescript/package-lock.json
+
+      - name: Run the TypeScript suite
+        if: matrix.language == 'typescript'
+        working-directory: beta/extenddb-local-testing/harness/typescript
+        run: |
+          npm ci
+          npm test
+
+      - name: Set up Python 3.11
+        if: matrix.language == 'python'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Run the Python suite
+        if: matrix.language == 'python'
+        working-directory: beta/extenddb-local-testing/harness/python
+        run: |
+          pip install -r requirements.txt
+          python -m pytest -v
+
+      - name: Set up JDK 17
+        if: matrix.language == 'java'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Run the Java suite
+        if: matrix.language == 'java'
+        working-directory: beta/extenddb-local-testing/harness/java
+        run: mvn -B -ntp test
+
+  canary-launcher:
+    name: "canary launcher: typescript"
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: beta/extenddb-local-testing/harness/typescript/package-lock.json
+
+      # Installs the newest @extenddb/dev over the lockfile's version for this run
+      # only. Nothing is committed.
+      - name: Run the TypeScript suite with the newest @extenddb/dev
+        working-directory: beta/extenddb-local-testing/harness/typescript
+        run: |
+          npm ci
+          npm install --no-save @extenddb/dev@latest
+          echo "@extenddb/dev under test: $(node -p 'require("@extenddb/dev/package.json").version')"
           npm test
