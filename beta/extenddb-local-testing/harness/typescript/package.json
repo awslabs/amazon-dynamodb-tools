@@ -1,0 +1,17 @@
+{
+  "name": "extenddb-local-testing-typescript",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:container": "DDB_ENDPOINT=${DDB_ENDPOINT:-http://127.0.0.1:18080} vitest run"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "3.1169.0",
+    "@extenddb/dev": "0.1.14",
+    "vitest": "5.1.0"
+  }
+}

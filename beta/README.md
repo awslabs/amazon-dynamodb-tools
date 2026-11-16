@@ -4,7 +4,9 @@ This directory is reserved for educational tutorials, experimental tools, and pr
 
 ## Current Status
 
-This directory is currently empty. Future content may include:
+- [`extenddb-local-testing/`](extenddb-local-testing/): CI templates and test harnesses for running DynamoDB tests against ExtendDB instead of DynamoDB Local, on GitHub Actions or GitLab CI.
+
+Future content may include:
 - Educational tutorials and learning resources
 - Experimental tools and prototypes
 - Proof-of-concept implementations
