@@ -136,6 +136,9 @@ Here are some example use cases:
 ./bulk copy --source source --target target
 ./bulk copy --source arn:aws:dynamodb:us-east-1:123456789012:table/source --target arn:aws:dynamodb:us-west-2:987654321098:table/target
 
+# Copy while transforming items in flight (filter, reshape, redact, fan-out)
+./bulk copy --source source --target target --transform pii_redact
+
 # Load a DynamoDB export into an existing DynamoDB table
 ./bulk load-export --table target --s3-path "s3://<bucket-name>/prefix/AWSDynamoDB/01716790307109-5f9d6aaa" [--transform example]
 
@@ -573,6 +576,16 @@ If diffing cross-account, the table in the other account needs a resource-based 
 * Performs a copy from one table to another using a parallel tight scan/write loops (doesn't bring full table into memory).
 * Requires `source` and `target` parameters
 * Parameters can be table names or table ARNs. Using ARNs allows cross-account / cross-region access.
+* Accepts an optional `--transform` parameter to specify a Python module (from `server/src/python_modules/copy/transform/`) containing a `transform_item(item)` function, the same convention `load-export` and `revert-export` use. It receives each deserialized item and returns a **list** (matching the export verbs' contract):
+  * `[item]` — the copy proceeds as a PUT of that item, modified or not. A bare item is accepted and wrapped for convenience, but `None` is not a skip signal.
+  * `[]` — the item is skipped (not written to the target table). The count is reported at the end as "Items excluded by transform".
+  * `[item_a, item_b, ...]` — fan-out: each item in the list is written to the target table.
+  * See `default.py`, `pii_redact.py` and `attribute_filter.py` in `copy/transform/` for examples.
+* Notes when `--transform` is used:
+  * A bad `--transform` name fails immediately on the driver, before the Glue job starts scanning.
+  * The up-front cost estimate assumes a 1:1 source-to-target copy, so it no longer holds once a transform can drop or fan out rows.
+  * An item that loses its partition/sort key in the transform is dropped and reported, rather than failing the batch write mid-segment.
+  * With fan-out, two emitted items that share a key in the same 25-item `batch_writer` flush will fail that `BatchWriteItem` ("Provided list of item keys contains duplicates"); keep fanned-out keys distinct.
 
 If doing cross-account, you need a resource-based policy to enable access. The following example RBP allows access from two specific roles the 123456789012 account. The `role/ClientSide` is whatever role you have for the command-line Python program (so the client-side can describe the table and estimate costs). The `role/AWSGlueServiceRoleBulkDynamoDB-DdbReadWrite-us-east-1` is whatever role you have attached to the Glue job (so the `copy` can be performed).
 

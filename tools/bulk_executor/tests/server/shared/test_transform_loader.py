@@ -1,6 +1,6 @@
 """Unit tests for transform_loader.load_transform_module."""
 import pytest
-from python_modules.shared.export.pipeline.transform_loader import load_transform_module
+from python_modules.shared.transform_loader import load_transform_module
 
 
 class TestTransformLoader:
