@@ -14,6 +14,7 @@ from ..logging import get_logger
 from ..aws.pricing_collector import PricingCollector
 from ..database import lake
 from ..pricing import get_region_pricing
+from ._series import table_level_sum_series
 
 logger = get_logger(__name__)
 
@@ -452,12 +453,8 @@ class UtilizationAnalyzer:
         df = df.sort_values("timestamp")
         df = df[df["resource_name"] == resource_name]
 
-        read_df = df[
-            (df["metric_name"] == "ConsumedReadCapacityUnits") & (df["statistic"] == "Sum")
-        ]
-        write_df = df[
-            (df["metric_name"] == "ConsumedWriteCapacityUnits") & (df["statistic"] == "Sum")
-        ]
+        read_df = table_level_sum_series(df, "ConsumedReadCapacityUnits")
+        write_df = table_level_sum_series(df, "ConsumedWriteCapacityUnits")
 
         # Sum -> per-second rate: divide by each row's ACTUAL period_seconds, not a
         # hardcoded 60. The lake stores mixed 60s and 300s rows; assuming 60 makes
