@@ -20,6 +20,11 @@
 #
 # The image has its own HEALTHCHECK. Leave any shell-form health command off the
 # service, because the image is distroless and has no shell to run one.
+#
+# ExtendDB 1.0.0 keeps its keys in locked memory. On a host where memfd_secret is
+# available and the memlock limit is under about 2 MB, the service can exit with
+# code 135 right after its startup banner. When verified on GitLab CI, the
+# service started with key_store=locked and no warning.
 
 variables:
   DDB_ENDPOINT: "http://dynamodb:18080"
@@ -33,7 +38,7 @@ variables:
 
 .extenddb:
   services:
-    - name: extenddb/extenddb-dev:0.1.14
+    - name: extenddb/extenddb-dev:1.0.0
       alias: dynamodb
   before_script:
     # Wait up to about 3 minutes (60 tries, each a 2 s curl timeout plus a 1 s
