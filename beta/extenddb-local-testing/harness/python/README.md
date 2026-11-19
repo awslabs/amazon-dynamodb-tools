@@ -15,7 +15,7 @@ pip install -r requirements.txt
 
 ### Self-started container
 
-With no `DDB_ENDPOINT`, `conftest.py` starts `extenddb/extenddb-dev:0.1.14` on a free local port with `docker`, or with `podman` if `docker` is not installed. It waits until the server answers and removes the container at the end of the session. If neither runtime is installed, the run fails with a message instead of skipping.
+With no `DDB_ENDPOINT`, `conftest.py` starts `extenddb/extenddb-dev:1.0.0` on a free local port with `docker`, or with `podman` if `docker` is not installed. It waits until the server answers and removes the container at the end of the session. If neither runtime is installed, the run fails with a message instead of skipping.
 
 ```bash
 python -m pytest -v
@@ -30,14 +30,14 @@ Set `DDB_ENDPOINT` and the harness uses it instead of starting a container. It w
 ```bash
 podman rm -f edb >/dev/null 2>&1
 podman run -d --name edb -p 127.0.0.1:18080:18080 \
-  -e EXTENDDB__STORAGE__SQLITE__PATH=:memory: extenddb/extenddb-dev:0.1.14
+  -e EXTENDDB__STORAGE__SQLITE__PATH=:memory: extenddb/extenddb-dev:1.0.0
 DDB_ENDPOINT=http://127.0.0.1:18080 python -m pytest -v
 podman rm -f edb
 ```
 
 ## Credentials
 
-ExtendDB verifies each request's SigV4 signature, so the harness has to sign with a pair the server seeds. The server always seeds the example pair `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+ExtendDB verifies each request's SigV4 signature, so the harness has to sign with a pair the server seeds. By default the server seeds the example pair `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
 
 - The harness uses `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` if both are set, and otherwise the example pair. That holds on every path, including a container the harness starts itself.
 - Real AWS credentials left in your shell are rejected. The run stops at once with a message that names the error (`UnrecognizedClientException` for an unknown key id). Unset them, or export the example pair.

@@ -18,7 +18,7 @@ from botocore.config import Config
 from botocore.exceptions import ClientError, HTTPClientError
 from botocore.exceptions import ConnectionError as BotoConnectionError
 
-IMAGE = "extenddb/extenddb-dev:0.1.14"
+IMAGE = "extenddb/extenddb-dev:1.0.0"
 # AWS's published example credentials. They are public and safe to commit.
 EXAMPLE_KEY_ID = "AKIAIOSFODNN7EXAMPLE"
 EXAMPLE_SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
