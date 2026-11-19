@@ -16,6 +16,7 @@ from ..logging import get_logger
 from ..aws.pricing_collector import PricingCollector
 from ..database import lake
 from .autoscaling_sim import AutoscalingSimulator, MetricDataPoint
+from ._series import table_level_sum_series
 from ..pricing import MissingPricingError, get_region_pricing
 
 # Prices this analyzer uses (Standard and Standard-IA throughput)
@@ -244,16 +245,12 @@ class CapacityModeAnalyzer:
         # and are not read here, matching the old query's implicit scope via resource_name = table_name).
         df = df[df["resource_name"] == table_name]
 
-        read_df = df[
-            (df["metric_name"] == "ConsumedReadCapacityUnits") & (df["statistic"] == "Sum")
-        ]
-        write_df = df[
-            (df["metric_name"] == "ConsumedWriteCapacityUnits") & (df["statistic"] == "Sum")
-        ]
+        read_df = table_level_sum_series(df, "ConsumedReadCapacityUnits")
+        write_df = table_level_sum_series(df, "ConsumedWriteCapacityUnits")
 
         # Sum -> per-second rate: divide by the row's ACTUAL period_seconds, not a
-        # hardcoded 60. The lake stores mixed 60s (1-min) and 300s (5-min) rows;
-        # assuming 60 makes 5-min data read 5x too high.
+        # hardcoded 60. table_level_sum_series keeps one period, so the rows are
+        # one series; 300s-only data still reads right.
         read_metrics = [
             MetricDataPoint(
                 metric_name="ConsumedReadCapacityUnits",
