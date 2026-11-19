@@ -32,7 +32,7 @@ import software.amazon.awssdk.services.dynamodb.model.ScalarAttributeType;
  */
 public final class ExtendDbSupport {
 
-  private static final String IMAGE = "extenddb/extenddb-dev:0.1.14";
+  private static final String IMAGE = "extenddb/extenddb-dev:1.0.0";
   private static final String EXAMPLE_KEY_ID = "AKIAIOSFODNN7EXAMPLE";
   private static final String EXAMPLE_SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
   private static final int CONTAINER_PORT = 18080;
@@ -52,12 +52,13 @@ public final class ExtendDbSupport {
       endpoint = supplied;
       return endpoint;
     }
-    // Wait on the image's own HEALTHCHECK. The image is distroless and has no
-    // shell, so a custom health command could not run.
+    // Wait for ExtendDB's /health endpoint to answer 200. Since 1.0.0 the image
+    // is in OCI format, and some runtimes (podman) ignore its HEALTHCHECK, so
+    // waiting on HTTP works everywhere. The image has no shell for a custom check.
     container = new GenericContainer<>(IMAGE)
         .withExposedPorts(CONTAINER_PORT)
         .withEnv("EXTENDDB__STORAGE__SQLITE__PATH", ":memory:")
-        .waitingFor(Wait.forHealthcheck().withStartupTimeout(Duration.ofSeconds(60)));
+        .waitingFor(Wait.forHttp("/health").forPort(18080).forStatusCode(200).withStartupTimeout(Duration.ofSeconds(60)));
     // Register the stop hook before start() so a failed start still cleans up.
     // Testcontainers' Ryuk also cleans up, unless TESTCONTAINERS_RYUK_DISABLED=true.
     GenericContainer<?> started = container;

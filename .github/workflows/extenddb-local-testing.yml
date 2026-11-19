@@ -35,7 +35,7 @@ jobs:
     # because the image is distroless and has no shell to run one.
     services:
       dynamodb:
-        image: extenddb/extenddb-dev:0.1.14
+        image: extenddb/extenddb-dev:1.0.0
         ports:
           - 18080:18080
         env:
@@ -137,7 +137,7 @@ jobs:
 
   # Repository maintenance, not part of the template. On the monthly schedule and
   # on manual dispatch, these jobs run the same suite against the newest ExtendDB
-  # release instead of the pinned 0.1.14. A failure here means a new release broke
+  # release instead of the pinned 1.0.0. A failure here means a new release broke
   # the templates. Copy the jobs above, not these.
   canary-container:
     name: "canary container: ${{ matrix.language }}"

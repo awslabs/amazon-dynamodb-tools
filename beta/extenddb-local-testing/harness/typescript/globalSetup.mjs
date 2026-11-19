@@ -20,8 +20,8 @@ export default async function setup({ provide }) {
     provide("ddb", {
       endpoint: process.env.DDB_ENDPOINT,
       ...pair,
-      // The SDK needs a region to sign with. ExtendDB 0.1.14 does not check it,
-      // but real DynamoDB does.
+      // The SDK needs a region to sign with. ExtendDB, like real DynamoDB,
+      // rejects a request signed for a region other than its own (us-east-1).
       region: process.env.AWS_REGION ?? "us-east-1",
     });
     return;
