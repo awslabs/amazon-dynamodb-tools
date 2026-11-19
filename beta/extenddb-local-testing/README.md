@@ -6,13 +6,13 @@ ExtendDB is a server that speaks the DynamoDB wire protocol. Your SDK calls stay
 
 ## Size and startup compared with DynamoDB Local
 
-Measured with ExtendDB 0.1.14 against `amazon/dynamodb-local:latest`, on an arm64 laptop:
+Measured with ExtendDB 1.0.0 against `amazon/dynamodb-local:latest`, on an arm64 laptop:
 
 | | ExtendDB | DynamoDB Local |
 |---|---|---|
-| image | 55.4 MB | 571 MB |
-| idle memory | 5.9 MB | 174.5 MB |
-| container ready (first `list-tables` answered) | 536 ms | 803 ms |
+| image | 72.2 MB | 571 MB |
+| idle memory | 6.2 MB | 174.5 MB |
+| container ready (first `list-tables` answered) | 518 ms | 803 ms |
 | runtime | no JVM needed | JVM |
 
 The readiness times include AWS CLI startup on each poll, so they measure the time until a real client call succeeds.
@@ -42,7 +42,7 @@ With ExtendDB:
 ```yaml
 services:
   dynamodb:
-    image: extenddb/extenddb-dev:0.1.14
+    image: extenddb/extenddb-dev:1.0.0
     ports:
       - 18080:18080
     env:
@@ -54,7 +54,7 @@ env:
   AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 ```
 
-The image has its own HEALTHCHECK, and GitHub Actions waits for it before the first step runs. The check runs every 10 s, and the measured wait was about 9 s. Leave `--health-cmd` unset. The image is distroless and has no shell, so a shell-form health command always fails and the container never reports healthy.
+The image has its own HEALTHCHECK, and GitHub Actions waits for it before the first step runs. The check runs every 10 s, and the measured wait was about 9 s. Leave `--health-cmd` unset. The image is distroless and has no shell, so a shell-form health command always fails and the container never reports healthy. Podman does not read the HEALTHCHECK of the 1.0.0 image, so on a laptop with Podman, wait on `/health` instead, as the script under "Turning off the simulated delays" does.
 
 ### GitLab CI
 
@@ -87,6 +87,8 @@ test:
 ```
 
 `.extenddb` adds the ExtendDB service under the alias `dynamodb` and a `before_script:` that waits for it. The top-level variables set `DDB_ENDPOINT` to `http://dynamodb:18080` and supply the example credentials. GitLab CI does not wait for the image's HEALTHCHECK, so the wait loop is needed. The template's header lists two pitfalls when you adapt it. A job-level `before_script:` or `services:` replaces the inherited one.
+
+ExtendDB 1.0.0 keeps its keys in locked memory. On a host where `memfd_secret` is available and the memlock limit is under about 2 MB, the service can exit with code 135 right after its startup banner. When verified on GitLab CI, the service started with `key_store=locked` and no warning.
 
 ### How your application finds the endpoint
 
@@ -158,9 +160,9 @@ DynamoDB Local accepts any credentials. ExtendDB verifies the signature.
 
 - A known access key with the wrong secret gives `InvalidSignatureException`.
 - An unknown access key id gives `UnrecognizedClientException`.
-- ExtendDB 0.1.14 does not check the region a request is signed for. The suite passes with `AWS_REGION=eu-west-1`. Real DynamoDB does check it, so keep your region consistent if you also run against the real service.
+- A request signed for a Region other than the server's (`us-east-1`) gives `InvalidSignatureException` ("Credential should be scoped to a valid region."), as on real DynamoDB. Keep `AWS_REGION` and `AWS_DEFAULT_REGION` at `us-east-1`.
 
-The server always seeds AWS's published example pair (`AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`), so sign with that pair in CI. On your own machine, unset real `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in your shell, or export the example pair. Each harness README says how that harness picks its credentials and region.
+The dev image seeds AWS's published example pair (`AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`) by default, so sign with that pair in CI. On a shared runner you can remove it with `EXTENDDB_DEV_DISABLE_EXAMPLE_CREDENTIAL=1` and supply your own pair through `EXTENDDB_DEV_ACCESS_KEY_ID` and `EXTENDDB_DEV_SECRET_ACCESS_KEY`. The harnesses sign with the example pair, so they need it. On your own machine, unset real `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in your shell, or export the example pair. Each harness README says how that harness picks its credentials and region.
 
 ## Turning off the simulated delays
 
@@ -173,10 +175,10 @@ To change the settings on a container you started yourself, call the management 
 ```bash
 podman rm -f edb >/dev/null 2>&1
 podman run -d --name edb -p 127.0.0.1:18080:18080 \
-  -e EXTENDDB__STORAGE__SQLITE__PATH=:memory: extenddb/extenddb-dev:0.1.14
+  -e EXTENDDB__STORAGE__SQLITE__PATH=:memory: extenddb/extenddb-dev:1.0.0
 ok=
 for i in $(seq 60); do
-  [ "$(podman inspect -f '{{.State.Health.Status}}' edb 2>/dev/null)" = healthy ] && ok=1 && break
+  [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/health)" = 200 ] && ok=1 && break
   sleep 0.5
 done
 PW=$(podman logs edb 2>&1 | awk '/Password:/ {print $2}' | head -1)
@@ -184,7 +186,7 @@ if [ -n "$ok" ] && [ -n "$PW" ]; then
   curl -fsS -u "admin:$PW" -X PUT -H 'Content-Type: application/json' -d '{"value":"0"}' http://127.0.0.1:18080/management/settings/control_plane_delay_seconds
   curl -fsS -u "admin:$PW" -X PUT -H 'Content-Type: application/json' -d '{"value":"0"}' http://127.0.0.1:18080/management/settings/index_propagation_delay_ms
 else
-  echo "ExtendDB did not become healthy, or no admin password was found. Check 'podman logs edb'." >&2
+  echo "ExtendDB did not answer on /health, or no admin password was found. Check 'podman logs edb'." >&2
 fi
 ```
 
@@ -237,15 +239,15 @@ mvn -B -ntp test
 
 ## Scope
 
-- Classic DynamoDB API only. PartiQL is not covered.
+- Classic DynamoDB API only. ExtendDB implements PartiQL, but these harnesses do not exercise it.
 - A standalone binary download for Python and Java is a possible future option. It is not offered today because it would depend on undocumented package internals.
-- Pinned to ExtendDB 0.1.14. Once a month, and on manual dispatch, the repository's own workflow also runs the suite against the newest ExtendDB release (`extenddb/extenddb-dev:latest` and `@extenddb/dev@latest`). A failure there means a new release broke the templates. That canary is repository maintenance and not part of the template you copy.
+- Pinned to ExtendDB 1.0.0. Once a month, and on manual dispatch, the repository's own workflow also runs the suite against the newest ExtendDB release (`extenddb/extenddb-dev:latest` and `@extenddb/dev@latest`). A failure there means a new release broke the templates. That canary is repository maintenance and not part of the template you copy.
 
 To bump the version, change the image tag everywhere this search finds it, including this README. Then update the npm launcher, which also rewrites the lockfile.
 
 ```bash
 NEW_VERSION=x.y.z
-grep -rnI --exclude-dir=node_modules --exclude-dir=target 'extenddb-dev:0\.1\.14' beta/extenddb-local-testing .github/workflows/extenddb-local-testing.yml
+grep -rnI --exclude-dir=node_modules --exclude-dir=target 'extenddb-dev:1\.0\.0' beta/extenddb-local-testing .github/workflows/extenddb-local-testing.yml
 cd beta/extenddb-local-testing/harness/typescript
 npm install --save-exact --save-dev "@extenddb/dev@$NEW_VERSION"
 ```
