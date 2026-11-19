@@ -537,3 +537,50 @@ def test_get_database_manager_concurrent_init_no_race(tmp_path, monkeypatch):
     for t in threads: t.join()
     assert errs == [], f"concurrent init raced: {errs[:2]}"
     assert conn._db_manager is not None
+
+
+def test_latest_timestamps_keeps_operations_apart(tmp_path, monkeypatch):
+    """Operations of one metric are separate series (see _DEDUP_KEY), so each one
+    needs its own latest timestamp. If GetItem is current and Scan is a day behind,
+    the coverage must show the Scan gap."""
+    lake = _lake(tmp_path, monkeypatch)
+    scan_t = datetime(2026, 6, 1, 0, 0, tzinfo=timezone.utc)
+    get_t = datetime(2026, 6, 2, 0, 0, tzinfo=timezone.utc)
+    lake.write_metrics([
+        _op_row("GetItem", 1.0, get_t),
+        _op_row("Scan", 2.0, scan_t),
+    ], run_id="r1")
+    cov = lake.latest_timestamps("a", "us-east-1", "t")
+    assert cov == {
+        "SuccessfulRequestLatency:Average:300:GetItem:": get_t,
+        "SuccessfulRequestLatency:Average:300:Scan:": scan_t,
+    }
+    assert min(cov.values()) == scan_t
+
+
+def test_latest_timestamps_keeps_operation_types_apart(tmp_path, monkeypatch):
+    lake = _lake(tmp_path, monkeypatch)
+    put_t = datetime(2026, 6, 2, 0, 0, tzinfo=timezone.utc)
+    delete_t = datetime(2026, 6, 1, 0, 0, tzinfo=timezone.utc)
+    lake.write_metrics([
+        _op_row("BatchWriteItem", 1.0, put_t, operation_type="Put"),
+        _op_row("BatchWriteItem", 2.0, delete_t, operation_type="Delete"),
+    ], run_id="r1")
+    cov = lake.latest_timestamps("a", "us-east-1", "t")
+    assert cov == {
+        "SuccessfulRequestLatency:Average:300:BatchWriteItem:Put": put_t,
+        "SuccessfulRequestLatency:Average:300:BatchWriteItem:Delete": delete_t,
+    }
+
+
+def test_latest_timestamps_table_level_key_has_no_operation_suffix(tmp_path, monkeypatch):
+    """Table-level rows (NULL operation) next to per-operation rows keep the plain key."""
+    lake = _lake(tmp_path, monkeypatch)
+    t1 = datetime(2026, 6, 1, 0, 0, tzinfo=timezone.utc)
+    t2 = datetime(2026, 6, 2, 0, 0, tzinfo=timezone.utc)
+    lake.write_metrics([_table_row(5.0, t1), _op_row("GetItem", 1.0, t2)], run_id="r1")
+    cov = lake.latest_timestamps("a", "us-east-1", "t")
+    assert cov == {
+        "SuccessfulRequestLatency:Average:300": t1,
+        "SuccessfulRequestLatency:Average:300:GetItem:": t2,
+    }
