@@ -257,11 +257,18 @@ def compact_pending(partitions: list[tuple] | None = None) -> None:
 
 
 def latest_timestamps(account_id: str, region: str, table_name: str) -> dict:
-    """Return {"metric:statistic:period": max_timestamp} for gap-detection.
+    """Return {"metric:statistic:period[:operation:operation_type]": max_timestamp}
+    for gap-detection.
+
+    A series is identified like _DEDUP_KEY: metric, statistic, period, operation and
+    operation_type. The operation suffix is left off when both are NULL (table-level
+    rows), so those keys keep the form "metric:statistic:period".
 
     Empty dict if no data (caller collects the full window). Timezone-aware UTC.
     """
     import glob as _glob_mod
+
+    import pandas as pd
 
     globs = _read_globs(account_id, region, table_name)
     existing = [g for g in globs if _glob_mod.glob(g)]
@@ -280,10 +287,11 @@ def latest_timestamps(account_id: str, region: str, table_name: str) -> dict:
         # its own tz-aware conversion in .df() without that dependency.
         df = conn.execute(
             f"""
-            SELECT metric_name, statistic, period_seconds,
-                   MAX(timestamp) AS latest
+            SELECT metric_name, statistic, period_seconds, operation,
+                   operation_type, MAX(timestamp) AS latest
             FROM read_parquet([{files_sql}], union_by_name=true)
-            GROUP BY metric_name, statistic, period_seconds
+            GROUP BY metric_name, statistic, period_seconds, operation,
+                     operation_type
             """
         ).df()
 
@@ -296,5 +304,10 @@ def latest_timestamps(account_id: str, region: str, table_name: str) -> dict:
             latest = latest.replace(tzinfo=timezone.utc)
         else:
             latest = latest.astimezone(timezone.utc) if latest is not None else None
-        coverage[f"{row.metric_name}:{row.statistic}:{row.period_seconds}"] = latest
+        key = f"{row.metric_name}:{row.statistic}:{row.period_seconds}"
+        operation = None if pd.isna(row.operation) else row.operation
+        operation_type = None if pd.isna(row.operation_type) else row.operation_type
+        if operation is not None or operation_type is not None:
+            key += f":{operation or ''}:{operation_type or ''}"
+        coverage[key] = latest
     return coverage
