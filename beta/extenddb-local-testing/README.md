@@ -54,7 +54,7 @@ env:
   AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 ```
 
-The image has its own HEALTHCHECK, and GitHub Actions waits for it before the first step runs. The check runs every 10 s, and the measured wait was about 9 s. Leave `--health-cmd` unset. The image is distroless and has no shell, so a shell-form health command always fails and the container never reports healthy. Podman does not read the HEALTHCHECK of the 1.0.0 image, so on a laptop with Podman, wait on `/health` instead, as the script under "Turning off the simulated delays" does.
+The image has its own HEALTHCHECK, and GitHub Actions waits for it before the first step runs. The check runs every 10 s. With 1.0.0 the runner reported the service healthy about 6 s after it started. Leave `--health-cmd` unset. The image is distroless and has no shell, so a shell-form health command always fails and the container never reports healthy. Podman does not read the HEALTHCHECK of the 1.0.0 image, so on a laptop with Podman, wait on `/health` instead, as the script under "Turning off the simulated delays" does.
 
 ### GitLab CI
 
