@@ -519,6 +519,87 @@ class TestDiffSegment:
 
     @patch.object(diff_module, 'RateLimiterWorker')
     @patch.object(diff_module, 'SegmentStream')
+    def test_each_table_worker_uses_its_own_rate_limiter_config(self, mock_stream_cls, mock_rl):
+        """Table A's worker reports under config A and table B's under config B (issue #287).
+
+        With one shared config the aggregator adds both tables' reads together and
+        holds them to a single limit.
+        """
+        mock_rl_instance = MagicMock()
+        mock_rl_instance.get_session.return_value = MagicMock()
+        mock_rl.return_value = mock_rl_instance
+
+        item = {'pk': {'S': 'a'}, 'val': {'N': '1'}}
+        items = [item]
+        idx_a = [0]
+        idx_b = [0]
+
+        def make_stream(idx):
+            stream = MagicMock()
+            stream.head = lambda: items[idx[0]] if idx[0] < len(items) else None
+            stream.head_pk = lambda: 'a' if idx[0] < len(items) else None
+            stream.head_sk = lambda: None
+            stream.has_sort_key = False
+            stream.is_finished = lambda: idx[0] >= len(items)
+            stream.advance = lambda: idx.__setitem__(0, idx[0] + 1)
+            stream.pk = 'pk'
+            stream.sk = None
+            return stream
+
+        mock_stream_cls.side_effect = [make_stream(idx_a), make_stream(idx_b)]
+
+        config_a = MagicMock(name='config_a')
+        config_b = MagicMock(name='config_b')
+        diff_module.diff_segment(
+            'table1', 'table2',
+            self._make_monitor_options(), self._make_monitor_options(),
+            0, 1, False, True, 'job1', None,
+            self._make_schema_broadcast(), config_a, _FakeAccumulator(), config_b
+        )
+
+        configs_used = [c.kwargs['shared_config'] for c in mock_rl.call_args_list]
+        assert configs_used == [config_a, config_b]
+
+    @patch.object(diff_module, 'RateLimiterWorker')
+    @patch.object(diff_module, 'SegmentStream')
+    def test_both_workers_share_one_config_when_no_second_config_given(self, mock_stream_cls, mock_rl):
+        """Callers that pass a single rate limiter config keep the old shared limit."""
+        mock_rl_instance = MagicMock()
+        mock_rl_instance.get_session.return_value = MagicMock()
+        mock_rl.return_value = mock_rl_instance
+
+        item = {'pk': {'S': 'a'}, 'val': {'N': '1'}}
+        items = [item]
+        idx_a = [0]
+        idx_b = [0]
+
+        def make_stream(idx):
+            stream = MagicMock()
+            stream.head = lambda: items[idx[0]] if idx[0] < len(items) else None
+            stream.head_pk = lambda: 'a' if idx[0] < len(items) else None
+            stream.head_sk = lambda: None
+            stream.has_sort_key = False
+            stream.is_finished = lambda: idx[0] >= len(items)
+            stream.advance = lambda: idx.__setitem__(0, idx[0] + 1)
+            stream.pk = 'pk'
+            stream.sk = None
+            return stream
+
+        mock_stream_cls.side_effect = [make_stream(idx_a), make_stream(idx_b)]
+
+        config = MagicMock(name='config')
+        diff_module.diff_segment(
+            'table1', 'table2',
+            self._make_monitor_options(), self._make_monitor_options(),
+            0, 1, False, True, 'job1', None,
+            self._make_schema_broadcast(), config, _FakeAccumulator()
+        )
+
+        configs_used = [c.kwargs['shared_config'] for c in mock_rl.call_args_list]
+        assert configs_used == [config, config]
+
+    @patch.object(diff_module, 'RateLimiterWorker')
+    @patch.object(diff_module, 'SegmentStream')
     def test_item_in_a_not_in_b_reported_as_minus(self, mock_stream_cls, mock_rl):
         """Item in stream_a but not stream_b appears as '-'."""
         mock_rl_instance = MagicMock()
@@ -1226,7 +1307,32 @@ class TestRun:
         rdd.map.return_value.collect.return_value = [(0, [])]
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), args)
-        agg.shutdown.assert_called_once()
+        # One aggregator per table, so two shutdowns.
+        assert agg.shutdown.call_count == 2
+
+    def test_run_gives_each_table_its_own_rate_limit_scope(self, monkeypatch):
+        """Each table gets its own S3 prefix, so each is limited on its own (issue #287)."""
+        self._setup_run_mocks(monkeypatch)
+        args = self._base_args()
+
+        config_cls = MagicMock(side_effect=lambda **kwargs: MagicMock(scope=kwargs.get('scope')))
+        monkeypatch.setattr(diff_module, 'RateLimiterSharedConfig', config_cls)
+        agg_cls = MagicMock()
+        monkeypatch.setattr(diff_module, 'RateLimiterAggregator', agg_cls)
+
+        spark_context = MagicMock()
+        spark_context.accumulator = MagicMock(side_effect=lambda init, *_: MagicMock(value=init))
+        rdd = MagicMock()
+        spark_context.parallelize.return_value = rdd
+        rdd.map.return_value.collect.return_value = [(0, [])]
+
+        diff_module.run(MagicMock(), spark_context, MagicMock(), args)
+
+        scopes = [c.kwargs['scope'] for c in config_cls.call_args_list]
+        assert scopes == ['table1', 'table2']
+        # One aggregator per scope, each reading only its own table's reports.
+        aggregator_scopes = [c.kwargs['shared_config'].scope for c in agg_cls.call_args_list]
+        assert aggregator_scopes == ['table1', 'table2']
 
     def test_rate_limiter_aggregator_shutdown_on_failure(self, monkeypatch):
         self._setup_run_mocks(monkeypatch)
@@ -1245,7 +1351,8 @@ class TestRun:
 
         with pytest.raises(Exception):
             diff_module.run(MagicMock(), spark_context, MagicMock(), args)
-        agg.shutdown.assert_called_once()
+        # One aggregator per table, so two shutdowns.
+        assert agg.shutdown.call_count == 2
 
     def test_schema_broadcast_created(self, monkeypatch):
         client_mock = self._setup_run_mocks(monkeypatch)
@@ -2155,8 +2262,10 @@ class TestCrossRegionDiff:
 
         diff_module.run(MagicMock(), spark_context, MagicMock(), self._run_args())
 
-        agg_cls.assert_called_once()
-        assert 'region_name' not in agg_cls.call_args.kwargs
+        # One aggregator per table.
+        assert agg_cls.call_count == 2
+        for aggregator_call in agg_cls.call_args_list:
+            assert 'region_name' not in aggregator_call.kwargs
 
 
 class TestDriverRaisesBulkExecutorError:
